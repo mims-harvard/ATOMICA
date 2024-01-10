@@ -141,7 +141,7 @@ python scripts/data_process/process_PDBbind_NL.py \
 
 ## Training
 
-## Ligand Binding Affinity (LBA)
+### Ligand Binding Affinity (LBA)
 These hyperparameters can be varied, they are not final
 ```bash
 python train.py --gpu 0 --task PLA --lr 1e-3 --final_lr 1e-6 --max_epoch 200 --save_topk 3 --max_n_vertex_per_gpu 1000 --shuffle --model_type InteractNN --hidden_size 32 --n_layers 6\
@@ -152,7 +152,7 @@ python train.py --gpu 0 --task PLA --lr 1e-3 --final_lr 1e-6 --max_epoch 200 --s
  --seed 2023 --run_name testing --hierarchical --use_wandb
 ```
 
-## Protein-Protein Affinity (PPA)
+### Protein-Protein Affinity (PPA)
 These hyperparameters can be varied, they are not final
 ```bash
 python train.py --gpu 0 --task PPA --lr 0.0001 --final_lr 0.0001 --max_epoch 200 --save_topk 3 --max_n_vertex_per_gpu 1000 --shuffle --model_type InteractNN --hidden_size 32 --n_layers 6\
@@ -164,7 +164,7 @@ python train.py --gpu 0 --task PPA --lr 0.0001 --final_lr 0.0001 --max_epoch 200
 ```
 
 ## Evaluation
-## Ligand Binding Affinity (LBA)
+### Ligand Binding Affinity (LBA)
 Find saved location of the model and best epoch by looking at `$SAVE_DIR/version_$X/checkpoint/topk_map.txt`
 ```bash
 SAVE_DIR="see training command"
@@ -178,7 +178,7 @@ python inference.py --test_set ./datasets/LBA/split-by-sequence-identity-30/data
 python evaluate.py --task PLA --predictions $SAVE_DIR/version_$X/results_$EPOCH.jsonl
 ```
 
-## Protein-Protein Affinity (PPA)
+### Protein-Protein Affinity (PPA)
 Find saved location of the model and best epoch by looking at `$SAVE_DIR/version_$X/checkpoint/topk_map.txt`
 ```bash
 SAVE_DIR="see training command"
