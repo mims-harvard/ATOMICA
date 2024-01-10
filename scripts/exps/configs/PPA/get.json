@@ -1,0 +1,17 @@
+{
+  "task": "PPA",
+  "lr": 1e-4,
+  "final_lr": 1e-4,
+  "max_epoch": 20,
+  "save_topk": 3,
+  "max_n_vertex_per_gpu": 1500,
+  "shuffle": true,
+  "model_type": "GET",
+  "hidden_size": 128,
+  "radial_size": 16,
+  "n_channel": 1,
+  "n_rbf": 16,
+  "n_layers": 3,
+  "n_head": 4,
+  "k_neighbors": 9
+}

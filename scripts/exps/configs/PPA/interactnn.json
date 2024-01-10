@@ -1,0 +1,19 @@
+{
+    "task": "PPA",
+    "lr": 1e-4,
+    "final_lr": 1e-4,
+    "max_epoch": 50,
+    "save_topk": 1,
+    "max_n_vertex_per_gpu": 1000,
+    "shuffle": true,
+    "model_type": "InteractNN",
+    "hidden_size": 32,
+    "radial_size": 32,
+    "n_channel": 1,
+    "n_rbf": 32,
+    "n_layers": 6,
+    "n_head": 4,
+    "k_neighbors": 9,
+    "hierarchical": true
+  }
+  

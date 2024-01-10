@@ -1,0 +1,23 @@
+{
+  "train_set": "./datasets/LEP/split-by-protein/data/train",
+  "valid_set": "./datasets/LEP/split-by-protein/data/val",
+  "test_set": "./datasets/LEP/split-by-protein/data/test",
+  "save_dir": "./datasets/LEP/split-by-protein/models/GET",
+  "out_dir": "./datasets/LEP/split-by-protein/models/GET",
+  "task": "LEP",
+  "lr": 1e-3,
+  "final_lr": 1e-4,
+  "max_epoch": 70,
+  "save_topk": 5,
+  "max_n_vertex_per_gpu": 500,
+  "shuffle": true,
+  "model_type": "GET",
+  "hidden_size": 128,
+  "radial_size": 16,
+  "n_channel": 1,
+  "n_rbf": 32,
+  "n_layers": 3,
+  "n_head": 4,
+  "fragment": "PS_300",
+  "k_neighbors": 9
+}

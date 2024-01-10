@@ -1,0 +1,22 @@
+{
+  "train_set": "./datasets/PDBBind/processed/identity60/train.pkl",
+  "valid_set": "./datasets/PDBBind/processed/identity60/valid.pkl",
+  "test_set": "./datasets/PDBBind/processed/identity60/test.pkl",
+  "save_dir": "./datasets/PDBBind/processed/identity60/models/GET",
+  "out_dir": "./datasets/PDBBind/processed/identity60/models/GET",
+  "task": "PDBBind",
+  "lr": 1e-3,
+  "final_lr": 1e-4,
+  "max_epoch": 60,
+  "save_topk": 5,
+  "max_n_vertex_per_gpu": 500,
+  "shuffle": true,
+  "model_type": "GET",
+  "hidden_size": 128,
+  "radial_size": 16,
+  "n_channel": 1,
+  "n_layers": 3,
+  "n_rbf": 32,
+  "n_head": 4,
+  "k_neighbors": 9
+}
