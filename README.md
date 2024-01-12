@@ -139,6 +139,21 @@ python scripts/data_process/process_PDBbind_NL.py \
     --out_dir ./datasets/NL/processed
 ```
 
+## Pretraining
+Pretraining non hierarchical model on PPA data. For atom level denoising use `--atom_level` flag, for residue level do not use flag. 
+```bash
+python train.py --gpu 0 --task pretrain_PPA --lr 0.0001 --final_lr 0.0001 --max_epoch 10000 --save_topk 10 --shuffle --model_type InteractNN --hidden_size 32 --n_layers 3\
+ --radial_size 16 --n_channel 1 --n_rbf 16 --n_head 4 --k_neighbors 9 \
+ --valid_set ./datasets/PPA/processed/split0/valid.pkl\
+ --train_set ./datasets/PPA/processed/split0/train.pkl\
+ --save_dir ./pretrain/models/InteractNN\
+ --seed 2023 --run_name test_PPA_pretrain_interactnn_with_denoising_head --batch_size 4 --atom_level
+```
+
+@zaixizhang TODO: 
+1. Add pretraining for hierarchical model
+2. Add BioLiP pretraining from Jiaxin's code
+
 ## Training
 
 ### Ligand Binding Affinity (LBA)
