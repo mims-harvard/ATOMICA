@@ -18,14 +18,16 @@
 CODE_DIR=`realpath $(dirname "$0")/../..`
 echo "Locate the project folder at ${CODE_DIR}"
 
+######### setup python path ##########
+PYTHON="/n/home13/afang/.conda/envs/interactenv1/bin/python"
+
 
 ########## parsing JSON configs ##########
 if [ -z $1 ]; then
     echo "Config missing. Usage example: GPU=0,1 bash $0 <config>"
     exit 1;
 fi
-CONFIG=`cat $1 | python -c "import sys, json; config = json.load(sys.stdin); print(\" \".join([f'--{key}' + (f' {config[key]}' if type(config[key])!=bool else '') for key in config if config[key]]))"`
-echo $CONFIG
+CONFIG=`cat $1 | $PYTHON -c "import sys, json; config = json.load(sys.stdin); print(\" \".join([f'--{key}' + (f' {config[key]}' if type(config[key])!=bool else '') for key in config if config[key]]))"`
 
 ########## setup  distributed training ##########
 GPU="${GPU:--1}" # default using CPU
@@ -41,7 +43,7 @@ if [ ${#GPU_ARR[@]} -gt 1 ]; then
     export OMP_NUM_THREADS=2
 	PREFIX="torchrun --nproc_per_node=${#GPU_ARR[@]} --rdzv_backend=c10d --rdzv_endpoint=${MASTER_ADDR}:${MASTER_PORT} --nnodes=1"
 else
-    PREFIX="python"
+    PREFIX="$PYTHON"
 fi
 
 

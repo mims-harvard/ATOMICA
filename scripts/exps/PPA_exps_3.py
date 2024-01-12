@@ -39,6 +39,7 @@ def parse():
     parser.add_argument('--config', type=str, required=True,
                         help='Path of the configuration for training the model')
     parser.add_argument('--gpus', type=int, nargs='+', default=[0], help='gpu to use, -1 for cpu')
+    parser.add_argument('--test_same_split', action='store_true', help='Add flag to run three different seeds on the same train/val split')
     return parser.parse_args()
 
 
@@ -85,8 +86,13 @@ def main(args):
 
     round_metrics = {}
     for i, split_dir in enumerate(split_dirs):
-        print()
-        print_log(f'Start experiment on split {i}')
+        if args.test_same_split:
+            split_dir = split_dirs[0] # test the same split
+            print()
+            print_log(f'Start experiment on split 0 with seed {seeds[i]}')
+        else:
+            print()
+            print_log(f'Start experiment on split {i}')
 
         # 4. add data path / save directory to config
         for split_name in ['valid', 'train']:
