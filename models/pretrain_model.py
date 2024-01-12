@@ -327,20 +327,19 @@ class DenoisePretrainModel(nn.Module):
         # predict noise level
         # pred_noise_level = self.noise_level_ffn(graph_repr)  # [batch_size, n_noise_level]
 
-        # if return_noise:
-        #     pred_energy = None
-        #     pred_noise = pred_noise.view(-1, self.n_channel, 3)  # [Nu, n_channel, 3]
-        #     pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
-        # else:
-        #     pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
-        #     pred_noise = None
-
-        pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
-        if return_noise or return_loss:
-            # predict noise
-            pred_noise = self.pred_noise_from_energy(pred_energy, Z_perturbed)
+        if self.denoising:
+            # use denoising head
+            pred_energy = None
+            pred_noise = pred_noise.view(-1, self.n_channel, 3)  # [Nu, n_channel, 3]
+            pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
         else:
-            pred_noise = None
+            # old GET code
+            pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
+            if return_noise or return_loss:
+                # predict noise
+                pred_noise = self.pred_noise_from_energy(pred_energy, Z_perturbed)
+            else:
+                pred_noise = None
 
         if return_loss:
             # print(pred_noise[perturb_mask][:10])
