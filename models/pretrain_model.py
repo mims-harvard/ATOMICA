@@ -216,7 +216,7 @@ class DenoisePretrainModel(nn.Module):
 
         Z_perturbed = Z + noise # * used_sigmas.unsqueeze(-1).unsqueeze(-1) # FIXME: I think this is wrong
 
-        return Z_perturbed, noise, noise_level, perturb_mask
+        return Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask
     
     @torch.no_grad()
     def update_global_block(self, Z, B, block_id):
@@ -289,7 +289,7 @@ class DenoisePretrainModel(nn.Module):
             # normalize
             Z = self.normalize(Z, B, block_id, batch_id, segment_ids, receptor_segment)
             # perturbation
-            Z_perturbed, noise, noise_level, perturb_mask = self.perturb(Z, block_id, batch_id, batch_size, segment_ids, receptor_segment)
+            Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask = self.perturb(Z, block_id, batch_id, batch_size, segment_ids, receptor_segment)
             Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
 
         Z_perturbed.requires_grad_(True)
@@ -303,17 +303,29 @@ class DenoisePretrainModel(nn.Module):
 
         # encoding
         if self.hierarchical:
-            # bottom level message passing
-            edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-            unit_repr, _, _, pred_Z = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
+            if self.denoising:
+                edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
+                unit_repr, _, _, pred_Z, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
+                
+                #top level 
+                top_Z = scatter_mean(Z_perturbed if pred_Z is None else pred_Z, block_id, dim=0)  # [Nb, n_channel, 3]
+                top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+                edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+                top_H_0 = top_H_0 + scatter_mean(unit_repr, block_id, dim=0)
+                _, block_repr, graph_repr, _, pred_noise_top = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, edges, edge_attr)
+                unit_repr = torch.concat([unit_repr, block_repr[block_id]], dim=-1) # unit_repr and block_repr may have different dim size for dim=1
+            else:
+                # bottom level message passing
+                edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
+                unit_repr, _, _, pred_Z = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
 
-            # top level message passing
-            top_Z = scatter_mean(Z_perturbed if pred_Z is None else pred_Z, block_id, dim=0)  # [Nb, n_channel, 3]
-            top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-            edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-            top_H_0 = top_H_0 + scatter_mean(unit_repr, block_id, dim=0)
-            _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, edges, edge_attr)
-            unit_repr = unit_repr + block_repr[block_id]
+                # top level message passing
+                top_Z = scatter_mean(Z_perturbed if pred_Z is None else pred_Z, block_id, dim=0)  # [Nb, n_channel, 3]
+                top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+                edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+                top_H_0 = top_H_0 + scatter_mean(unit_repr, block_id, dim=0)
+                _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, edges, edge_attr)
+                unit_repr = torch.concat([unit_repr, block_repr[block_id]], dim=-1)
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, Z_perturbed, block_id)
             if self.denoising:
@@ -332,6 +344,10 @@ class DenoisePretrainModel(nn.Module):
             pred_energy = None
             pred_noise = pred_noise.view(-1, self.n_channel, 3)  # [Nu, n_channel, 3]
             pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
+            if self.hierarchical:
+                pred_noise_top = pred_noise_top.view(-1, self.n_channel, 3)  # [Nb, n_channel, 3]
+                pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, n_channel, 3]
+                top_noise = scatter_mean(noise, block_id, dim=0)  # [Nb, n_channel, 3]
         else:
             # old GET code
             pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
@@ -349,6 +365,11 @@ class DenoisePretrainModel(nn.Module):
             noise_loss = noise_loss.sum(dim=-1).sum(dim=-1)  # [Nperturb]
             noise_loss = scatter_mean(noise_loss, batch_id[block_id][perturb_mask])  # [batch_size] # FIXME: used to be scatter_sum
             noise_loss = 0.5 * noise_loss.mean()  # [1]
+            if self.hierarchical:
+                noise_loss_top = F.mse_loss(pred_noise_top[perturb_block_mask], top_noise[perturb_block_mask], reduction='none')
+                noise_loss_top = noise_loss_top.sum(dim=-1).sum(dim=-1)  # [Nperturb]
+                noise_loss_top = scatter_mean(noise_loss_top, batch_id[perturb_block_mask])  # [batch_size] # FIXME: used to be scatter_sum
+                noise_loss += 0.5 * noise_loss_top.mean()
             assert not torch.isnan(noise_loss), f'noise_loss is nan!'
 
             # # align loss

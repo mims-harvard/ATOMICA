@@ -147,7 +147,7 @@ def create_trainer(model, train_loader, valid_loader, config):
 def main(args):
     if args.use_wandb:
         wandb.init(
-            entity="ada-f",
+            entity="zaixizhang8",
             dir=args.save_dir,
             settings=wandb.Settings(start_method="fork"),
             project="GET",
