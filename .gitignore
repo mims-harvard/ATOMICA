@@ -16,6 +16,12 @@ __pycache__
 
 *.npy
 
+*.ckpt
+
 datasets
+
+pretrain
+
+run_logs
 
 testing_scripts
