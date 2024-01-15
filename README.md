@@ -152,6 +152,7 @@ python train.py --gpu 0 --task pretrain_PPA --lr 0.0001 --final_lr 0.0001 --max_
 
 @zaixizhang TODO: 
 1. Add pretraining for hierarchical model
+use `--hierarchical` flag for hierarchical denoising pretraining
 2. Add BioLiP pretraining from Jiaxin's code
 
 ## Training
