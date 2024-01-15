@@ -26,7 +26,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA'],
+                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ' + \
@@ -120,6 +120,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = ECDataset(path)
     elif task == 'pretrain':
         dataset = BiolipDataset(path)
+    elif task == 'pretrain_biolip':
+        dataset = PDBBindBenchmark(path)
     elif task == 'pretrain_PPA':
         dataset = BlockGeoAffDataset(path)
     else:
