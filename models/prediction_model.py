@@ -43,7 +43,7 @@ class PredictionModel(DenoisePretrainModel):
             std=pretrained_model.std,
             atom_level=pretrained_model.atom_level,
             hierarchical=pretrained_model.hierarchical,
-            no_block_embedding=pretrained_model.no_block_embedding
+            no_block_embedding=pretrained_model.no_block_embedding,
             **kwargs
         )
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
@@ -57,7 +57,7 @@ class PredictionModel(DenoisePretrainModel):
     @torch.no_grad()
     def perturb(self, Z, block_id, batch_id, batch_size, segment_ids, receptor_segment):
         # do not perturb in prediction model
-        return Z, None, None, None
+        return Z, None, None, None, None
     
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False) -> ReturnValue:
         return_value = super().forward(
