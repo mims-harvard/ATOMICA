@@ -5,7 +5,10 @@ from rdkit.Chem.rdchem import GetPeriodicTable
 _periodic_table = GetPeriodicTable()
 
 def sm_pdb_to_blocks(ligand_path, fragment=False):
-    pdb_mol = Chem.SDMolSupplier(ligand_path, removeHs=True)
+    if ligand_path.endswith(".pdb"):
+        pdb_mol = Chem.MolFromPDBFile(ligand_path, removeHs=True)
+    else:
+        pdb_mol = Chem.SDMolSupplier(ligand_path, removeHs=True)
     # ligand (each block is an atom)
     blocks2 = []
     conf = pdb_mol.GetConformer()

@@ -69,7 +69,7 @@ def read_biolip_pd(file_path):
     return df
 
 
-def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx):
+def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers):
     df = read_biolip_pd(file_path)
 
     print(f'{len(df)} items in {os.path.basename(file_path)}')
@@ -92,13 +92,25 @@ def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx):
 
         if not os.path.exists(receptor_path) or not os.path.exists(ligand_path):
             return None
+        
+        # Check atom count
 
+        # Use num_lines as a quick proxy to check atom count
+        with open(ligand_path, 'r') as file:
+            num_lines = len(file.readlines())
+        if num_lines > 1000:
+            print(f'{ligand_path} has too many lines')
+            return None
+
+        # Use RDKit to check atom count and validity
         pdb_mol = Chem.MolFromPDBFile(ligand_path, removeHs=False)
         if pdb_mol is not None:
             atom_count = pdb_mol.GetNumAtoms()
         else:
             atom_count = 0
-        if atom_count > MAX_ATOM_COUNT or atom_count < 15:
+            print(f'{ligand_path} is not valid')
+        if atom_count > MAX_ATOM_COUNT or atom_count == 0:
+            print(f'{ligand_path} has too many or too few atoms, {atom_count}')
             return None
 
         return protein_file_name, ligand_file_name
@@ -109,7 +121,7 @@ def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx):
                                               df['Ligand ID'].values.tolist(),
                                               df['Ligand chain'].values.tolist(),
                                               df['Ligand serial number'].values.tolist()),
-                             dataset_base_dir=dataset_base_dir, n_jobs=16, desc='check BioLiP data validity')
+                             dataset_base_dir=dataset_base_dir, n_jobs=num_workers, desc='check BioLiP data validity')
 
     protein_unique_dict = defaultdict(int)
     for rs in tqdm(result_list):
@@ -123,7 +135,7 @@ def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx):
     return df, protein_file_names, ligand_file_names
 
 
-def ConstructBioLiPDataset(dataset_base_dir, file_path, exclude_pdb_idx_path):
+def ConstructBioLiPDataset(dataset_base_dir, file_path, exclude_pdb_idx_path, num_workers):
     file_path_base = os.path.dirname(file_path)
     file_name = os.path.basename(file_path).split('.')[0]
     index_path = os.path.join(file_path_base, f'{file_name}_selected_index_max_{MAX_ATOM_COUNT}.pkl')
@@ -132,8 +144,8 @@ def ConstructBioLiPDataset(dataset_base_dir, file_path, exclude_pdb_idx_path):
         exclude_pdb_idx = f.read().strip().split('\n')
 
     # if not os.path.exists(index_path):
-    df, protein_file_names, ligand_file_names = load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx)
-    print(f'filter out {len(protein_file_names)} items finally.')
+    df, protein_file_names, ligand_file_names = load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers)
+    print(f'Selected {len(protein_file_names)} indexes from BioLiP.')
     with open(index_path, 'wb') as f:
         pickle.dump((protein_file_names, ligand_file_names), f)
 
@@ -146,9 +158,10 @@ if __name__ == '__main__':
     parser.add_argument('--file_path', type=str, default='./datasets/BioLiP/BioLiP.txt')
     parser.add_argument('--exclude_pdb_idx', type=str, default='./dataset/BioLiP/pdbbind.txt')
     parser.add_argument('--max_atom_count', type=int, default=100)
+    parser.add_argument('--num_workers', type=int, default=16)
 
     args = parser.parse_args()
     MAX_ATOM_COUNT = args.max_atom_count
 
     # get dataset
-    ConstructBioLiPDataset(args.dataset_base_dir, args.file_path, args.exclude_pdb_idx)
+    ConstructBioLiPDataset(args.dataset_base_dir, args.file_path, args.exclude_pdb_idx, args.num_workers)

@@ -70,7 +70,10 @@ def process_one(data_idx, protein_file_name, ligand_file_name, benchmark_dir, in
     ligand_id = ligand_file_name.split("_")[1]
     if ligand_id in {"rna", "dna", "peptide"}:
         try:
-            blocks2 = pdb_to_list_blocks(sm_fname)
+            list_of_blocks2 = pdb_to_list_blocks(sm_fname)
+            blocks2 = []
+            for b in list_of_blocks2:
+                blocks2.extend(b)
         except Exception as e:
             print_log(f'{ligand_file_name} ligand parsing failed: {e}', level='ERROR')
             return None
