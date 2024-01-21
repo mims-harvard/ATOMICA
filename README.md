@@ -11,7 +11,7 @@ conda env create -f env.yml
 ## Data Preparation
 We assume the datasets are downloaded to the folder *./datasets*.
 
-### 0. Data for Pretraining with BioLiP
+### 0.0 Data for Pretraining with BioLiP
 Download BioLiP dataset from https://zhanggroup.org/BioLiP/download.html using the pearl script provided on the website. Move the dataset to *./datasets/BioLiP*.
 
 Then filter the dataset with the provided script:
@@ -24,7 +24,7 @@ python scripts/data_process/filter_BioLiP.py \
         --max_atom_count 500
 ```
 
-This will generate a new file `*./datasets/BioLiP/BioLiP_selected_index_max_500.pkl` containing the selected protein-ligand complexes containing a maximum of 500 atoms.
+This will generate a new file `*./datasets/BioLiP/BioLiP_selected_index_max_500_min_1.pkl` containing the selected protein-ligand complexes containing a maximum of 500 atoms and a minimum of 1 atom.
 
 Then process the dataset with the provided script:
 
@@ -37,6 +37,28 @@ python scripts/data_process/process_BioLiP.py \
 
 The `./datasets/BioLiP/PDBbind_v2020_index.txt` file contains pdb ids we want to filter out from BioLiP. Here, the pdb ids of pdbbind 2020 across the four affinity tasks (protein-ligand, protein-protein, protein-nucleic acid, nucleic acid-ligand) are used.
 
+### 0.1 Data for Pretraining with CSD
+You will need access to the CSD to install these packages. Download the installer and the python API wheel file.
+
+Using the installer install the CSD data and activator
+```bash
+./CSDInstallerOnline-linux --root ./datasets/CSD/csd-data -c --accept-licenses --cache-path ./datasets/CSD/cache install uk.ac.cam.ccdc.data
+./CSDInstallerOnline-linux --root ./datasets/CSD/csd-activator -c --accept-licenses --cache-path ./datasets/CSD/cache install uk.ac.cam.ccdc.csd.activation
+```
+
+Install the python API package from the CSD from the wheel file `pip install csd_python_api-3.0.16-py39-none-linux_x86_64.whl`.
+
+Then process the dataset with the provided script:
+
+```bash
+./datasets/CSD/csd-activator/ccdc-utilities/software-activation/bin/ccdc_activator -a -k <activation-key>
+python scripts/data_process/process_csd.py \
+    --csd_data_directory /n/holylabs/LABS/mzitnik_lab/Users/afang/MolInteractV2/CSD/csd_data/ccdc-data/csd \
+    --processed_dir datasets/csd/processed \
+python scripts/data_process/split_csd.py \
+    --processed_data_dir datasets/csd/processed
+```
+This will create a processed dataset in `./datasets/csd/processed` and split the dataset into train, val pickle files.
 
 ### 1. Data for Protein-Protein Affinity (PPA)
 

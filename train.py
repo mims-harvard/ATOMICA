@@ -9,7 +9,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, BiolipDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
 import models
