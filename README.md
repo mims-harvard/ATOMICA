@@ -11,6 +11,33 @@ conda env create -f env.yml
 ## Data Preparation
 We assume the datasets are downloaded to the folder *./datasets*.
 
+### 0. Data for Pretraining with BioLiP
+Download BioLiP dataset from https://zhanggroup.org/BioLiP/download.html using the pearl script provided on the website. Move the dataset to *./datasets/BioLiP*.
+
+Then filter the dataset with the provided script:
+
+```bash
+python scripts/data_process/filter_BioLiP.py \
+        --dataset_base_dir ./datasets/BioLiP \
+        --file_path ./datasets/BioLiP/BioLiP.txt \
+        --exclude_pdb_idx ./datasets/BioLiP/PDBbind_v2020_index.txt \
+        --max_atom_count 500
+```
+
+This will generate a new file `*./datasets/BioLiP/BioLiP_selected_index_max_500.pkl` containing the selected protein-ligand complexes containing a maximum of 500 atoms.
+
+Then process the dataset with the provided script:
+
+```bash
+python scripts/data_process/process_BioLiP.py \
+    --benchmark_dir ./datasets/BioLiP \
+    --out_dir ./datasets/BioLiP/processed \
+    --index_path ./datasets/BioLiP/BioLiP_selected_index.pkl 
+```
+
+The `./datasets/BioLiP/PDBbind_v2020_index.txt` file contains pdb ids we want to filter out from BioLiP. Here, the pdb ids of pdbbind 2020 across the four affinity tasks (protein-ligand, protein-protein, protein-nucleic acid, nucleic acid-ligand) are used.
+
+
 ### 1. Data for Protein-Protein Affinity (PPA)
 
 First download and decompress the protein-protein complexes in [PDBbind](http://www.pdbbind.org.cn/download.php) (registration is required):
