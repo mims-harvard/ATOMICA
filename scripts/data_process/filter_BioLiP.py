@@ -69,7 +69,7 @@ def read_biolip_pd(file_path):
     return df
 
 
-def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers):
+def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers, keep_unique_proteins):
     df = read_biolip_pd(file_path)
 
     print(f'{len(df)} items in {os.path.basename(file_path)}')
@@ -109,7 +109,7 @@ def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers):
         else:
             atom_count = 0
             print(f'{ligand_path} is not valid')
-        if atom_count > MAX_ATOM_COUNT or atom_count == 0:
+        if atom_count > MAX_ATOM_COUNT or atom_count < MIN_ATOM_COUNT:
             print(f'{ligand_path} has too many or too few atoms, {atom_count}')
             return None
 
@@ -127,24 +127,31 @@ def load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers):
     for rs in tqdm(result_list):
         if rs is not None:
             protein_file_name, ligand_file_name = rs
-            if protein_unique_dict[protein_file_name] == 0:
+            if keep_unique_proteins:
+                if protein_unique_dict[protein_file_name] == 0:
+                    protein_file_names.append(protein_file_name)
+                    ligand_file_names.append(ligand_file_name)
+                    protein_unique_dict[protein_file_name] += 1
+            else:
                 protein_file_names.append(protein_file_name)
                 ligand_file_names.append(ligand_file_name)
-                protein_unique_dict[protein_file_name] += 1
 
     return df, protein_file_names, ligand_file_names
 
 
-def ConstructBioLiPDataset(dataset_base_dir, file_path, exclude_pdb_idx_path, num_workers):
+def ConstructBioLiPDataset(dataset_base_dir, file_path, exclude_pdb_idx_path, num_workers, keep_unique_proteins):
     file_path_base = os.path.dirname(file_path)
     file_name = os.path.basename(file_path).split('.')[0]
-    index_path = os.path.join(file_path_base, f'{file_name}_selected_index_max_{MAX_ATOM_COUNT}.pkl')
+    if keep_unique_proteins:
+        index_path = os.path.join(file_path_base, f'{file_name}_selected_index_min_{MIN_ATOM_COUNT}_max_{MAX_ATOM_COUNT}_unique.pkl')
+    else:
+        index_path = os.path.join(file_path_base, f'{file_name}_selected_index_min_{MIN_ATOM_COUNT}_max_{MAX_ATOM_COUNT}.pkl')
 
     with open(exclude_pdb_idx_path, 'r') as f:
         exclude_pdb_idx = f.read().strip().split('\n')
 
     # if not os.path.exists(index_path):
-    df, protein_file_names, ligand_file_names = load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers)
+    df, protein_file_names, ligand_file_names = load_biolip_data(file_path, dataset_base_dir, exclude_pdb_idx, num_workers, keep_unique_proteins)
     print(f'Selected {len(protein_file_names)} indexes from BioLiP.')
     with open(index_path, 'wb') as f:
         pickle.dump((protein_file_names, ligand_file_names), f)
@@ -158,10 +165,13 @@ if __name__ == '__main__':
     parser.add_argument('--file_path', type=str, default='./datasets/BioLiP/BioLiP.txt')
     parser.add_argument('--exclude_pdb_idx', type=str, default='./dataset/BioLiP/pdbbind.txt')
     parser.add_argument('--max_atom_count', type=int, default=100)
+    parser.add_argument('--min_atom_count', type=int, default=1)
     parser.add_argument('--num_workers', type=int, default=16)
+    parser.add_argument('--only_unique_proteins', action='store_true', default=False)
 
     args = parser.parse_args()
     MAX_ATOM_COUNT = args.max_atom_count
+    MIN_ATOM_COUNT = args.min_atom_count
 
     # get dataset
-    ConstructBioLiPDataset(args.dataset_base_dir, args.file_path, args.exclude_pdb_idx, args.num_workers)
+    ConstructBioLiPDataset(args.dataset_base_dir, args.file_path, args.exclude_pdb_idx, args.num_workers, args.only_unique_proteins)

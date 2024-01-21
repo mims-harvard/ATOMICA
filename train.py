@@ -118,10 +118,18 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             dataset = MixDatasetWrapper(*datasets)
     elif task == 'EC':
         dataset = ECDataset(path)
-    elif task == 'pretrain':
-        dataset = BiolipDataset(path)
     elif task == 'pretrain_biolip':
         dataset = PDBBindBenchmark(path)
+    elif task == 'pretrain':
+        dataset1 = PDBBindBenchmark(path)
+        datasets = [dataset1]
+        if path2 is not None:
+            dataset2 = PDBBindBenchmark(path2)
+            datasets.append(dataset2)
+        if path3 is not None:
+            dataset3 = PDBBindBenchmark(path3)
+            datasets.append(dataset3)
+        dataset = MixDatasetWrapper(*datasets)
     elif task == 'pretrain_PPA':
         dataset = BlockGeoAffDataset(path)
     else:
@@ -163,23 +171,13 @@ def main(args):
     model = models.create_model(args)
 
     ########### load your train / valid set ###########
-    if args.task == 'pretrain':
-        files = [f"{args.train_set}/{x}" for x in os.listdir(args.train_set) if x.endswith(".pt")]
-        files=files[:20]
-        import random
-        random.shuffle(files)
-        train_set_files = files[:int(len(files) * 0.8)]
-        val_set_files = files[int(len(files) * 0.8):]
-        train_set = create_dataset(args.task, train_set_files, args.train_set2, args.train_set3, args.fragment)
-        valid_set = create_dataset(args.task, val_set_files, args.valid_set2, fragment=args.fragment)
+    train_set = create_dataset(args.task, args.train_set, args.train_set2, args.train_set3, args.fragment)
+    if args.valid_set is not None:
+        valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, fragment=args.fragment)
+        print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
     else:
-        train_set = create_dataset(args.task, args.train_set, args.train_set2, args.train_set3, args.fragment)
-        if args.valid_set is not None:
-            valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, fragment=args.fragment)
-            print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
-        else:
-            valid_set = None
-            print_log(f'Train: {len(train_set)}, no validation')
+        valid_set = None
+        print_log(f'Train: {len(train_set)}, no validation')
     if args.max_n_vertex_per_gpu is not None:
         if args.valid_max_n_vertex_per_gpu is None:
             args.valid_max_n_vertex_per_gpu = args.max_n_vertex_per_gpu

@@ -2,10 +2,9 @@
 # -*- coding:utf-8 -*-
 import os
 import sys
-import json
 import pickle
 import argparse
-
+from tqdm import tqdm
 import numpy as np
 
 PROJ_DIR = os.path.join(
@@ -21,8 +20,43 @@ from data.dataset import blocks_interface, blocks_to_data
 from data.converter.pdb_to_list_blocks import pdb_to_list_blocks
 from data.converter.mol2_to_blocks import mol2_to_blocks
 from data.converter.sm_pdb_to_blocks import sm_pdb_to_blocks
+from joblib import Parallel, delayed, cpu_count
 
+def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs):
+  """
 
+  Parallel map using joblib.
+
+  Parameters
+  ----------
+  pickleable_fn : callable
+      Function to map over data.
+  data : iterable
+      Data over which we want to parallelize the function call.
+  n_jobs : int, optional
+      The maximum number of concurrently running jobs. By default, it is one less than
+      the number of CPUs.
+  verbose: int, optional
+      The verbosity level. If nonzero, the function prints the progress messages.
+      The frequency of the messages increases with the verbosity level. If above 10,
+      it reports all iterations. If above 50, it sends the output to stdout.
+  kwargs
+      Additional arguments for :attr:`pickleable_fn`.
+
+  Returns
+  -------
+  list
+      The i-th element of the list corresponds to the output of applying
+      :attr:`pickleable_fn` to :attr:`data[i]`.
+  """
+  if n_jobs is None:
+    n_jobs = cpu_count() - 1
+
+  results = Parallel(n_jobs=n_jobs, verbose=verbose, timeout=None)(
+    delayed(pickleable_fn)(*d, **kwargs) for i, d in tqdm(enumerate(data),desc=desc)
+  )
+
+  return results
 
 def parse():
     parser = argparse.ArgumentParser(description='Process BioLiP benchmark of protein-ligand interaction for pre-training')
@@ -34,6 +68,7 @@ def parse():
     parser.add_argument('--fragment', default=None, choices=['PS_300', 'PS_500'], help='Use fragment-based representation of small molecules')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')
+    parser.add_argument('--num_workers', type=int, default=16)
     return parser.parse_args()
 
 
@@ -111,24 +146,25 @@ def main(args):
     data_idxs = list(range(len(protein_file_names)))
 
     print_log('Preprocessing')
-    processed_data = {}
+    processed_data = []
     cnt = 0
-    for data_idx, protein_file_name, ligand_file_name in zip(data_idxs, protein_file_names, ligand_file_names):
-        item = process_one(data_idx, protein_file_name, ligand_file_name, args.benchmark_dir, args.interface_dist_th, args.fragment is not None)
 
+    result_list = pmap_multi(process_one, zip(data_idxs, protein_file_names, ligand_file_names), 
+                             benchmark_dir=args.benchmark_dir,
+                             interface_dist_th=args.interface_dist_th, 
+                             fragment=args.fragment,
+                             n_jobs=args.num_workers, desc='check BioLiP data validity')
+
+    for item in tqdm(result_list, desc="Processing complexes"):
         if item == '':  # annotation
             continue
         cnt += 1
         if item is None:
             continue
-        processed_data[data_idx] = item
-
-        print_log(f'{item["id"]} succeeded, valid/processed={len(data_idxs)}/{cnt}')
+        processed_data.append(item)
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
-
-    processed_data = [processed_data[key] for key in processed_data.keys()]
 
     from random import shuffle
     shuffle(processed_data)

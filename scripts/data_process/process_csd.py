@@ -16,9 +16,7 @@ from glob import glob
 import os
 import multiprocessing
 import numpy as np
-import torch
 from tqdm import tqdm
-from torch_geometric.data import HeteroData
 import argparse
 import sys
 import pickle
@@ -35,7 +33,6 @@ from data.dataset import blocks_interface, blocks_to_data
 from utils.logger import print_log
 
 INTERMOLECULAR_CUTOFF = 4
-CHUNK_SIZE = 10000
 
 
 def process_crystals(
@@ -44,7 +41,6 @@ def process_crystals(
     num_workers=16,
     search_settings_param=None,
     intermolecular_cutoff=INTERMOLECULAR_CUTOFF,
-    chunk_size=CHUNK_SIZE,
 ):
     """
     Process all crystals in the CSD data directory to create discrete molecular shells and save the results to a file.
@@ -70,57 +66,24 @@ def process_crystals(
     csd_data_dirs.reverse()
 
     for csd_data_dir in csd_data_dirs:
-        if num_workers > 1:
-            print_log(f"Processing {csd_data_dir}", level="INFO")
-            crystal_reader_len = len(CrystalReader(csd_data_dir))
-            with multiprocessing.Pool(num_workers) as pool:
-                params = [
-                    (
-                        idx,
-                        idx + crystal_reader_len // num_workers + 1,
-                        search_settings_param,
-                        csd_data_dir,
-                        processed_dir,
-                        intermolecular_cutoff,
-                        chunk_size,
-                    )
-                    for idx in range(
-                        0, crystal_reader_len, crystal_reader_len // num_workers + 1
-                    )
-                ]
-                list(
-                    tqdm(
-                        pool.imap_unordered(get_crystal_features_pool, params),
-                        total=len(params),
-                    )
-                )
-        else:
-            print_log(f"Processing {csd_data_dir}", level="INFO")
-            crystal_reader = CrystalReader(csd_data_dir)
-            settings = get_search_settings(search_settings_param)
-            results = {}
-            for idx in tqdm(range(len(crystal_reader))):
-                crystal = crystal_reader[idx]
-                get_crystal_features(
+        print_log(f"Processing {csd_data_dir}", level="INFO")
+        crystal_reader_len = len(CrystalReader(csd_data_dir))
+        with multiprocessing.Pool(num_workers) as pool:
+            params = [
+                (
                     idx,
-                    crystal,
-                    settings,
-                    results,
+                    idx + crystal_reader_len // num_workers + 1,
+                    search_settings_param,
                     csd_data_dir,
                     processed_dir,
                     intermolecular_cutoff,
-                    chunk_size,
+                    worker_id,
                 )
-            # Save any remaining results
-            if len(results) > 0:
-                save_results(
-                    results,
-                    csd_data_dir,
-                    processed_dir,
-                    chunk_size,
-                    len(crystal_reader),
-                )
-
+                for worker_id, idx in enumerate(range(
+                    0, crystal_reader_len, crystal_reader_len // num_workers + 1
+                ))
+            ]
+            list(pool.imap_unordered(get_crystal_features_pool, params))
 
 def get_search_settings(search_settings_param):
     settings = search.Search.Settings()
@@ -141,52 +104,25 @@ def get_crystal_features_pool(params):
         csd_data_dir,
         processed_dir,
         intermolecular_cutoff,
-        chunk_size,
+        worker_id,
     ) = params
     settings = get_search_settings(search_settings_param)
     results = {}
     crystal_reader = CrystalReader(csd_data_dir)
     end_idx = min(end_idx, len(crystal_reader))
-    for idx in range(start_idx, end_idx):
+    for idx in tqdm(range(start_idx, end_idx), desc=f"Processing crystals worker_id={worker_id}, csd_data_dir={csd_data_dir}"):
         crystal = crystal_reader[idx]
-        get_crystal_features(
-            idx,
-            crystal,
-            settings,
-            results,
-            csd_data_dir,
-            processed_dir,
-            intermolecular_cutoff,
-            chunk_size,
-        )
-    if len(results) > 0:
-        save_results(results, csd_data_dir, processed_dir, chunk_size, end_idx)
+        if settings.test(crystal):
+            results.update(process_crystal_entry(crystal, intermolecular_cutoff))
+    save_results(results, csd_data_dir, processed_dir, worker_id)
 
 
-def get_crystal_features(
-    idx,
-    crystal,
-    settings,
-    results,
-    csd_data_dir,
-    processed_dir,
-    intermolecular_cutoff,
-    chunk_size,
-):
-    if settings.test(crystal):
-        results.update(process_crystal_entry(crystal, intermolecular_cutoff))
-    if len(results) >= chunk_size:
-        print_log(f"Saving results at crystal reader index {idx}", level="INFO")
-        save_results(results, csd_data_dir, processed_dir, chunk_size, idx)
-
-
-def save_results(results, csd_data_dir, processed_dir, chunk_size, save_index):
+def save_results(results, csd_data_dir, processed_dir, worker_id):
     csd_data_dir = csd_data_dir.split("/")[-1].strip(".sqlite")
-    fname = f"{processed_dir}/{csd_data_dir}_idx_{save_index}_chunk_{chunk_size}.pkl"
+    fname = f"{processed_dir}/{csd_data_dir}_{worker_id}.pkl"
     with open(fname, "wb") as f:
         pickle.dump(list(results.values()), f)
     print_log(f"Saved file at {fname}", level="INFO")
-    results.clear()
 
 
 def blocks_from_molecule(molecule):
