@@ -114,7 +114,7 @@ class Trainer:
             self.optimizer.zero_grad()
             loss.backward()
 
-            if self.use_wandb:
+            if self.use_wandb and self._is_main_proc():
                 wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
                 wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
 
@@ -160,7 +160,7 @@ class Trainer:
         self.model.train()
         # judge
         valid_metric = np.mean(metric_arr)
-        if self.use_wandb:
+        if self.use_wandb and self._is_main_proc():
             wandb.log({f'val_MSELoss': valid_metric.item()}, step=self.global_step)
             wandb.log({f'val_RMSELoss': np.sqrt(valid_metric)}, step=self.global_step)
         if self._is_main_proc():

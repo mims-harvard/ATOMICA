@@ -3,7 +3,13 @@
 from math import exp, pi, cos, log
 import torch
 from .abs_trainer import Trainer
-
+from utils.logger import print_log
+from torch.utils.tensorboard import SummaryWriter
+import os
+import json
+from tqdm import tqdm
+import wandb
+import numpy as np
 
 class PretrainTrainer(Trainer):
 
@@ -70,3 +76,34 @@ class PretrainTrainer(Trainer):
             self.log('lr', lr, batch_idx, val)
 
         return loss.loss
+
+    def _train_epoch(self, device, validation_freq=5000):
+        self._before_train_epoch_start()
+        if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
+            self.train_loader.sampler.set_epoch(self.epoch)
+        t_iter = tqdm(enumerate(self.train_loader)) if self._is_main_proc() else enumerate(self.train_loader)
+        for batch_idx, batch in t_iter:
+            batch = self.to_device(batch, device)
+            loss = self.train_step(batch, self.global_step)
+            self.optimizer.zero_grad()
+            loss.backward()
+
+            if self.use_wandb and self._is_main_proc():
+                wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
+                wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+
+            if self.config.grad_clip is not None:
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+            self.optimizer.step()
+            if hasattr(t_iter, 'set_postfix'):
+                t_iter.set_postfix(loss=loss.item(), version=self.version)
+            self.global_step += 1
+            if self.sched_freq == 'batch':
+                self.scheduler.step()
+            
+            if batch_idx % validation_freq == 0:
+                print_log(f'validating ...') if self._is_main_proc() else 1
+                self._valid_epoch(device)
+                self._before_train_epoch_start()
+        if self.sched_freq == 'epoch':
+            self.scheduler.step()

@@ -155,16 +155,6 @@ def create_trainer(model, train_loader, valid_loader, config):
 
 
 def main(args):
-    if args.use_wandb:
-        wandb.init(
-            entity="ada-f",
-            dir=args.save_dir,
-            settings=wandb.Settings(start_method="fork"),
-            project="GET",
-            name=args.run_name,
-            config=vars(args),
-        )
-
     setup_seed(args.seed)
     VOCAB.load_tokenizer(args.fragment)
     # torch.autograd.set_detect_anomaly(True)
@@ -216,6 +206,15 @@ def main(args):
         train_sampler = None
 
     if args.local_rank <= 0:
+        if args.use_wandb:
+            wandb.init(
+                entity="ada-f",
+                dir=args.save_dir,
+                settings=wandb.Settings(start_method="fork"),
+                project="GET",
+                name=args.run_name,
+                config=vars(args),
+            )
         if args.max_n_vertex_per_gpu is not None:
             print_log(f'Dynamic batch enabled. Max number of vertex per GPU: {args.max_n_vertex_per_gpu}')
         if args.pretrain_ckpt:

@@ -74,6 +74,7 @@ class InteractionModule(torch.nn.Module):
             self.denoise_predictor = TensorProductConvLayer(
                 **denoise_parameters
             )
+            self.denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
         else:
             self.out_ffn = nn.Sequential(
                 nn.Linear(self.node_embedding_dim, self.node_embedding_dim),

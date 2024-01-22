@@ -164,13 +164,13 @@ class DenoisePretrainModel(nn.Module):
         if self.hierarchical:
             self.top_encoder = deepcopy(self.encoder)
         
-
-        self.energy_ffn = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.SiLU(),
-            nn.Linear(hidden_size, 1, bias=False)
-        )
+        if not self.denoising:
+            self.energy_ffn = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
 
         # self.noise_level_ffn = nn.Sequential(
         #     nn.SiLU(),
@@ -180,8 +180,8 @@ class DenoisePretrainModel(nn.Module):
         # )
 
         # TODO: add zero noise level
-        sigmas = torch.tensor(np.exp(np.linspace(np.log(sigma_begin), np.log(sigma_end), n_noise_level)), dtype=torch.float)
-        self.sigmas = nn.Parameter(sigmas, requires_grad=False)  # [n_noise_level]
+        # sigmas = torch.tensor(np.exp(np.linspace(np.log(sigma_begin), np.log(sigma_end), n_noise_level)), dtype=torch.float)
+        # self.sigmas = nn.Parameter(sigmas, requires_grad=False)  # [n_noise_level]
 
     @torch.no_grad()
     def choose_receptor(self, batch_size, device):
@@ -199,17 +199,18 @@ class DenoisePretrainModel(nn.Module):
 
     @torch.no_grad()
     def perturb(self, Z, block_id, batch_id, batch_size, segment_ids, receptor_segment):
-        noise_level = torch.randint(0, self.sigmas.shape[0], (batch_size,), device=Z.device)
-        # noise_level = torch.ones((batch_size, ), device=Z.device, dtype=torch.long) * (self.sigmas.shape[0] - 1)
-        used_sigmas = self.sigmas[noise_level][batch_id]  # [Nb]
-        used_sigmas = used_sigmas[block_id]  # [Nu]
+        # noise_level = torch.randint(0, self.sigmas.shape[0], (batch_size,), device=Z.device)
+        # # noise_level = torch.ones((batch_size, ), device=Z.device, dtype=torch.long) * (self.sigmas.shape[0] - 1)
+        # used_sigmas = self.sigmas[noise_level][batch_id]  # [Nb]
+        # used_sigmas = used_sigmas[block_id]  # [Nu]
+        noise_level = None
 
         # randomly select one side to perturb (segment type 0 or segment type 1)
         perturb_block_mask = segment_ids == receptor_segment[batch_id]  # [Nb]
         perturb_mask = perturb_block_mask[block_id]  # [Nu]
         assert torch.any(perturb_mask), 'No perturbable nodes!'
 
-        used_sigmas[~perturb_mask] = 0  # only one side of the complex is perturbed
+        # used_sigmas[~perturb_mask] = 0  # only one side of the complex is perturbed
 
         noise = torch.clamp(torch.randn_like(Z), min=-1, max=1)  # [Nu, channel, 3]
         noise[~perturb_mask] = 0  # only one side of the complex is perturbed
