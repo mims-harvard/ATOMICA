@@ -194,6 +194,7 @@ class TensorProductConvLayer(torch.nn.Module):
 
         if self.norm_layer is not None:  # FIXME: commented for debugging
             out = self.norm_layer(out)
+        import pdb; pdb.set_trace()
         return out
 
 

@@ -85,7 +85,7 @@ class PretrainTrainer(Trainer):
         for batch_idx, batch in t_iter:
             batch = self.to_device(batch, device)
             loss = self.train_step(batch, self.global_step)
-            self.optimizer.zero_grad()
+            self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
 
             if self.use_wandb and self._is_main_proc():
@@ -101,7 +101,7 @@ class PretrainTrainer(Trainer):
             if self.sched_freq == 'batch':
                 self.scheduler.step()
             
-            if batch_idx % validation_freq == 0:
+            if batch_idx > 0 and batch_idx % validation_freq == 0:
                 print_log(f'validating ...') if self._is_main_proc() else 1
                 self._valid_epoch(device)
                 self._before_train_epoch_start()

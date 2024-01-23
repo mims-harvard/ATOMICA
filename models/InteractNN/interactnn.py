@@ -32,7 +32,7 @@ class InteractionModule(torch.nn.Module):
         self.node_embedding_dim = (
             ns if self.num_conv_layers < 3 else 2 * ns
         )  # only use the scalar and pseudo scalar features
-
+        
         irrep_seq = [
             f"{ns}x0e",
             f"{ns}x0e + {nv}x1o",
@@ -55,6 +55,22 @@ class InteractionModule(torch.nn.Module):
                 "dropout": dropout,
             }
             conv_layers.append(TensorProductConvLayer(**parameters))
+        
+        # last layer: keep only the scalar features
+        in_irreps = irrep_seq[min(num_conv_layers, len(irrep_seq) - 1)]
+        out_irreps = f"{ns}x0e + {ns}x0o"
+        parameters = {
+            "in_irreps": in_irreps,
+            "sh_irreps": self.sh_irreps,
+            "out_irreps": out_irreps,
+            "n_edge_features": 2 * ns + 2 * edge_size,  # features are [edge_length_embedding, edge_attr, scalars of atom 1, scalars of atom 2]
+            "hidden_features": 2 * ns + 2 * edge_size,
+            "residual": False,
+            "norm_type": norm_type,
+            "dropout": dropout,
+        }
+        conv_layers.append(TensorProductConvLayer(**parameters))
+        self.num_conv_layers = len(conv_layers)
 
         self.norm_type = norm_type
         self.layers = nn.ModuleList(conv_layers)
@@ -75,6 +91,7 @@ class InteractionModule(torch.nn.Module):
                 **denoise_parameters
             )
             self.denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
+            self.out_dim = self.node_embedding_dim
         else:
             self.out_ffn = nn.Sequential(
                 nn.Linear(self.node_embedding_dim, self.node_embedding_dim),
@@ -82,10 +99,13 @@ class InteractionModule(torch.nn.Module):
                 nn.Dropout(dropout),
                 nn.Linear(self.node_embedding_dim, ns),
             )
+            self.out_dim = ns
 
 
     def forward(self, node_attr, coords, batch_id, edges, edge_type_attr):
         edge_vec = coords[edges[1]] - coords[edges[0]]
+
+        # FIXME: grad(edge_sh, coords) is near 0
         edge_sh = o3.spherical_harmonics(
             self.sh_irreps,
             edge_vec,
@@ -113,6 +133,7 @@ class InteractionModule(torch.nn.Module):
 
             # update features with residual updates
             node_attr = node_attr + update
+            import pdb; pdb.set_trace()
 
         if self.num_conv_layers < 3:
             node_embeddings = node_attr[:, : self.ns]
@@ -124,7 +145,6 @@ class InteractionModule(torch.nn.Module):
                 ),
                 dim=1,
             )
-
         if self.return_noise:
             edge_attr = torch.cat(
                 (

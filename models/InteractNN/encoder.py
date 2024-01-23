@@ -11,6 +11,7 @@ class InteractNNEncoder(nn.Module):
         super().__init__()
         self.encoder = InteractionModule(ns=hidden_size, nv=hidden_size//2, num_conv_layers=n_layers, sh_lmax=2, edge_size=edge_size, return_noise=return_noise)
         self.return_noise = return_noise
+        self.out_dim = self.encoder.out_dim
 
     def forward(self, H, Z, block_id, batch_id, edges, edge_attr=None):
         H, Z = scatter_mean(H, block_id, dim=0), scatter_mean(Z, block_id, dim=0)
