@@ -2,7 +2,7 @@ import torch
 from e3nn import o3
 from torch import nn
 from torch.nn import functional as F
-from .utils import TensorProductConvLayer, GaussianEmbedding
+from .utils import TensorProductConvLayer, GaussianEmbedding, SphericalHarmonicEdgeAttrs
 
 
 class InteractionModule(torch.nn.Module):
@@ -21,7 +21,8 @@ class InteractionModule(torch.nn.Module):
         self.ns, self.nv = ns, nv
         self.edge_size = edge_size
         self.num_conv_layers = num_conv_layers
-        self.sh_irreps = o3.Irreps.spherical_harmonics(lmax=sh_lmax)
+        self.edge_sh_irreps = SphericalHarmonicEdgeAttrs(sh_lmax)
+        self.sh_irreps = self.edge_sh_irreps.irreps_edge_sh
         self.edge_embedder = nn.Sequential(
             GaussianEmbedding(num_gaussians=edge_size),
             nn.Linear(edge_size, edge_size),
@@ -56,22 +57,6 @@ class InteractionModule(torch.nn.Module):
             }
             conv_layers.append(TensorProductConvLayer(**parameters))
         
-        # last layer: keep only the scalar features
-        in_irreps = irrep_seq[min(num_conv_layers, len(irrep_seq) - 1)]
-        out_irreps = f"{ns}x0e + {ns}x0o"
-        parameters = {
-            "in_irreps": in_irreps,
-            "sh_irreps": self.sh_irreps,
-            "out_irreps": out_irreps,
-            "n_edge_features": 2 * ns + 2 * edge_size,  # features are [edge_length_embedding, edge_attr, scalars of atom 1, scalars of atom 2]
-            "hidden_features": 2 * ns + 2 * edge_size,
-            "residual": False,
-            "norm_type": norm_type,
-            "dropout": dropout,
-        }
-        conv_layers.append(TensorProductConvLayer(**parameters))
-        self.num_conv_layers = len(conv_layers)
-
         self.norm_type = norm_type
         self.layers = nn.ModuleList(conv_layers)
 
@@ -106,12 +91,7 @@ class InteractionModule(torch.nn.Module):
         edge_vec = coords[edges[1]] - coords[edges[0]]
 
         # FIXME: grad(edge_sh, coords) is near 0
-        edge_sh = o3.spherical_harmonics(
-            self.sh_irreps,
-            edge_vec,
-            normalize=True,
-            normalization="component",
-        )
+        edge_sh = self.edge_sh_irreps(edge_vec)
         edge_length = edge_vec.norm(dim=-1)
         edge_length_embedding = self.edge_embedder(edge_length)
 
@@ -133,7 +113,6 @@ class InteractionModule(torch.nn.Module):
 
             # update features with residual updates
             node_attr = node_attr + update
-            import pdb; pdb.set_trace()
 
         if self.num_conv_layers < 3:
             node_embeddings = node_attr[:, : self.ns]

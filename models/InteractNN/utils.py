@@ -194,7 +194,6 @@ class TensorProductConvLayer(torch.nn.Module):
 
         if self.norm_layer is not None:  # FIXME: commented for debugging
             out = self.norm_layer(out)
-        import pdb; pdb.set_trace()
         return out
 
 
@@ -232,3 +231,20 @@ class AtomEncoder(nn.Module):
         # leaving for now for backwards compatibility
         y = self.embeddings(elems)
         return y
+
+
+class SphericalHarmonicEdgeAttrs(nn.Module):
+    def __init__(
+        self,
+        irreps_edge_sh: int,
+        edge_sh_normalization: str = "component",
+        edge_sh_normalize: bool = True,
+    ):
+        super(SphericalHarmonicEdgeAttrs, self).__init__()
+        self.irreps_edge_sh = o3.Irreps.spherical_harmonics(irreps_edge_sh)
+        self.sh = o3.SphericalHarmonics(
+            self.irreps_edge_sh, edge_sh_normalize, edge_sh_normalization
+        )
+    
+    def forward(self, edge_vec):
+        return self.sh(edge_vec)

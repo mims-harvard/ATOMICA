@@ -85,7 +85,7 @@ class DenoisePretrainModel(nn.Module):
                  n_rbf=1, cutoff=7.0, n_head=1,
                  radial_size=16, edge_size=64, k_neighbors=9, n_layers=3,
                  sigma_begin=10, sigma_end=0.01, n_noise_level=50,
-                 dropout=0.1, std=100, global_message_passing=True,
+                 dropout=0.1, std=10, global_message_passing=True,
                  atom_level=False, hierarchical=False, no_block_embedding=False, denoising=True) -> None:
         super().__init__()
 
@@ -213,7 +213,7 @@ class DenoisePretrainModel(nn.Module):
 
         eps = np.random.uniform(0.1, 1.0, size=(Z.shape[0], Z.shape[1]))
         eps = torch.tensor(eps).float().cuda().unsqueeze(-1)
-        noise = torch.randn(Z.shape).cuda() * eps
+        noise = torch.randn(Z.shape).cuda() #  * eps
         noise[~perturb_mask] = 0  # only one side of the complex is perturbed
 
         Z_perturbed = Z + noise # * used_sigmas.unsqueeze(-1).unsqueeze(-1) # FIXME: I think this is wrong
@@ -243,6 +243,14 @@ class DenoisePretrainModel(nn.Module):
     def get_edges(self, B, batch_id, segment_ids, Z, block_id):
         intra_edges, inter_edges, global_global_edges, global_normal_edges = construct_edges(
                     self.edge_constructor, B, batch_id, segment_ids, Z, block_id, complexity=2000**2)
+        def delete_self_loop(edges):
+            return edges[:, edges[0] != edges[1]]
+        intra_edges = delete_self_loop(intra_edges)
+        inter_edges = delete_self_loop(inter_edges)
+        if global_global_edges is not None:
+            global_global_edges = delete_self_loop(global_global_edges)
+        if global_normal_edges is not None:
+            global_normal_edges = delete_self_loop(global_normal_edges)
         if self.global_message_passing:
             edges = torch.cat([intra_edges, inter_edges, global_global_edges, global_normal_edges], dim=1)
             edge_attr = torch.cat([
@@ -287,9 +295,12 @@ class DenoisePretrainModel(nn.Module):
             # select receptor
             receptor_segment = self.choose_receptor(batch_size, batch_id.device)
             # normalize
-            # Z = self.normalize(Z, B, block_id, batch_id, segment_ids, receptor_segment)
+            Z = self.normalize(Z, B, block_id, batch_id, segment_ids, receptor_segment)
             # perturbation
             Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask = self.perturb(Z, block_id, batch_id, batch_size, segment_ids, receptor_segment)
+            noise[A == VOCAB.get_atom_global_idx()] = 0 # global nodes are not perturbed
+            Z_perturbed = Z + noise
+            perturb_mask = torch.logical_and(perturb_mask, A != VOCAB.get_atom_global_idx())
             Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
 
         Z_perturbed.requires_grad_(True)
@@ -358,18 +369,17 @@ class DenoisePretrainModel(nn.Module):
                 pred_noise = None
         
         pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
-        pred_noise = self.pred_noise_from_energy(pred_energy, Z_perturbed)
+        pred_noise = self.pred_noise_from_energy(graph_repr.sum(dim=-1).sum(), Z_perturbed)
         pred_noise_top = torch.zeros_like(pred_noise_top)
-        print("pred_noise", pred_noise.max().item(), pred_noise.min().item(), pred_noise.mean().item())
-        pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
-        import pdb; pdb.set_trace()
 
         if return_loss:
             # print(pred_noise[perturb_mask][:10])
             perturb_mask = torch.logical_and(perturb_mask, not_global)  # do not calculate denoising loss on global nodes
             # noise loss
             # noise_loss = F.mse_loss(pred_noise[perturb_mask]*noise_level[perturb_mask], noise[perturb_mask]/noise_level[perturb_mask], reduction='none')  # [Nperturb, n_channel, 3]
-            noise_loss = (pred_noise[perturb_mask]*noise_level[perturb_mask]-noise[perturb_mask]/noise_level[perturb_mask])**2
+            # noise_loss = (pred_noise[perturb_mask]*noise_level[perturb_mask]-noise[perturb_mask]/noise_level[perturb_mask])**2
+            print("pred_noise", pred_noise[perturb_mask].max().item(), pred_noise[perturb_mask].min().item(), pred_noise[perturb_mask].mean().item())
+            noise_loss = (pred_noise[perturb_mask]-noise[perturb_mask])**2
             noise_loss = noise_loss.sum(dim=-1).sum(dim=-1)  # [Nperturb]
             noise_loss = scatter_mean(noise_loss, batch_id[block_id][perturb_mask])  # [batch_size] # FIXME: used to be scatter_sum
             noise_loss = noise_loss.mean()  # [1]

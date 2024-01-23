@@ -23,7 +23,7 @@ class PredictionModel(DenoisePretrainModel):
             model_type, hidden_size, n_channel, n_rbf, cutoff, n_head, radial_size, edge_size,
             k_neighbors, n_layers, dropout=dropout, std=std, atom_level=atom_level,
             hierarchical=hierarchical, no_block_embedding=no_block_embedding, denoising=False)
-        del self.sigmas  # no need for noise level
+        # del self.sigmas  # no need for noise level
 
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
