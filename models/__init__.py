@@ -15,6 +15,7 @@ def create_model(args):
             n_channel=args.n_channel,
             n_rbf=args.n_rbf,
             cutoff=args.cutoff,
+            edge_size=args.edge_size,
             radial_size=args.radial_size,
             k_neighbors=args.k_neighbors,
             n_layers=args.n_layers,

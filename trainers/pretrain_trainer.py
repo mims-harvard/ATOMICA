@@ -113,7 +113,6 @@ class PretrainTrainer(Trainer):
                 print_log(f'validating ...') if self._is_main_proc() else 1
                 self._valid_epoch(device)
                 self._before_train_epoch_start()
-        avg_train_loss /= len(self.train_loader)
         if self.use_wandb and self._is_main_proc():
             wandb.log({f'train_epoch_MSELoss': np.mean(metric_dict["loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
