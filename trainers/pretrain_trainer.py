@@ -10,6 +10,7 @@ import json
 from tqdm import tqdm
 import wandb
 import numpy as np
+from collections import defaultdict
 
 class PretrainTrainer(Trainer):
 
@@ -75,22 +76,29 @@ class PretrainTrainer(Trainer):
             lr = lr[0]
             self.log('lr', lr, batch_idx, val)
 
-        return loss.loss
+        return loss
 
     def _train_epoch(self, device, validation_freq=5000):
         self._before_train_epoch_start()
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
             self.train_loader.sampler.set_epoch(self.epoch)
         t_iter = tqdm(enumerate(self.train_loader)) if self._is_main_proc() else enumerate(self.train_loader)
+        metric_dict = defaultdict(list)
         for batch_idx, batch in t_iter:
             batch = self.to_device(batch, device)
-            loss = self.train_step(batch, self.global_step)
+            loss_obj = self.train_step(batch, self.global_step)
             self.optimizer.zero_grad(set_to_none=True)
+            loss = loss_obj.loss
             loss.backward()
-
+            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0) # from DSMBind
+            metric_dict["loss"].append(loss.cpu().item())
+            metric_dict["translation_loss"].append(loss_obj.translation_loss.cpu().item())
+            metric_dict["rotation_loss"].append(loss_obj.rotation_loss.cpu().item())
             if self.use_wandb and self._is_main_proc():
                 wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
                 wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                wandb.log({f'train_translation_loss': loss_obj.translation_loss}, step=self.global_step)
+                wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
 
             if self.config.grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
@@ -105,5 +113,58 @@ class PretrainTrainer(Trainer):
                 print_log(f'validating ...') if self._is_main_proc() else 1
                 self._valid_epoch(device)
                 self._before_train_epoch_start()
+        avg_train_loss /= len(self.train_loader)
+        if self.use_wandb and self._is_main_proc():
+            wandb.log({f'train_epoch_MSELoss': np.mean(metric_dict["loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
         if self.sched_freq == 'epoch':
             self.scheduler.step()
+    
+    def _valid_epoch(self, device):
+        if self.valid_loader is None:
+            if self._is_main_proc():
+                save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                module_to_save = self.model.module if self.local_rank == 0 else self.model
+                if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
+                    print_log(f'No validation, save path: {save_path}')
+                    torch.save(module_to_save, save_path)
+                else:
+                    print_log('No validation')
+            return
+
+        metric_dict = defaultdict(list)
+        self.model.eval()
+        with torch.set_grad_enabled(self.valid_requires_grad):
+            t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
+            for batch in t_iter:
+                batch = self.to_device(batch, device)
+                metric = self.valid_step(batch, self.valid_global_step)
+                metric_dict["loss"].append(metric.loss.cpu().item())
+                metric_dict["translation_loss"].append(metric.translation_loss.cpu().item())
+                metric_dict["rotation_loss"].append(metric.rotation_loss.cpu().item())
+                self.valid_global_step += 1
+        self.model.train()
+        # judge
+        valid_metric = np.mean(metric_dict["loss"])
+        if self.use_wandb and self._is_main_proc():
+            wandb.log({f'val_MSELoss': valid_metric.item()}, step=self.global_step)
+            wandb.log({f'val_RMSELoss': np.sqrt(valid_metric)}, step=self.global_step)
+            wandb.log({f'val_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
+            wandb.log({f'val_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
+        if self._is_main_proc():
+            save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            module_to_save = self.model.module if self.local_rank == 0 else self.model
+            torch.save(module_to_save, save_path)
+            self._maintain_topk_checkpoint(valid_metric, save_path)
+            print_log(f'Validation: {valid_metric}, save path: {save_path}')
+        if self._metric_better(valid_metric):
+            self.patience = self.config.patience
+        else:
+            self.patience -= 1
+        self.last_valid_metric = valid_metric
+        # write valid_metric
+        for name in self.writer_buffer:
+            value = np.mean(self.writer_buffer[name])
+            self.log(name, value, self.epoch)
+        self.writer_buffer = {}
