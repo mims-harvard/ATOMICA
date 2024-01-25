@@ -22,7 +22,8 @@ def create_model(args):
             n_head=args.n_head,
             atom_level=args.atom_level,
             hierarchical=args.hierarchical,
-            no_block_embedding=args.no_block_embedding
+            no_block_embedding=args.no_block_embedding,
+            denoising=True,
         )
     else:
         add_params = {}
