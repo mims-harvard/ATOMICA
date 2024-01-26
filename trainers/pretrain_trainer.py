@@ -29,7 +29,8 @@ class PretrainTrainer(Trainer):
     def get_scheduler(self, optimizer):
         log_alpha = self.log_alpha
         lr_lambda = lambda step: exp(log_alpha * (step + 1))  # equal to alpha^{step}
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=2000, eta_min=self.config.final_lr)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'
@@ -100,8 +101,8 @@ class PretrainTrainer(Trainer):
             self.global_step += 1
             if self.sched_freq == 'batch':
                 self.scheduler.step()
-            
-            if batch_idx % validation_freq == 0:
+            wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
+            if batch_idx % validation_freq == 0 and batch_idx > 0:
                 print_log(f'validating ...') if self._is_main_proc() else 1
                 self._valid_epoch(device)
                 self._before_train_epoch_start()

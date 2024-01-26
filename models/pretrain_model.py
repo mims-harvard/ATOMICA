@@ -306,33 +306,33 @@ class DenoisePretrainModel(nn.Module):
         if self.hierarchical:
             if self.denoising:
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-                unit_repr, _, _, pred_Z, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
+                _, bottom_block_repr, _, _, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
                 
                 #top level 
-                top_Z = scatter_mean(Z_perturbed if pred_Z is None else pred_Z, block_id, dim=0)  # [Nb, n_channel, 3]
+                top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-                top_H_0 = top_H_0 + scatter_mean(unit_repr, block_id, dim=0)
+                top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
                 _, block_repr, graph_repr, _, pred_noise_top = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, edges, edge_attr)
-                unit_repr = torch.concat([unit_repr, block_repr[block_id]], dim=-1) # unit_repr and block_repr may have different dim size for dim=1
+                bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
             else:
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-                unit_repr, _, _, pred_Z = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
+                _, bottom_block_repr, _, _ = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, edges, edge_attr)
 
                 # top level message passing
-                top_Z = scatter_mean(Z_perturbed if pred_Z is None else pred_Z, block_id, dim=0)  # [Nb, n_channel, 3]
+                top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-                top_H_0 = top_H_0 + scatter_mean(unit_repr, block_id, dim=0)
+                top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
                 _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, edges, edge_attr)
-                unit_repr = torch.concat([unit_repr, block_repr[block_id]], dim=-1)
+                bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1)
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, Z_perturbed, block_id)
             if self.denoising:
-                unit_repr, block_repr, graph_repr, pred_Z, pred_noise = self.encoder(H_0, Z_perturbed, block_id, batch_id, edges, edge_attr)
+                bottom_block_repr, block_repr, graph_repr, pred_Z, pred_noise = self.encoder(H_0, Z_perturbed, block_id, batch_id, edges, edge_attr)
             else:
-                unit_repr, block_repr, graph_repr, pred_Z = self.encoder(H_0, Z_perturbed, block_id, batch_id, edges, edge_attr)
+                bottom_block_repr, block_repr, graph_repr, pred_Z = self.encoder(H_0, Z_perturbed, block_id, batch_id, edges, edge_attr)
 
         # predict energy
         # must be sum instead of mean! mean will make the gradient (predicted noise) pretty small, and the score net will easily converge to 0
@@ -403,7 +403,7 @@ class DenoisePretrainModel(nn.Module):
             # noise_level=torch.argmax(pred_noise_level, dim=-1),
 
             # representations
-            unit_repr=unit_repr,
+            unit_repr=bottom_block_repr,
             block_repr=block_repr,
             graph_repr=graph_repr,
 

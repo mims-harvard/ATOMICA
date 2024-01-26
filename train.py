@@ -65,6 +65,7 @@ def parse():
     parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
     parser.add_argument('--n_channel', type=int, default=1, help='number of channels')
     parser.add_argument('--n_rbf', type=int, default=1, help='Dimension of RBF')
+    parser.add_argument('--edge_size', type=int, default=16, help='Dimension of RBF')
     parser.add_argument('--cutoff', type=float, default=7.0, help='Cutoff in RBF')
     parser.add_argument('--n_head', type=int, default=1, help='Number of heads in the multi-head attention')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')

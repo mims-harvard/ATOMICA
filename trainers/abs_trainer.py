@@ -117,6 +117,7 @@ class Trainer:
             if self.use_wandb and self._is_main_proc():
                 wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
                 wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                wandb.log({'lr': self.optimizer.param_groups[0]['lr']}, step=self.global_step)
 
             # for name, param in self.model.named_parameters():
             #     if not param.requires_grad:
