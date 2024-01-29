@@ -79,7 +79,8 @@ def parse():
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
-    
+    parser.add_argument('--partial_finetune', action="store_true", default=False, help='only finetune energy head')
+
     # logging
     parser.add_argument('--use_wandb', action="store_true", default=False, help='log to Weights and Biases')
     parser.add_argument('--run_name', type=str, default="test", help='model run name for logging')

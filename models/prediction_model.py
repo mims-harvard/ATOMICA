@@ -28,6 +28,9 @@ class PredictionModel(DenoisePretrainModel):
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if 'partial_finetune' in kwargs:
+            del kwargs['partial_finetune']
         model = cls(
             model_type=pretrained_model.model_type,
             hidden_size=pretrained_model.hidden_size,
@@ -47,6 +50,9 @@ class PredictionModel(DenoisePretrainModel):
             **kwargs
         )
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
+        if partial_finetune:
+            model.requires_grad_(requires_grad=False)
+            model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
         return model
 
     ########## overload ##########
