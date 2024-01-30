@@ -10,6 +10,7 @@ import torch.nn.functional as F
 from torch.autograd import grad
 from torch_scatter import scatter_mean, scatter_sum
 import random
+import plotly.graph_objects as go
 
 from data.pdb_utils import VOCAB
 
@@ -21,8 +22,40 @@ ReturnValue = namedtuple(
     ['energy', 'noise', 'noise_level',
      'unit_repr', 'block_repr', 'graph_repr',
      'batch_id', 'block_id',
-     'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'rotation_loss', 'translation_loss'],
+     'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'rotation_loss', 'translation_loss', 'rotation_base', 'translation_base'],
     )
+
+ELEMENTS_COLOR = {
+    0: "#1aaeed",  # blue
+    1: "#ff0000",  # red
+}
+
+def plot_graph(Z, segment_ids, bottom_batch_id, block_id, batch_idx):
+    fig = go.Figure()
+    Z = Z.cpu()
+    Z = Z[bottom_batch_id.cpu() == batch_idx]
+    segment_ids = segment_ids[block_id][bottom_batch_id == batch_idx]
+    x = Z[:, 0]
+    y = Z[:, 1]
+    z = Z[:, 2]
+
+    color = [ELEMENTS_COLOR[i.cpu().item()] for i in segment_ids]
+    fig.add_trace(
+        go.Scatter3d(
+            x=x,
+            y=y,
+            z=z,
+            mode="markers",  # +text",
+            textposition="middle center",
+            marker=dict(size=6, color=color, line=dict(width=2, color="#4f4f4f")),
+        )
+    )
+
+    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
+    fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
+
+    fig.show()
+    return fig
 
 
 def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, complexity=-1):
@@ -129,7 +162,7 @@ class DenoisePretrainModel(nn.Module):
         self.denoising = denoising
         self.mse_loss = nn.MSELoss()
 
-        self.theta_range = np.linspace(0.1, np.pi, 100)
+        self.theta_range = np.linspace(0.1, np.pi/4, 100)
         self.sigma_range = np.linspace(0, 10.0, 100) + 0.1
         self.expansion = [_expansion(self.theta_range, sigma) for sigma in self.sigma_range]
         self.density = [_density(exp, self.theta_range) for exp in self.expansion]
@@ -237,7 +270,7 @@ class DenoisePretrainModel(nn.Module):
         eps = torch.tensor(eps).float().cuda().unsqueeze(-1)
         hat_t = torch.randn(batch_size, 3).cuda() * eps
         # Apply
-        center = Z[(B[block_id] == self.global_block_id) & (segment_ids[block_id] == receptor_segment[batch_id][block_id])]  # [bs]
+        center = Z[(B[block_id] == self.global_block_id) & perturb_mask]  # [bs] center of perturbed segment
         Z_perturbed = Z - center[batch_id][block_id]
         Z_perturbed = self.rigid_transform(Z_perturbed, w, hat_t, perturb_mask, bottom_batch_id, batch_size)
         Z_perturbed = Z_perturbed + center[batch_id][block_id]
@@ -393,9 +426,13 @@ class DenoisePretrainModel(nn.Module):
             # print(f"w {w.mean().item():.3f} {w.std().item():.3f} wloss {wloss.item():.3f}")
             # print(f"t {t.mean().item():.3f} {t.std().item():.3f} tloss {tloss.item():.3f}")
             if self.hierarchical:
-                noise_loss = tloss + tloss_top # + wloss + wloss_top 
+                noise_loss = tloss + tloss_top + wloss + wloss_top
+                translation_base = ((hat_t / eps)**2).mean() * 2
+                rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean() * 2
             else:
                 noise_loss = tloss + wloss
+                translation_base = ((hat_t / eps)**2).mean()
+                rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean()
             loss = noise_loss
             align_loss, noise_level_loss = 0, 0
         else:
@@ -423,6 +460,8 @@ class DenoisePretrainModel(nn.Module):
             noise_loss=noise_loss,
             noise_level_loss=noise_level_loss,
             align_loss=align_loss,
-            rotation_loss=torch.tensor(0, dtype=torch.long), #wloss+wloss_top if self.hierarchical else wloss,
+            rotation_loss=wloss+wloss_top if self.hierarchical else wloss,
             translation_loss=tloss+tloss_top if self.hierarchical else tloss,
+            translation_base=translation_base,
+            rotation_base=rotation_base,
         )

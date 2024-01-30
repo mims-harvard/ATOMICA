@@ -99,6 +99,8 @@ class PretrainTrainer(Trainer):
                 wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
                 wandb.log({f'train_translation_loss': loss_obj.translation_loss}, step=self.global_step)
                 wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
+                wandb.log({f'train_translation_base': loss_obj.translation_base}, step=self.global_step)
+                wandb.log({f'train_rotation_base': loss_obj.rotation_base}, step=self.global_step)
 
             if self.config.grad_clip is not None:
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
