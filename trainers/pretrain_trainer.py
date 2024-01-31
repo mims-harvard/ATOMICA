@@ -90,7 +90,6 @@ class PretrainTrainer(Trainer):
             self.optimizer.zero_grad(set_to_none=True)
             loss = loss_obj.loss
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0) # from DSMBind
             metric_dict["loss"].append(loss.cpu().item())
             metric_dict["atom_loss"].append(loss_obj.atom_loss.cpu().item())
             metric_dict["translation_loss"].append(loss_obj.translation_loss.cpu().item())

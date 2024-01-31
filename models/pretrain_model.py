@@ -417,20 +417,26 @@ class DenoisePretrainModel(nn.Module):
         pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
 
         if return_noise or return_loss:
-            # f = pred_noise
-            # # f = torch.autograd.grad(pred_energy.sum(), Z_perturbed, create_graph=True, retain_graph=True)[0] # [Nu, 1, 3]
+            # f = torch.autograd.grad(pred_energy.sum(), Z_perturbed, create_graph=True, retain_graph=True)[0] # [Nu, 1, 3]
             # f = f.squeeze() # [Nu, 3]
             # Z_perturbed = Z_perturbed.squeeze()  # [Nu, 3]
             # # Translation force
             # t = scatter_mean(f[perturb_mask], bottom_batch_id[perturb_mask], dim=0) # [B,3]
             # # Rotation force using Euler's Rotation Equation
-            # center = Z_perturbed[(B[block_id] == self.global_block_id) & (segment_ids[block_id] == receptor_segment[batch_id][block_id])]  # [bs]
+            # center = Z[(B[block_id] == self.global_block_id) & perturb_mask]  # [bs]
             # Z_perturbed = Z_perturbed - center[batch_id][block_id] # set rotation center to zero
             # G = torch.cross(Z_perturbed, f, dim=-1)  # [Nu,3]
             # G = scatter_sum((G * perturb_mask[...,None]), bottom_batch_id, dim=0)  # [B,3] angular momentum
             # I = self.inertia(Z_perturbed, perturb_mask, bottom_batch_id) # [B,3,3] inertia matrix
             # w = torch.linalg.solve(I.detach(), G)  # angular velocity
-            # Score matching loss
+            # score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
+            # wloss = self.mse_loss(w, hat_w * score.unsqueeze(-1))
+            # tloss = self.mse_loss(t * eps, -hat_t / eps)
+            # atom_loss = torch.tensor(0.0)
+            # rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean()
+            # translation_base = ((-hat_t / eps)**2).mean()
+            # noise_loss = wloss + tloss
+            # # Score matching loss
 
             noise_loss = torch.tensor(0.0).cuda()
 
