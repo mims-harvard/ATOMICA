@@ -30,7 +30,7 @@ class PretrainTrainer(Trainer):
         log_alpha = self.log_alpha
         lr_lambda = lambda step: exp(log_alpha * (step + 1))  # equal to alpha^{step}
         # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=2000, eta_min=self.config.final_lr)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=50000, eta_min=self.config.final_lr)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'
@@ -55,28 +55,43 @@ class PretrainTrainer(Trainer):
     ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
-        loss = self.model(
-            Z=batch['X'], B=batch['B'], A=batch['A'],
-            atom_positions=batch['atom_positions'],
-            block_lengths=batch['block_lengths'],
-            lengths=batch['lengths'],
-            segment_ids=batch['segment_ids'],
-            label=None,
-            return_loss=True)
+        try:
+            loss = self.model(
+                Z=batch['X'], B=batch['B'], A=batch['A'],
+                atom_positions=batch['atom_positions'],
+                block_lengths=batch['block_lengths'],
+                lengths=batch['lengths'],
+                segment_ids=batch['segment_ids'],
+                label=None,
+                return_loss=True)
 
-        log_type = 'Validation' if val else 'Train'
+            log_type = 'Validation' if val else 'Train'
 
-        self.log(f'Loss/loss/{log_type}', loss.loss, batch_idx, val)
-        self.log(f'Loss/noise_loss/{log_type}', loss.noise_loss, batch_idx, val)
-        self.log(f'Loss/noise_level_loss/{log_type}', loss.noise_level_loss, batch_idx, val)
-        self.log(f'Loss/align_loss/{log_type}', loss.align_loss, batch_idx, val)
+            self.log(f'Loss/loss/{log_type}', loss.loss, batch_idx, val)
+            self.log(f'Loss/noise_loss/{log_type}', loss.noise_loss, batch_idx, val)
+            self.log(f'Loss/noise_level_loss/{log_type}', loss.noise_level_loss, batch_idx, val)
+            self.log(f'Loss/align_loss/{log_type}', loss.align_loss, batch_idx, val)
 
-        if not val:
-            lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
-            lr = lr[0]
-            self.log('lr', lr, batch_idx, val)
+            if not val:
+                lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
+                lr = lr[0]
+                self.log('lr', lr, batch_idx, val)
 
-        return loss.loss
+            return loss.loss
+        except RuntimeError as e:
+            if "out of memory" in str(e) and torch.cuda.is_available():
+                print_log(e, level='ERROR')
+                print_log(
+                    f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
+                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}""", level='ERROR'
+                )
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        del p.grad  # free some memory
+                torch.cuda.empty_cache()
+                return None
+            else:
+                raise e
 
     def _train_epoch(self, device, validation_freq=5000):
         self._before_train_epoch_start()
@@ -86,6 +101,8 @@ class PretrainTrainer(Trainer):
         for batch_idx, batch in t_iter:
             batch = self.to_device(batch, device)
             loss = self.train_step(batch, self.global_step)
+            if loss is None:
+                continue # Out of memory
             self.optimizer.zero_grad()
             loss.backward()
 

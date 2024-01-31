@@ -313,11 +313,14 @@ class MixDatasetWrapper(torch.utils.data.Dataset):
 
 
 class DynamicBatchWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset, max_n_vertex_per_batch) -> None:
+    def __init__(self, dataset, max_n_vertex_per_batch, max_n_vertex_per_item=None) -> None:
         super().__init__()
         self.dataset = dataset
         self.indexes = [i for i in range(len(dataset))]
         self.max_n_vertex_per_batch = max_n_vertex_per_batch
+        if max_n_vertex_per_item is None:
+            max_n_vertex_per_item = max_n_vertex_per_batch
+        self.max_n_vertex_per_item = max_n_vertex_per_item
         self.total_size = None
         self.batch_indexes = []
         self._form_batch()
@@ -335,7 +338,7 @@ class DynamicBatchWrapper(torch.utils.data.Dataset):
         for i in self.indexes:
             data = self.dataset[i]
             item_len = len(data['B']) if 'B' in data else data['len']
-            if item_len > self.max_n_vertex_per_batch:
+            if item_len > self.max_n_vertex_per_item:
                 continue
             cur_vertex_cnt += item_len
             if cur_vertex_cnt > self.max_n_vertex_per_batch:

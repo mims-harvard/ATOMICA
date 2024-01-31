@@ -62,8 +62,13 @@ def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs)
 
 def parse():
     parser = argparse.ArgumentParser(description='Process Q-BioLiP PP data of protein-ligand interaction for pre-training')
-    parser.add_argument('--data_dir', type=str, required=True,
-                        help='Directory containing pdb_files')
+    parser.add_argument('--data_dir_rec', type=str, required=True,
+                        help='Directory containing receptor pdb_files')
+    parser.add_argument('--data_dir_lig', type=str, default=None,
+                    help='Directory containing ligand pdb_files')
+    parser.add_argument('--task', required=True, type=str, choices=['PP', 'PL', 'PRNA', 'PDNA', 'Ppeptide', 'Pion', 'RNAL'], 
+                        description='PP=protein-protein, PL=protein-small molecule ligand, PRNA=protein-RNA, PDNA=protein-DNA,\
+                              Ppeptide=protein-peptide, Pion=protein-ion, RNAL=RNA-small molecule ligand')
     parser.add_argument('--index_path', type=str, required=True, help='Path to Q-BioLiP annotation file')
     parser.add_argument('--exclude_path', type=str, required=True, help='Path to file with PDB ids to be excluded from the dataset')
     parser.add_argument('--out_dir', type=str, required=True,
@@ -90,7 +95,7 @@ def residue_to_pd_rows(chain: str, residue: Residue):
     return rows
 
 
-def process_one(protein_file_name, data_dir, interface_dist_th):
+def process_one_PP(protein_file_name, data_dir, interface_dist_th):
     items = []
     prot_fname = os.path.join(data_dir, protein_file_name)
     try:
@@ -120,9 +125,7 @@ def process_one(protein_file_name, data_dir, interface_dist_th):
 
 
 def main(args):
-
-    # TODO: 1. preprocess PDBbind into json summaries and complex pdbs
-    protein_indexes = pd.read_csv(args.index_path, sep=',', header=None)
+    protein_indexes = pd.read_csv(args.index_path, sep=',')
     raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir))
     with open(args.exclude_path, "r") as f:
         exclude_protein_file_names = f.readlines()
@@ -143,6 +146,11 @@ def main(args):
     print_log('Preprocessing')
     processed_data = []
     cnt = 0
+
+    process_one_dict = {
+        "PP": process_one_PP,
+    }
+    process_one = process_one_dict[args.task]
 
     result_list = pmap_multi(process_one, zip(protein_file_names), 
                              data_dir=args.data_dir,

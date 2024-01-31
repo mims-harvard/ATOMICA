@@ -156,6 +156,8 @@ class Trainer:
             for batch in t_iter:
                 batch = self.to_device(batch, device)
                 metric = self.valid_step(batch, self.valid_global_step)
+                if metric is None:
+                    continue # Out of memory
                 metric_arr.append(metric.cpu().item())
                 self.valid_global_step += 1
         self.model.train()
