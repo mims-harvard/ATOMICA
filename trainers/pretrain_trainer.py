@@ -92,11 +92,13 @@ class PretrainTrainer(Trainer):
             loss.backward()
             torch.nn.utils.clip_grad_norm_(self.model.parameters(), 1.0) # from DSMBind
             metric_dict["loss"].append(loss.cpu().item())
+            metric_dict["atom_loss"].append(loss_obj.atom_loss.cpu().item())
             metric_dict["translation_loss"].append(loss_obj.translation_loss.cpu().item())
             metric_dict["rotation_loss"].append(loss_obj.rotation_loss.cpu().item())
             if self.use_wandb and self._is_main_proc():
                 wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
                 wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                wandb.log({f'train_atom_loss': loss_obj.atom_loss}, step=self.global_step)
                 wandb.log({f'train_translation_loss': loss_obj.translation_loss}, step=self.global_step)
                 wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
                 wandb.log({f'train_translation_base': loss_obj.translation_base}, step=self.global_step)
@@ -117,6 +119,7 @@ class PretrainTrainer(Trainer):
                 self._before_train_epoch_start()
         if self.use_wandb and self._is_main_proc():
             wandb.log({f'train_epoch_MSELoss': np.mean(metric_dict["loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
         if self.sched_freq == 'epoch':
@@ -142,6 +145,7 @@ class PretrainTrainer(Trainer):
                 batch = self.to_device(batch, device)
                 metric = self.valid_step(batch, self.valid_global_step)
                 metric_dict["loss"].append(metric.loss.cpu().item())
+                metric_dict["atom_loss"].append(metric.atom_loss.cpu().item())
                 metric_dict["translation_loss"].append(metric.translation_loss.cpu().item())
                 metric_dict["rotation_loss"].append(metric.rotation_loss.cpu().item())
                 self.valid_global_step += 1
@@ -151,6 +155,7 @@ class PretrainTrainer(Trainer):
         if self.use_wandb and self._is_main_proc():
             wandb.log({f'val_MSELoss': valid_metric.item()}, step=self.global_step)
             wandb.log({f'val_RMSELoss': np.sqrt(valid_metric)}, step=self.global_step)
+            wandb.log({f'val_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
             wandb.log({f'val_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
             wandb.log({f'val_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
         if self._is_main_proc():

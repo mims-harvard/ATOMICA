@@ -4,6 +4,7 @@ import os
 import argparse
 import torch
 from torch.utils.data import DataLoader
+import json
 
 from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
@@ -76,6 +77,10 @@ def parse():
     parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
     parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
     parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
+
+    parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
+    parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')
+    parser.add_argument('--rotation_noise', action='store_true', help='apply global rotation noise')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -152,7 +157,11 @@ def create_trainer(model, train_loader, valid_loader, config):
         Trainer = trainers.ECTrainer
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
-    return Trainer(model, train_loader, valid_loader, config)
+    trainer = Trainer(model, train_loader, valid_loader, config)
+    os.makedirs(config.save_dir, exist_ok=True)
+    with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
+        json.dump(vars(args), f)
+    return trainer
 
 
 def main(args):

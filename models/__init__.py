@@ -24,6 +24,9 @@ def create_model(args):
             hierarchical=args.hierarchical,
             no_block_embedding=args.no_block_embedding,
             denoising=True,
+            atom_noise=args.atom_noise,
+            translation_noise=args.translation_noise,
+            rotation_noise=args.rotation_noise,
         )
     else:
         add_params = {}

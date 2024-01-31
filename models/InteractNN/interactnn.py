@@ -61,14 +61,14 @@ class InteractionModule(torch.nn.Module):
 
         self.return_noise = return_noise
         if return_noise:
-            self.denoise_edge_embedder = nn.Sequential(
+            self.global_denoise_edge_embedder = nn.Sequential(
                 GaussianEmbedding(num_gaussians=edge_size, stop=20),
                 nn.Linear(edge_size, edge_size),
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(edge_size, edge_size),
             )
-            denoise_parameters = {
+            global_denoise_parameters = {
                 "in_irreps": irrep_seq[min(num_conv_layers, len(irrep_seq) - 1)],
                 "sh_irreps": self.sh_irreps,
                 "out_irreps": "2x1o + 2x1e",
@@ -78,10 +78,32 @@ class InteractionModule(torch.nn.Module):
                 "norm_type": norm_type,
                 "dropout": dropout,
             }
-            self.denoise_predictor = TensorProductConvLayer(
-                **denoise_parameters
+            self.global_denoise_predictor = TensorProductConvLayer(
+                **global_denoise_parameters
             )
-            self.denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
+            self.global_denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
+
+            self.local_denoise_edge_embedder = nn.Sequential(
+                GaussianEmbedding(num_gaussians=edge_size, stop=20),
+                nn.Linear(edge_size, edge_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(edge_size, edge_size),
+            )
+            local_denoise_parameters = {
+                "in_irreps": irrep_seq[min(num_conv_layers, len(irrep_seq) - 1)],
+                "sh_irreps": self.sh_irreps,
+                "out_irreps": "1o + 1e",
+                "n_edge_features": 2 * ns + 2 * edge_size,  # features are [edge_length_embedding, edge_attr, scalars of atom 1, scalars of atom 2]
+                "hidden_features": 2 * ns + 2 * edge_size,
+                "residual": False,
+                "norm_type": norm_type,
+                "dropout": dropout,
+            }
+            self.local_denoise_predictor = TensorProductConvLayer(
+                **local_denoise_parameters
+            )
+            self.local_denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
         
         self.out_ffn = nn.Sequential(
             nn.Linear(self.node_embedding_dim, self.node_embedding_dim),
@@ -133,30 +155,46 @@ class InteractionModule(torch.nn.Module):
             )
 
         if self.return_noise:
-            center = scatter_mean(coords[perturb_mask], batch_id[perturb_mask], dim=0)
-            num_centers = center.shape[0]
-            edges = torch.stack((batch_id[perturb_mask], torch.nonzero(perturb_mask).flatten()), dim=0)
-            edge_length = torch.norm(coords[edges[1]] - center[edges[0]], dim=-1)
-            edge_length_embedding = self.denoise_edge_embedder(edge_length)
+            # Local denoising
             edge_attr = torch.cat(
                 (
                     edge_length_embedding,
+                    edge_type_attr,
+                    node_attr[edges[0], : self.ns],
                     node_attr[edges[1], : self.ns],
                 ),
                 dim=1,
             )
-            edge_sh = o3.spherical_harmonics(
+            pred = self.local_denoise_predictor(
+                node_attr, edges, edge_attr, edge_sh,
+            )
+            atom_noise = pred[:, :3] + pred[:, 3:]
+
+            # Global denoising
+            center = scatter_mean(coords[perturb_mask], batch_id[perturb_mask], dim=0)
+            num_centers = center.shape[0]
+            global_edges = torch.stack((batch_id[perturb_mask], torch.nonzero(perturb_mask).flatten()), dim=0)
+            global_edge_length = torch.norm(coords[global_edges[1]] - center[global_edges[0]], dim=-1)
+            global_edge_length_embedding = self.global_denoise_edge_embedder(global_edge_length)
+            global_edge_attr = torch.cat(
+                (
+                    global_edge_length_embedding,
+                    node_attr[global_edges[1], : self.ns],
+                ),
+                dim=1,
+            )
+            global_edge_sh = o3.spherical_harmonics(
                 self.sh_irreps,
-                coords[edges[1]] - center[edges[0]],
+                coords[global_edges[1]] - center[global_edges[0]],
                 normalize=True,
                 normalization="component",
             )
-            pred = self.denoise_predictor(
-                node_attr, edges, edge_attr, edge_sh, out_nodes = num_centers,
+            global_pred = self.global_denoise_predictor(
+                node_attr, global_edges, global_edge_attr, global_edge_sh, out_nodes = num_centers,
             )
-            trans_noise = pred[:, :3] + pred[:, 6:9]
-            rot_noise = pred[:, 3:6] + pred[:, 9:]
-            return self.out_ffn(node_embeddings), trans_noise, rot_noise
+            trans_noise = global_pred[:, :3] + global_pred[:, 6:9]
+            rot_noise = global_pred[:, 3:6] + global_pred[:, 9:]
+            return self.out_ffn(node_embeddings), trans_noise, rot_noise, atom_noise
         else:
             node_embeddings = self.out_ffn(node_embeddings)
             return node_embeddings

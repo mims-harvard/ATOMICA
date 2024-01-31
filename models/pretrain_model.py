@@ -22,7 +22,7 @@ ReturnValue = namedtuple(
     ['energy', 'noise', 'noise_level',
      'unit_repr', 'block_repr', 'graph_repr',
      'batch_id', 'block_id',
-     'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'rotation_loss', 'translation_loss', 'rotation_base', 'translation_base'],
+     'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'atom_loss', 'rotation_loss', 'translation_loss', 'rotation_base', 'translation_base'],
     )
 
 ELEMENTS_COLOR = {
@@ -140,7 +140,7 @@ class DenoisePretrainModel(nn.Module):
                  n_rbf=1, cutoff=7.0, n_head=1,
                  radial_size=16, edge_size=16, k_neighbors=9, n_layers=3,
                  dropout=0.1, std=10, global_message_passing=False,
-                 atom_level=False, hierarchical=False, no_block_embedding=False, denoising=True) -> None:
+                 atom_level=False, hierarchical=False, no_block_embedding=False, denoising=True, atom_noise=True, translation_noise=True, rotation_noise=True) -> None:
         super().__init__()
 
         self.model_type = model_type
@@ -160,7 +160,12 @@ class DenoisePretrainModel(nn.Module):
         self.hierarchical = hierarchical
         self.no_block_embedding = no_block_embedding
         self.denoising = denoising
+        self.atom_noise = atom_noise
+        self.translation_noise = translation_noise
+        self.rotation_noise = rotation_noise
         self.mse_loss = nn.MSELoss()
+
+        assert self.atom_noise or self.translation_noise or self.rotation_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
 
         self.theta_range = np.linspace(0.1, np.pi/4, 100)
         self.sigma_range = np.linspace(0, 10.0, 100) + 0.1
@@ -249,8 +254,10 @@ class DenoisePretrainModel(nn.Module):
             mask = batch_id == i
             mask = torch.logical_and(mask, perturb_mask)
             wi = w[i].unsqueeze(0)  # [1, 3]
-            Z[mask] = Z[mask] + c1[i] * torch.cross(wi, Z[mask]) + c2[i] * torch.cross(wi, torch.cross(wi, Z[mask]))
-            Z[mask] = Z[mask] + translation_vectors[i]
+            if self.rotation_noise:
+                Z[mask] = Z[mask] + c1[i] * torch.cross(wi, Z[mask]) + c2[i] * torch.cross(wi, torch.cross(wi, Z[mask]))
+            if self.translation_noise:
+                Z[mask] = Z[mask] + translation_vectors[i]
         return Z
 
     @torch.no_grad()
@@ -274,7 +281,15 @@ class DenoisePretrainModel(nn.Module):
         Z_perturbed = Z - center[batch_id][block_id]
         Z_perturbed = self.rigid_transform(Z_perturbed, w, hat_t, perturb_mask, bottom_batch_id, batch_size)
         Z_perturbed = Z_perturbed + center[batch_id][block_id]
-        return Z_perturbed, hat_w, hat_t, eps, sidx, tidx, perturb_mask, perturb_block_mask
+
+        # Apply atom level coordinate noise
+        if self.atom_noise:
+            atom_noise = torch.clamp(torch.randn_like(Z), min=-1, max=1)  # [Nu, channel, 3]
+            atom_noise[~perturb_mask] = 0  # only one side of the complex is perturbed
+            Z_perturbed = Z_perturbed + atom_noise
+        else:
+            atom_noise = None
+        return Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask
     
     @torch.no_grad()
     def update_global_block(self, Z, B, block_id):
@@ -352,7 +367,7 @@ class DenoisePretrainModel(nn.Module):
             # perturbation
             assert Z.shape[1] == 1, "n_channel must be 1"
             Z = Z.squeeze() # [Nu, n_channel, 3] -> [Nu, 3], n_channel == 1
-            Z_perturbed, hat_w, hat_t, eps, sidx, tidx, perturb_mask, perturb_block_mask = self.perturb(Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment)
+            Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask = self.perturb(Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment)
             Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
             Z_perturbed = Z_perturbed.unsqueeze(1)  # [Nu, 1, 3]
             # FIXME: update global atom block A == VOCAB.get_atom_global_idx())
@@ -371,13 +386,13 @@ class DenoisePretrainModel(nn.Module):
             if self.denoising:
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-                _, bottom_block_repr, _, _, trans_noise, rot_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr)
+                _, bottom_block_repr, _, _, trans_noise, rot_noise, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr)
                 #top level 
                 top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
                 top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
-                _, block_repr, graph_repr, _, trans_noise_top, rot_noise_top = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr)
+                _, block_repr, graph_repr, _, trans_noise_top, rot_noise_top, pred_noise_top = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr)
                 bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
             else:
                 # bottom level message passing
@@ -394,7 +409,7 @@ class DenoisePretrainModel(nn.Module):
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, Z_perturbed, block_id)
             if self.denoising:
-                _, block_repr, graph_repr, _, trans_noise, rot_noise = self.encoder(H_0, Z_perturbed, block_id, perturb_mask, batch_id, edges, edge_attr)
+                _, block_repr, graph_repr, _, trans_noise, rot_noise, pred_noise = self.encoder(H_0, Z_perturbed, block_id, perturb_mask, batch_id, edges, edge_attr)
             else:
                 _, block_repr, graph_repr, _ = self.encoder(H_0, Z_perturbed, block_id, batch_id, perturb_mask, edges, edge_attr)
 
@@ -416,23 +431,52 @@ class DenoisePretrainModel(nn.Module):
             # I = self.inertia(Z_perturbed, perturb_mask, bottom_batch_id) # [B,3,3] inertia matrix
             # w = torch.linalg.solve(I.detach(), G)  # angular velocity
             # Score matching loss
-            score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
-            wloss = self.mse_loss(rot_noise, hat_w * score.unsqueeze(-1))
-            tloss = self.mse_loss(trans_noise * eps, -hat_t / eps)
 
-            if self.hierarchical:
-                wloss_top = self.mse_loss(rot_noise_top, hat_w * score.unsqueeze(-1))
-                tloss_top = self.mse_loss(trans_noise_top * eps, -hat_t / eps)
-            # print(f"w {w.mean().item():.3f} {w.std().item():.3f} wloss {wloss.item():.3f}")
-            # print(f"t {t.mean().item():.3f} {t.std().item():.3f} tloss {tloss.item():.3f}")
-            if self.hierarchical:
-                noise_loss = tloss + tloss_top + wloss + wloss_top
-                translation_base = ((hat_t / eps)**2).mean() * 2
-                rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean() * 2
+            noise_loss = torch.tensor(0.0).cuda()
+
+            # Atom denoising loss
+            if self.atom_noise:
+                pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, 3]
+                if self.hierarchical:
+                    pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, 3]
+                    top_atom_noise = scatter_mean(atom_noise, block_id, dim=0)  # [Nb, 3]
+                
+                atom_loss = F.mse_loss(pred_noise[perturb_mask], atom_noise[perturb_mask], reduction='none')  # [Nperturb, 3]
+                atom_loss = atom_loss.sum(dim=-1)  # [Nperturb]
+                atom_loss = scatter_mean(atom_loss, batch_id[block_id][perturb_mask])  # [batch_size] # FIXME: used to be scatter_sum
+                atom_loss = 0.5 * atom_loss.mean()  # [1]
+                if self.hierarchical:
+                    atom_loss_top = F.mse_loss(pred_noise_top[perturb_block_mask], top_atom_noise[perturb_block_mask], reduction='none')
+                    atom_loss_top = atom_loss_top.sum(dim=-1)  # [Nperturb]
+                    atom_loss_top = scatter_mean(atom_loss_top, batch_id[perturb_block_mask])  # [batch_size] # FIXME: used to be scatter_sum
+                    atom_loss += 0.5 * atom_loss_top.mean()
+                noise_loss += atom_loss
             else:
-                noise_loss = tloss + wloss
-                translation_base = ((hat_t / eps)**2).mean()
-                rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean()
+                atom_loss = torch.tensor(0.0)
+
+            # Global translation loss
+            if self.translation_noise:
+                tloss = self.mse_loss(trans_noise * eps, -hat_t / eps)
+                tloss_top = self.mse_loss(trans_noise_top * eps, -hat_t / eps) if self.hierarchical else torch.tensor(0.0).cuda()
+                tloss += tloss_top
+                translation_base = ((hat_t / eps)**2).mean() * (2 if self.hierarchical else 1)
+                noise_loss += tloss
+            else:
+                tloss = torch.tensor(0.0)
+                translation_base = torch.tensor(0.0)
+
+            # Global rotation loss
+            if self.rotation_noise:
+                score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
+                wloss = self.mse_loss(rot_noise, hat_w * score.unsqueeze(-1))
+                wloss_top = self.mse_loss(rot_noise_top, hat_w * score.unsqueeze(-1)) if self.hierarchical else torch.tensor(0.0).cuda()
+                wloss += wloss_top
+                rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean() * (2 if self.hierarchical else 1)
+                noise_loss += wloss
+            else:
+                wloss = torch.tensor(0.0)
+                rotation_base = torch.tensor(0.0)
+            
             loss = noise_loss
             align_loss, noise_level_loss = 0, 0
         else:
@@ -460,8 +504,9 @@ class DenoisePretrainModel(nn.Module):
             noise_loss=noise_loss,
             noise_level_loss=noise_level_loss,
             align_loss=align_loss,
-            rotation_loss=wloss+wloss_top if self.hierarchical else wloss,
-            translation_loss=tloss+tloss_top if self.hierarchical else tloss,
+            atom_loss=atom_loss,
+            rotation_loss=wloss,
+            translation_loss=tloss,
             translation_base=translation_base,
             rotation_base=rotation_base,
         )
