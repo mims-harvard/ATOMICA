@@ -74,13 +74,14 @@ class InteractionModule(torch.nn.Module):
             self.denoise_predictor = TensorProductConvLayer(
                 **denoise_parameters
             )
-        else:
-            self.out_ffn = nn.Sequential(
-                nn.Linear(self.node_embedding_dim, self.node_embedding_dim),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(self.node_embedding_dim, ns),
-            )
+            self.denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
+        
+        self.out_ffn = nn.Sequential(
+            nn.Linear(self.node_embedding_dim, self.node_embedding_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(self.node_embedding_dim, ns),
+        )
 
 
     def forward(self, node_attr, coords, batch_id, edges, edge_type_attr):
@@ -138,7 +139,7 @@ class InteractionModule(torch.nn.Module):
                 node_attr, edges, edge_attr, edge_sh,
             )
             noise = pred[:, :3] + pred[:, 3:]
-            return node_embeddings, noise
+            return self.out_ffn(node_embeddings), noise
         else:
             node_embeddings = self.out_ffn(node_embeddings)
             return node_embeddings

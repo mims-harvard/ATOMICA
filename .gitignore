@@ -16,6 +16,15 @@ __pycache__
 
 *.npy
 
+*.ckpt
+
 datasets
 
+pretrain
+
+run_logs
+
 testing_scripts
+
+scripts/exps/configs/LBA/*.json
+scripts/exps/configs/PPA/*.json

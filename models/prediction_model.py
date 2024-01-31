@@ -23,11 +23,14 @@ class PredictionModel(DenoisePretrainModel):
             model_type, hidden_size, n_channel, n_rbf, cutoff, n_head, radial_size, edge_size,
             k_neighbors, n_layers, dropout=dropout, std=std, atom_level=atom_level,
             hierarchical=hierarchical, no_block_embedding=no_block_embedding, denoising=False)
-        del self.sigmas  # no need for noise level
+        # del self.sigmas  # no need for noise level
 
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if 'partial_finetune' in kwargs:
+            del kwargs['partial_finetune']
         model = cls(
             model_type=pretrained_model.model_type,
             hidden_size=pretrained_model.hidden_size,
@@ -43,10 +46,13 @@ class PredictionModel(DenoisePretrainModel):
             std=pretrained_model.std,
             atom_level=pretrained_model.atom_level,
             hierarchical=pretrained_model.hierarchical,
-            no_block_embedding=pretrained_model.no_block_embedding
+            no_block_embedding=pretrained_model.no_block_embedding,
             **kwargs
         )
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
+        if partial_finetune:
+            model.requires_grad_(requires_grad=False)
+            model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
         return model
 
     ########## overload ##########
@@ -57,7 +63,7 @@ class PredictionModel(DenoisePretrainModel):
     @torch.no_grad()
     def perturb(self, Z, block_id, batch_id, batch_size, segment_ids, receptor_segment):
         # do not perturb in prediction model
-        return Z, None, None, None
+        return Z, None, None, None, None
     
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False) -> ReturnValue:
         return_value = super().forward(
