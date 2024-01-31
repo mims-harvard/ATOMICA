@@ -17,7 +17,7 @@ from .GET.modules.tools import BlockEmbedding, KNNBatchEdgeConstructor
 
 ReturnValue = namedtuple(
     'ReturnValue',
-    ['energy', 'noise', 'noise_level',
+    ['energy', 'block_energy', 'noise', 'noise_level',
      'unit_repr', 'block_repr', 'graph_repr',
      'batch_id', 'block_id',
      'loss', 'noise_loss', 'noise_level_loss', 'align_loss'],
@@ -343,6 +343,7 @@ class DenoisePretrainModel(nn.Module):
         if self.denoising:
             # use denoising head
             pred_energy = None
+            block_energy = None
             pred_noise = pred_noise.view(-1, self.n_channel, 3)  # [Nu, n_channel, 3]
             pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
             if self.hierarchical:
@@ -351,7 +352,8 @@ class DenoisePretrainModel(nn.Module):
                 top_noise = scatter_mean(noise, block_id, dim=0)  # [Nb, n_channel, 3]
         else:
             # old GET code
-            pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
+            block_energy = self.energy_ffn(block_repr).squeeze(-1)
+            pred_energy = scatter_sum(block_energy, batch_id)
             if return_noise or return_loss:
                 # predict noise
                 pred_noise = self.pred_noise_from_energy(pred_energy, Z_perturbed)
@@ -398,6 +400,7 @@ class DenoisePretrainModel(nn.Module):
 
             # denoising variables
             energy=pred_energy,
+            block_energy=block_energy,
             noise=pred_noise,
             noise_level=0,
             # noise_level=torch.argmax(pred_noise_level, dim=-1),
