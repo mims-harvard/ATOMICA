@@ -67,7 +67,7 @@ def parse():
     parser.add_argument('--data_dir_lig', type=str, default=None,
                     help='Directory containing ligand pdb_files')
     parser.add_argument('--task', required=True, type=str, choices=['PP', 'PL', 'PRNA', 'PDNA', 'Ppeptide', 'Pion', 'RNAL'], 
-                        description='PP=protein-protein, PL=protein-small molecule ligand, PRNA=protein-RNA, PDNA=protein-DNA,\
+                        help='PP=protein-protein, PL=protein-small molecule ligand, PRNA=protein-RNA, PDNA=protein-DNA,\
                               Ppeptide=protein-peptide, Pion=protein-ion, RNAL=RNA-small molecule ligand')
     parser.add_argument('--index_path', type=str, required=True, help='Path to Q-BioLiP annotation file')
     parser.add_argument('--exclude_path', type=str, required=True, help='Path to file with PDB ids to be excluded from the dataset')
@@ -126,7 +126,7 @@ def process_one_PP(protein_file_name, data_dir, interface_dist_th):
 
 def main(args):
     protein_indexes = pd.read_csv(args.index_path, sep=',')
-    raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir))
+    raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_rec))
     with open(args.exclude_path, "r") as f:
         exclude_protein_file_names = f.readlines()
         exclude_protein_file_names = [x.strip() for x in exclude_protein_file_names]
@@ -143,7 +143,7 @@ def main(args):
             continue
         protein_file_names.append(f"{file_name}.pdb")
 
-    print_log('Preprocessing')
+    print_log(f'Preprocessing {len(protein_file_names)} protein files...')
     processed_data = []
     cnt = 0
 
@@ -153,7 +153,7 @@ def main(args):
     process_one = process_one_dict[args.task]
 
     result_list = pmap_multi(process_one, zip(protein_file_names), 
-                             data_dir=args.data_dir,
+                             data_dir=args.data_dir_rec,
                              interface_dist_th=args.interface_dist_th, 
                              n_jobs=args.num_workers, desc='check BioLiP data validity')
 
