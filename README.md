@@ -189,20 +189,18 @@ python scripts/data_process/process_PDBbind_NL.py \
 ```
 
 ## Pretraining
-Pretraining non hierarchical model on PPA data. For atom level denoising use `--atom_level` flag, for residue level do not use flag. 
+Pretraining hierarchical model on BioLiP and CSD data. 
 ```bash
-python train.py --gpu 0 --task pretrain_PPA --lr 0.0001 --final_lr 0.0001 --max_epoch 10000 --save_topk 10 --shuffle --model_type InteractNN --hidden_size 32 --n_layers 3\
- --radial_size 16 --n_channel 1 --n_rbf 16 --n_head 4 --k_neighbors 9 \
- --valid_set ./datasets/PPA/processed/split0/valid.pkl\
- --train_set ./datasets/PPA/processed/split0/train.pkl\
+python train.py --gpu 0 --task pretrain --lr 0.0001 --final_lr 0.0001 --max_epoch 10000 --save_topk 10 --shuffle --model_type InteractNN --hidden_size 32 --n_layers 3\
+ --radial_size 16 --n_channel 1 --n_rbf 16 --n_head 4 --k_neighbors 9 --hierarchical\
+ --valid_set /n/holyscratch01/mzitnik_lab/afang/GET/datasets/BioLiP/processed/BioLiP_selected_index_min_1_max_500/BioLiP_valid.pkl\
+ --train_set /n/holyscratch01/mzitnik_lab/afang/GET/datasets/BioLiP/processed/BioLiP_selected_index_min_1_max_500/BioLiP_train.pkl\
+ --train_set2 /n/holyscratch01/mzitnik_lab/afang/GET/datasets/csd3/train.pkl\
+ --valid_set2 /n/holyscratch01/mzitnik_lab/afang/GET/datasets/csd3/valid.pkl\
+ --save_dir /n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN\
  --save_dir ./pretrain/models/InteractNN\
  --seed 2023 --run_name test_PPA_pretrain_interactnn_with_denoising_head --batch_size 4 --atom_level
 ```
-
-@zaixizhang TODO: 
-1. Add pretraining for hierarchical model
-use `--hierarchical` flag for hierarchical denoising pretraining
-2. Add BioLiP pretraining from Jiaxin's code
 
 ## Training
 

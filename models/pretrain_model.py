@@ -409,9 +409,9 @@ class DenoisePretrainModel(nn.Module):
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, Z_perturbed, block_id)
             if self.denoising:
-                _, block_repr, graph_repr, _, trans_noise, rot_noise, pred_noise = self.encoder(H_0, Z_perturbed, block_id, perturb_mask, batch_id, edges, edge_attr)
+                bottom_block_repr, block_repr, graph_repr, _, trans_noise, rot_noise, pred_noise = self.encoder(H_0, Z_perturbed, block_id, perturb_mask, batch_id, edges, edge_attr)
             else:
-                _, block_repr, graph_repr, _ = self.encoder(H_0, Z_perturbed, block_id, batch_id, perturb_mask, edges, edge_attr)
+                bottom_block_repr, block_repr, graph_repr, _ = self.encoder(H_0, Z_perturbed, block_id, batch_id, perturb_mask, edges, edge_attr)
 
         # predict energy
         pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
