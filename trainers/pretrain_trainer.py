@@ -78,7 +78,7 @@ class PretrainTrainer(Trainer):
                 lr = lr[0]
                 self.log('lr', lr, batch_idx, val)
 
-            return loss.loss
+            return loss
         except RuntimeError as e:
             if "out of memory" in str(e) and torch.cuda.is_available():
                 print_log(e, level='ERROR')
@@ -102,18 +102,18 @@ class PretrainTrainer(Trainer):
         metric_dict = defaultdict(list)
         for batch_idx, batch in t_iter:
             batch = self.to_device(batch, device)
-            loss = self.train_step(batch, self.global_step)
-            if loss is None:
+            loss_obj = self.train_step(batch, self.global_step)
+            if loss_obj is None:
                 continue # Out of memory
             self.optimizer.zero_grad()
-            loss.backward()
-            metric_dict["loss"].append(loss.cpu().item())
+            loss_obj.loss.backward()
+            metric_dict["loss"].append(loss_obj.loss.cpu().item())
             metric_dict["atom_loss"].append(loss_obj.atom_loss.cpu().item())
             metric_dict["translation_loss"].append(loss_obj.translation_loss.cpu().item())
             metric_dict["rotation_loss"].append(loss_obj.rotation_loss.cpu().item())
             if self.use_wandb and self._is_main_proc():
-                wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
-                wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                wandb.log({f'train_MSELoss': loss_obj.loss.item()}, step=self.global_step)
+                wandb.log({f'train_RMSELoss': np.sqrt(loss_obj.loss.item())}, step=self.global_step)
                 wandb.log({f'train_atom_loss': loss_obj.atom_loss}, step=self.global_step)
                 wandb.log({f'train_translation_loss': loss_obj.translation_loss}, step=self.global_step)
                 wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
@@ -124,7 +124,7 @@ class PretrainTrainer(Trainer):
                 torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
             self.optimizer.step()
             if hasattr(t_iter, 'set_postfix'):
-                t_iter.set_postfix(loss=loss.item(), version=self.version)
+                t_iter.set_postfix(loss=loss_obj.loss.item(), version=self.version)
             self.global_step += 1
             if self.sched_freq == 'batch':
                 self.scheduler.step()
@@ -160,6 +160,8 @@ class PretrainTrainer(Trainer):
             for batch in t_iter:
                 batch = self.to_device(batch, device)
                 metric = self.valid_step(batch, self.valid_global_step)
+                if metric is None:
+                    continue # Out of memory
                 metric_dict["loss"].append(metric.loss.cpu().item())
                 metric_dict["atom_loss"].append(metric.atom_loss.cpu().item())
                 metric_dict["translation_loss"].append(metric.translation_loss.cpu().item())

@@ -14,7 +14,6 @@ def create_model(args):
             hidden_size=args.hidden_size,
             n_channel=args.n_channel,
             n_rbf=args.n_rbf,
-            edge_size=args.edge_size,
             cutoff=args.cutoff,
             edge_size=args.edge_size,
             radial_size=args.radial_size,
