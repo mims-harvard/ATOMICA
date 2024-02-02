@@ -354,11 +354,12 @@ class DenoisePretrainModel(nn.Module):
             # old GET code
             block_energy = self.energy_ffn(block_repr).squeeze(-1)
             pred_energy = scatter_sum(block_energy, batch_id)
-            if return_noise or return_loss:
-                # predict noise
-                pred_noise = self.pred_noise_from_energy(pred_energy, Z_perturbed)
-            else:
-                pred_noise = None
+            pred_noise = None
+            # if return_noise or return_loss:
+            #     # predict noise
+            #     pred_noise = self.pred_noise_from_energy(pred_energy, Z_perturbed)
+            # else:
+            #     pred_noise = None
 
         if return_loss:
             # print(pred_noise[perturb_mask][:10])

@@ -33,9 +33,6 @@ def create_model(args):
             }
         elif args.task == 'PLA' or args.task == 'PPA' or args.task == 'AffMix' or args.task == 'PDBBind' or args.task == 'NL' or args.task == 'PLA_frag':
             Model = AffinityPredictor
-            add_params = {
-                'partial_finetune': args.partial_finetune,
-            }
         elif args.task == 'EC':
             Model = GraphMultiBinaryClassifier
             add_params = {
@@ -45,6 +42,10 @@ def create_model(args):
             raise NotImplementedError(f'Model for task {args.task} not implemented')
             
         if args.pretrain_ckpt:
+            if Model == AffinityPredictor:
+                add_params = {
+                    'partial_finetune': args.partial_finetune,
+                }
             model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
             print(f"Model size: {sum(p.numel() for p in model.parameters())}")
             num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
@@ -55,6 +56,7 @@ def create_model(args):
             return Model(
                 model_type=model_type,
                 hidden_size=args.hidden_size,
+                edge_size=args.edge_size,
                 n_channel=args.n_channel,
                 n_rbf=args.n_rbf,
                 cutoff=args.cutoff,

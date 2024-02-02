@@ -83,8 +83,8 @@ class PretrainTrainer(Trainer):
                 print_log(e, level='ERROR')
                 print_log(
                     f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
-                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}""", level='ERROR'
-                )
+                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]},
+                    max_item_block_size={batch['lengths'].max()}""", level='ERROR')
                 for p in self.model.parameters():
                     if p.grad is not None:
                         del p.grad  # free some memory
