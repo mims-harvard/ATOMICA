@@ -37,6 +37,30 @@ python scripts/data_process/process_BioLiP.py \
 
 The `./datasets/BioLiP/PDBbind_v2020_index.txt` file contains pdb ids we want to filter out from BioLiP. Here, the pdb ids of pdbbind 2020 across the four affinity tasks (protein-ligand, protein-protein, protein-nucleic acid, nucleic acid-ligand) are used.
 
+### 0.0 Data for pretraining with Q-BioLiP
+Download the non-redundant interaction-based data from Q-BioLiP from https://yanglab.qd.sdu.edu.cn/Q-BioLiP/Download/ 
+
+Then process the protein-protein complexes with the provided script:
+
+```bash
+python scripts/data_process/process_QBioLiP.py \
+    --data_dir_rec ./datasets/BioLiP/PP/nonredund_pdb/ \
+    --out_dir ./datasets/BioLiP/processed/ \
+    --exclude_path ./datasets/BioLiP/PDBbind_v2020_index.txt\
+    --index_path ./datasets/BioLiP/PP/PPI_nonredund.txt --task PP --num_workers 20
+```
+
+For PL=protein-small molecule ligand, PRNA=protein-RNA, PDNA=protein-DNA, Ppeptide=protein-peptide, Pion=protein-ion, RNAL=RNA-small molecule ligand use the following commands:
+
+```bash
+/n/home13/afang/.conda/envs/interactenv1/bin/python scripts/data_process/process_QBioLiP.py \
+    --data_dir_rec ./datasets/BioLiP/qbiolip/PL/nonredund_rec/ \
+    --data_dir_lig ./datasets/BioLiP/PL/nonredund_lig/ \
+    --out_dir  ./datasets/BioLiP/processed/ \
+    --exclude_path ./datasets/BioLiP/PDBbind_v2020_index.txt\
+    --index_path ./datasets/BioLiP/PL/PL_annotations_nonredund.txt --task PL --num_workers 20
+```
+
 ### 0.1 Data for Pretraining with CSD
 You will need access to the CSD to install these packages. Download the installer and the python API wheel file.
 

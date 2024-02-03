@@ -95,9 +95,9 @@ def residue_to_pd_rows(chain: str, residue: Residue):
     return rows
 
 
-def process_one_PP(protein_file_name, data_dir, interface_dist_th):
+def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist_th):
     items = []
-    prot_fname = os.path.join(data_dir, protein_file_name)
+    prot_fname = os.path.join(data_dir_rec, protein_file_name)
     try:
         list_blocks = pdb_to_list_blocks(prot_fname)
     except Exception as e:
@@ -124,7 +124,63 @@ def process_one_PP(protein_file_name, data_dir, interface_dist_th):
     return items
 
 
-def main(args):
+def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface_dist_th):
+    lig = os.path.join(data_dir_lig, complex_file_name[1])
+    rec = os.path.join(data_dir_rec, complex_file_name[0])
+
+    item = {}
+    item['id'] = complex_file_name[0] + "_" + complex_file_name[1]
+    item['affinity'] = { 'neglog_aff': -1.0 }
+
+    try:
+        list_blocks1 = pdb_to_list_blocks(rec)
+    except Exception as e:
+        print_log(f'{rec} protein parsing failed: {e}', level='ERROR')
+        return None
+
+    lig_type = complex_file_name[1].split("_")[2]
+    if lig_type in {"RNA", "DNA", "III"}:
+        try:
+            list_of_blocks2 = pdb_to_list_blocks(lig)
+            blocks2 = []
+            for b in list_of_blocks2:
+                blocks2.extend(b)
+        except Exception as e:
+            print_log(f'{lig} ligand parsing failed: {e}', level='ERROR')
+            return None
+    else:
+        try:
+            blocks2 = sm_pdb_to_blocks(lig, fragment=None)
+        except Exception as e:
+            print_log(f'{lig} ligand parsing failed: {e}', level='ERROR')
+            return None
+    blocks1 = []
+    for b in list_blocks1:
+        blocks1.extend(b)
+
+    # construct pockets
+    blocks1, interface_blocks2 = blocks_interface(blocks1, blocks2, interface_dist_th)
+    if len(blocks1) == 0:  # no interface (if len(interface1) == 0 then we must have len(interface2) == 0)
+        print_log(f'{complex_file_name} has no interface', level='ERROR')
+        return None
+    
+    # Crop large RNA/DNA/III ligands
+    if lig_type in {"RNA", "DNA", "III"} and len(blocks2) > 100:
+        print_log(f'{lig} ligand is too big cropping it to interface', level='ERROR')
+        blocks2 = interface_blocks2
+
+    data = blocks_to_data(blocks1, blocks2)
+    for key in data:
+        if isinstance(data[key], np.ndarray):
+            data[key] = data[key].tolist()
+
+    item['data'] = data
+
+    return item
+
+
+
+def filter_PP_indexes(args):
     protein_indexes = pd.read_csv(args.index_path, sep=',')
     raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_rec))
     with open(args.exclude_path, "r") as f:
@@ -142,18 +198,57 @@ def main(args):
             print_log(f"Excluding file: {file_name}.pdb", level="ERROR")
             continue
         protein_file_names.append(f"{file_name}.pdb")
+    return protein_file_names
 
-    print_log(f'Preprocessing {len(protein_file_names)} protein files...')
+
+def filter_complex_indexes(args):
+    complex_indexes = pd.read_csv(args.index_path, sep=',')
+    raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_rec))
+    raw_ligand_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_lig))
+    with open(args.exclude_path, "r") as f:
+        exclude_protein_file_names = f.readlines()
+        exclude_protein_file_names = [x.strip() for x in exclude_protein_file_names]
+    complex_file_names = []
+    for _, row in complex_indexes.iterrows():
+        rec_file_name, ligand_file_name = row[0], row[1]
+        if rec_file_name not in raw_protein_file_names:
+            print_log(f"Missing file: {rec_file_name}.pdb", level="ERROR")
+            continue
+        if ligand_file_name not in raw_ligand_file_names:
+            print_log(f"Missing file: {ligand_file_name}.pdb", level="ERROR")
+            continue
+        pdb_id = rec_file_name.split("_")[0]
+        assert len(pdb_id) == 4, "PDB ID must be 4 characters long"
+        if pdb_id in exclude_protein_file_names:
+            print_log(f"Excluding file: {rec_file_name}.pdb", level="INFO")
+            continue
+        with open(os.path.join(args.data_dir_lig, f"{ligand_file_name}.pdb"), "r") as f:
+            ligand_data = f.readlines()
+        if len(ligand_data) > 5000: # some very large ribosomal RNA ligands are excluded
+            print_log(f"Skipping ligand file: {ligand_file_name}.pdb because it is too large {len(ligand_data)}", level="INFO")
+            continue
+        complex_file_names.append((f"{rec_file_name}.pdb", f"{ligand_file_name}.pdb"))
+    return complex_file_names
+
+
+def main(args):
+    if args.task == "PP":
+        complex_file_names = filter_PP_indexes(args)
+    else:
+        complex_file_names = filter_complex_indexes(args)
+
+    print_log(f'Preprocessing {len(complex_file_names)} protein files...')
     processed_data = []
     cnt = 0
 
-    process_one_dict = {
-        "PP": process_one_PP,
-    }
-    process_one = process_one_dict[args.task]
+    if args.task == "PP":
+        process_one = process_one_PP
+    else:
+        process_one = process_one_complex
 
-    result_list = pmap_multi(process_one, zip(protein_file_names), 
-                             data_dir=args.data_dir_rec,
+    result_list = pmap_multi(process_one, zip(complex_file_names), 
+                             data_dir_rec=args.data_dir_rec,
+                             data_dir_lig=args.data_dir_lig,
                              interface_dist_th=args.interface_dist_th, 
                              n_jobs=args.num_workers, desc='check BioLiP data validity')
 
@@ -163,22 +258,32 @@ def main(args):
         cnt += 1
         if item is None:
             continue
-        processed_data.extend(item)
+        if isinstance(item, list):
+            processed_data.extend(item)
+        else:
+            processed_data.append(item)
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
 
     from random import shuffle
     shuffle(processed_data)
-    train_dataset = processed_data[:-10000]
-    valid_dataset = processed_data[-10000:]
+    if len(processed_data)*0.1 < 10000:
+        num_valid = int(len(processed_data)*0.1)
+        print_log(f'10 percent of data used for validation, num data points = {num_valid}', level='WARN')
+    else:
+        num_valid = 10000
+    train_dataset = processed_data[:-num_valid]
+    valid_dataset = processed_data[-num_valid:]
 
-    database_out_train = os.path.join(args.out_dir, 'QBioLiP_PP_train.pkl')
-    print_log(f'Obtained {len(processed_data)} data after filtering, saving to {database_out_train}...')
+    database_out_train = os.path.join(args.out_dir, f'QBioLiP_{args.task}_train.pkl')
+    print_log(f'Obtained {len(processed_data)} data after filtering')
+    print_log(f'Saving {len(train_dataset)} to {database_out_train} ...')
     with open(database_out_train, 'wb') as f:
         pickle.dump(train_dataset, f)
 
-    database_out_valid = os.path.join(args.out_dir, 'QBioLiP_PP_valid.pkl')
+    database_out_valid = os.path.join(args.out_dir, f'QBioLiP_{args.task}_valid.pkl')
+    print_log(f'Saving {len(valid_dataset)} to {database_out_valid} ...')
     with open(database_out_valid, 'wb') as f:
         pickle.dump(valid_dataset, f)
 
