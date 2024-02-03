@@ -118,7 +118,8 @@ class PretrainTrainer(Trainer):
             self.global_step += 1
             if self.sched_freq == 'batch':
                 self.scheduler.step()
-            wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
+            if self.use_wandb and self._is_main_proc():
+                wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
             if batch_idx % validation_freq == 0 and batch_idx > 0:
                 print_log(f'validating ...') if self._is_main_proc() else 1
                 self._valid_epoch(device)

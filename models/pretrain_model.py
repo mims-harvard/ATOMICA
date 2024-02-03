@@ -171,6 +171,20 @@ class DenoisePretrainModel(nn.Module):
                 nn.SiLU(),
                 nn.Linear(hidden_size, 1, bias=False)
             )
+        else:
+            self.bottom_scale_noise_ffn = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(2*hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
+            if self.hierarchical:
+                self.top_scale_noise_ffn = nn.Sequential(
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, hidden_size),
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, 1, bias=False)
+                )
 
         # self.noise_level_ffn = nn.Sequential(
         #     nn.SiLU(),
@@ -345,10 +359,14 @@ class DenoisePretrainModel(nn.Module):
             pred_energy = None
             block_energy = None
             pred_noise = pred_noise.view(-1, self.n_channel, 3)  # [Nu, n_channel, 3]
-            pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
+            pred_noise_scale = self.bottom_scale_noise_ffn(bottom_block_repr)
+            pred_noise = pred_noise * pred_noise_scale.unsqueeze(-1)
+            # pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
             if self.hierarchical:
                 pred_noise_top = pred_noise_top.view(-1, self.n_channel, 3)  # [Nb, n_channel, 3]
-                pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, n_channel, 3]
+                pred_noise_scale_top = self.top_scale_noise_ffn(block_repr)
+                pred_noise_top = pred_noise_top * pred_noise_scale_top.unsqueeze(-1)
+                # pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, n_channel, 3]
                 top_noise = scatter_mean(noise, block_id, dim=0)  # [Nb, n_channel, 3]
         else:
             # old GET code
