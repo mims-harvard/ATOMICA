@@ -101,38 +101,54 @@ class PretrainTrainer(Trainer):
         t_iter = tqdm(enumerate(self.train_loader)) if self._is_main_proc() else enumerate(self.train_loader)
         metric_dict = defaultdict(list)
         for batch_idx, batch in t_iter:
-            batch = self.to_device(batch, device)
-            loss_obj = self.train_step(batch, self.global_step)
-            if loss_obj is None:
-                continue # Out of memory
-            self.optimizer.zero_grad()
-            loss_obj.loss.backward()
-            metric_dict["loss"].append(loss_obj.loss.cpu().item())
-            metric_dict["atom_loss"].append(loss_obj.atom_loss.cpu().item())
-            metric_dict["translation_loss"].append(loss_obj.translation_loss.cpu().item())
-            metric_dict["rotation_loss"].append(loss_obj.rotation_loss.cpu().item())
-            if self.use_wandb and self._is_main_proc():
-                wandb.log({f'train_MSELoss': loss_obj.loss.item()}, step=self.global_step)
-                wandb.log({f'train_RMSELoss': np.sqrt(loss_obj.loss.item())}, step=self.global_step)
-                wandb.log({f'train_atom_loss': loss_obj.atom_loss}, step=self.global_step)
-                wandb.log({f'train_translation_loss': loss_obj.translation_loss}, step=self.global_step)
-                wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
-                wandb.log({f'train_translation_base': loss_obj.translation_base}, step=self.global_step)
-                wandb.log({f'train_rotation_base': loss_obj.rotation_base}, step=self.global_step)
+            try:
+                batch = self.to_device(batch, device)
+                loss_obj = self.train_step(batch, self.global_step)
+                if loss_obj is None:
+                    continue # Out of memory
+                self.optimizer.zero_grad()
+                loss_obj.loss.backward()
+                metric_dict["loss"].append(loss_obj.loss.cpu().item())
+                metric_dict["atom_loss"].append(loss_obj.atom_loss.cpu().item())
+                metric_dict["translation_loss"].append(loss_obj.translation_loss.cpu().item())
+                metric_dict["rotation_loss"].append(loss_obj.rotation_loss.cpu().item())
+                if self.use_wandb and self._is_main_proc():
+                    wandb.log({f'train_MSELoss': loss_obj.loss.item()}, step=self.global_step)
+                    wandb.log({f'train_RMSELoss': np.sqrt(loss_obj.loss.item())}, step=self.global_step)
+                    wandb.log({f'train_atom_loss': loss_obj.atom_loss}, step=self.global_step)
+                    wandb.log({f'train_translation_loss': loss_obj.translation_loss}, step=self.global_step)
+                    wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
+                    wandb.log({f'train_translation_base': loss_obj.translation_base}, step=self.global_step)
+                    wandb.log({f'train_rotation_base': loss_obj.rotation_base}, step=self.global_step)
 
-            if self.config.grad_clip is not None:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
-            self.optimizer.step()
-            if hasattr(t_iter, 'set_postfix'):
-                t_iter.set_postfix(loss=loss_obj.loss.item(), version=self.version)
-            self.global_step += 1
-            if self.sched_freq == 'batch':
-                self.scheduler.step()
-            wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
-            if batch_idx % validation_freq == 0 and batch_idx > 0:
-                print_log(f'validating ...') if self._is_main_proc() else 1
-                self._valid_epoch(device)
-                self._before_train_epoch_start()
+                if self.config.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                self.optimizer.step()
+                if hasattr(t_iter, 'set_postfix'):
+                    t_iter.set_postfix(loss=loss_obj.loss.item(), version=self.version)
+                self.global_step += 1
+                if self.sched_freq == 'batch':
+                    self.scheduler.step()
+                wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
+                if batch_idx % validation_freq == 0 and batch_idx > 0:
+                    print_log(f'validating ...') if self._is_main_proc() else 1
+                    self._valid_epoch(device)
+                    self._before_train_epoch_start()
+            except RuntimeError as e:
+                if "out of memory" in str(e) and torch.cuda.is_available():
+                    print_log(e, level='ERROR')
+                    print_log(
+                        f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
+                        num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]},
+                        max_item_block_size={batch['lengths'].max()}""", level='ERROR'
+                    )
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            del p.grad
+                    torch.cuda.empty_cache()
+                    continue
+                else:
+                    raise e
         if self.use_wandb and self._is_main_proc():
             wandb.log({f'train_epoch_MSELoss': np.mean(metric_dict["loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
