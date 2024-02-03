@@ -19,7 +19,7 @@ from .GET.modules.tools import BlockEmbedding, KNNBatchEdgeConstructor
 
 ReturnValue = namedtuple(
     'ReturnValue',
-    ['energy', 'noise', 'noise_level',
+    ['energy', 'block_energy', 'noise', 'noise_level',
      'unit_repr', 'block_repr', 'graph_repr',
      'batch_id', 'block_id',
      'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'atom_loss', 'rotation_loss', 'translation_loss', 'rotation_base', 'translation_base'],
@@ -230,12 +230,57 @@ class DenoisePretrainModel(nn.Module):
         if self.hierarchical:
             self.top_encoder = deepcopy(self.encoder)
         
-        self.energy_ffn = nn.Sequential(
-            nn.SiLU(),
-            nn.Linear(hidden_size, hidden_size),
-            nn.SiLU(),
-            nn.Linear(hidden_size, 1, bias=False)
-        )
+        if not self.denoising:
+            self.energy_ffn = nn.Sequential(
+                nn.SiLU(),
+                nn.Linear(hidden_size, hidden_size),
+                nn.SiLU(),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
+        else:
+            if self.atom_noise:
+                self.bottom_scale_noise_ffn = nn.Sequential(
+                    nn.SiLU(),
+                    nn.Linear(2*hidden_size, hidden_size),
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, 1, bias=False)
+                )
+                if self.hierarchical:
+                    self.top_scale_noise_ffn = nn.Sequential(
+                        nn.SiLU(),
+                        nn.Linear(hidden_size, hidden_size),
+                        nn.SiLU(),
+                        nn.Linear(hidden_size, 1, bias=False)
+                    )
+            if self.translation_noise:
+                self.bottom_translation_scale_ffn = nn.Sequential(
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, hidden_size),
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, 1, bias=False)
+                )
+                if self.hierarchical:
+                    self.top_translation_scale_ffn = nn.Sequential(
+                        nn.SiLU(),
+                        nn.Linear(hidden_size, hidden_size),
+                        nn.SiLU(),
+                        nn.Linear(hidden_size, 1, bias=False)
+                    )
+            if self.rotation_noise:
+                self.bottom_rotation_scale_ffn = nn.Sequential(
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, hidden_size),
+                    nn.SiLU(),
+                    nn.Linear(hidden_size, 1, bias=False)
+                )
+                if self.hierarchical:
+                    self.top_rotation_scale_ffn = nn.Sequential(
+                        nn.SiLU(),
+                        nn.Linear(hidden_size, hidden_size),
+                        nn.SiLU(),
+                        nn.Linear(hidden_size, 1, bias=False)
+                    )
+                
 
     @torch.no_grad()
     def choose_receptor(self, batch_size, device):
@@ -386,7 +431,7 @@ class DenoisePretrainModel(nn.Module):
             if self.denoising:
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-                _, bottom_block_repr, _, _, trans_noise, rot_noise, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr)
+                _, bottom_block_repr, graph_repr_bottom, _, trans_noise, rot_noise, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr)
                 #top level 
                 top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
@@ -414,9 +459,7 @@ class DenoisePretrainModel(nn.Module):
                 bottom_block_repr, block_repr, graph_repr, _ = self.encoder(H_0, Z_perturbed, block_id, batch_id, perturb_mask, edges, edge_attr)
 
         # predict energy
-        pred_energy = scatter_sum(self.energy_ffn(block_repr).squeeze(-1), batch_id)
-
-        if return_noise or return_loss:
+        if self.denoising:
             # f = torch.autograd.grad(pred_energy.sum(), Z_perturbed, create_graph=True, retain_graph=True)[0] # [Nu, 1, 3]
             # f = f.squeeze() # [Nu, 3]
             # Z_perturbed = Z_perturbed.squeeze()  # [Nu, 3]
@@ -442,10 +485,12 @@ class DenoisePretrainModel(nn.Module):
 
             # Atom denoising loss
             if self.atom_noise:
-                pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, 3]
+                pred_noise_scale = self.bottom_scale_noise_ffn(bottom_block_repr)
+                pred_noise = pred_noise * pred_noise_scale
                 if self.hierarchical:
-                    pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, 3]
                     top_atom_noise = scatter_mean(atom_noise, block_id, dim=0)  # [Nb, 3]
+                    pred_noise_scale_top = self.top_scale_noise_ffn(block_repr)
+                    pred_noise_top = pred_noise_top * pred_noise_scale_top
                 
                 atom_loss = F.mse_loss(pred_noise[perturb_mask], atom_noise[perturb_mask], reduction='none')  # [Nperturb, 3]
                 atom_loss = atom_loss.sum(dim=-1)  # [Nperturb]
@@ -462,8 +507,15 @@ class DenoisePretrainModel(nn.Module):
 
             # Global translation loss
             if self.translation_noise:
+                trans_noise_scale = self.bottom_translation_scale_ffn(graph_repr_bottom)
+                trans_noise = trans_noise * trans_noise_scale
                 tloss = self.mse_loss(trans_noise * eps, -hat_t / eps)
-                tloss_top = self.mse_loss(trans_noise_top * eps, -hat_t / eps) if self.hierarchical else torch.tensor(0.0).cuda()
+                if self.hierarchical:
+                    trans_noise_scale_top = self.top_translation_scale_ffn(graph_repr)
+                    trans_noise_top = trans_noise_top * trans_noise_scale_top
+                    tloss_top = self.mse_loss(trans_noise_top * eps, -hat_t / eps)
+                else:
+                    tloss_top = torch.tensor(0.0).cuda()
                 tloss += tloss_top
                 translation_base = ((hat_t / eps)**2).mean() * (2 if self.hierarchical else 1)
                 noise_loss += tloss
@@ -474,8 +526,15 @@ class DenoisePretrainModel(nn.Module):
             # Global rotation loss
             if self.rotation_noise:
                 score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
+                rot_noise_scale = self.bottom_rotation_scale_ffn(graph_repr_bottom)
+                rot_noise = rot_noise * rot_noise_scale
                 wloss = self.mse_loss(rot_noise, hat_w * score.unsqueeze(-1))
-                wloss_top = self.mse_loss(rot_noise_top, hat_w * score.unsqueeze(-1)) if self.hierarchical else torch.tensor(0.0).cuda()
+                if self.hierarchical:
+                    rot_noise_scale_top = self.top_rotation_scale_ffn(graph_repr)
+                    rot_noise_top = rot_noise_top * rot_noise_scale_top
+                    wloss_top = self.mse_loss(rot_noise_top, hat_w * score.unsqueeze(-1))
+                else:
+                    wloss_top = torch.tensor(0.0).cuda()
                 wloss += wloss_top
                 rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean() * (2 if self.hierarchical else 1)
                 noise_loss += wloss
@@ -485,14 +544,19 @@ class DenoisePretrainModel(nn.Module):
             
             loss = noise_loss
             align_loss, noise_level_loss = 0, 0
+            block_energy = None
+            pred_energy = None
         else:
             noise_loss, align_loss, noise_level_loss, loss = None, None, None, None
             tloss, wloss = None, None
+            block_energy = self.energy_ffn(block_repr).squeeze(-1)
+            pred_energy = scatter_sum(block_energy, batch_id)
         
         return ReturnValue(
             # denoising variables
             energy=pred_energy,
-            noise=None,
+            block_energy=block_energy,
+            noise=pred_noise,
             noise_level=0,
             # noise_level=torch.argmax(pred_noise_level, dim=-1),
 

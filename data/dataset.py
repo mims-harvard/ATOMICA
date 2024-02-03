@@ -130,7 +130,7 @@ def df_to_blocks(df, key_residue='residue', key_insertion_code='insertion_code',
     return blocks
 
 
-def blocks_interface(blocks1, blocks2, dist_th):
+def blocks_interface(blocks1, blocks2, dist_th, return_indexes=False):
     blocks_coord, blocks_mask = blocks_to_coords(blocks1 + blocks2)
     blocks1_coord, blocks1_mask = blocks_coord[:len(blocks1)], blocks_mask[:len(blocks1)]
     blocks2_coord, blocks2_mask = blocks_coord[len(blocks1):], blocks_mask[len(blocks1):]
@@ -143,7 +143,10 @@ def blocks_interface(blocks1, blocks2, dist_th):
     blocks1 = [blocks1[i] for i in indexes1]
     blocks2 = [blocks2[i] for i in indexes2]
 
-    return blocks1, blocks2
+    if return_indexes:
+        return blocks1, blocks2, indexes1, indexes2
+    else:
+        return blocks1, blocks2
 
 
 class BlockGeoAffDataset(torch.utils.data.Dataset):

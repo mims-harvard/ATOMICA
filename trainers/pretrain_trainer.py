@@ -84,8 +84,8 @@ class PretrainTrainer(Trainer):
                 print_log(e, level='ERROR')
                 print_log(
                     f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
-                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}""", level='ERROR'
-                )
+                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]},
+                    max_item_block_size={batch['lengths'].max()}""", level='ERROR')
                 for p in self.model.parameters():
                     if p.grad is not None:
                         del p.grad  # free some memory
@@ -129,7 +129,8 @@ class PretrainTrainer(Trainer):
                 self.global_step += 1
                 if self.sched_freq == 'batch':
                     self.scheduler.step()
-                wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
+                if self.use_wandb and self._is_main_proc():
+                    wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
                 if batch_idx % validation_freq == 0 and batch_idx > 0:
                     print_log(f'validating ...') if self._is_main_proc() else 1
                     self._valid_epoch(device)

@@ -102,38 +102,49 @@ class Trainer:
 
     def _before_train_epoch_start(self):
         return
-
+    
     def _train_epoch(self, device):
         self._before_train_epoch_start()
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
             self.train_loader.sampler.set_epoch(self.epoch)
         t_iter = tqdm(self.train_loader) if self._is_main_proc() else self.train_loader
         for batch in t_iter:
-            batch = self.to_device(batch, device)
-            loss = self.train_step(batch, self.global_step)
-            self.optimizer.zero_grad()
-            loss.backward()
+            try:
+                batch = self.to_device(batch, device)
+                loss = self.train_step(batch, self.global_step)
+                self.optimizer.zero_grad()
+                if loss is None:
+                    continue # Out of memory, try next batch
+                loss.backward()
 
-            if self.use_wandb and self._is_main_proc():
-                wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
-                wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
-                wandb.log({'lr': self.optimizer.param_groups[0]['lr']}, step=self.global_step)
+                if self.use_wandb and self._is_main_proc():
+                    wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
+                    wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                    wandb.log({'lr': self.optimizer.param_groups[0]['lr']}, step=self.global_step)
 
-            # for name, param in self.model.named_parameters():
-            #     if not param.requires_grad:
-            #         continue
-            #     print(name)
-            #     print(torch.norm(param.grad))
-            #     # print(param.grad[0])
-
-            if self.config.grad_clip is not None:
-                torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
-            self.optimizer.step()
-            if hasattr(t_iter, 'set_postfix'):
-                t_iter.set_postfix(loss=loss.item(), version=self.version)
-            self.global_step += 1
-            if self.sched_freq == 'batch':
-                self.scheduler.step()
+                if self.config.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                self.optimizer.step()
+                if hasattr(t_iter, 'set_postfix'):
+                    t_iter.set_postfix(loss=loss.item(), version=self.version)
+                self.global_step += 1
+                if self.sched_freq == 'batch':
+                    self.scheduler.step()
+            except RuntimeError as e:
+                if "out of memory" in str(e) and torch.cuda.is_available():
+                    print_log(e, level='ERROR')
+                    print_log(
+                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0]}, 
+                        num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}, 
+                        max_item_block_size={batch['lengths'].max()}""", level='ERROR'
+                    )
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            del p.grad  # free some memory
+                    torch.cuda.empty_cache()
+                    continue # try next batch
+                else:
+                    raise e
         if self.sched_freq == 'epoch':
             self.scheduler.step()
     
