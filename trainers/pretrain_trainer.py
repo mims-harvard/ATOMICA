@@ -100,6 +100,7 @@ class PretrainTrainer(Trainer):
             self.train_loader.sampler.set_epoch(self.epoch)
         t_iter = tqdm(enumerate(self.train_loader)) if self._is_main_proc() else enumerate(self.train_loader)
         metric_dict = defaultdict(list)
+        print(f"NUMBATCHES = {len(self.train_loader)}")
         for batch_idx, batch in t_iter:
             try:
                 batch = self.to_device(batch, device)
@@ -120,6 +121,12 @@ class PretrainTrainer(Trainer):
                     wandb.log({f'train_rotation_loss': loss_obj.rotation_loss}, step=self.global_step)
                     wandb.log({f'train_translation_base': loss_obj.translation_base}, step=self.global_step)
                     wandb.log({f'train_rotation_base': loss_obj.rotation_base}, step=self.global_step)
+                    if batch_idx % 500 == 0 and batch_idx > 0:
+                        start_idx = max(0, len(metric_dict["loss"]) - 500)
+                        wandb.log({f'train_last500_MSELoss': np.mean(metric_dict["loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_atom_loss': np.mean(metric_dict["atom_loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_translation_loss': np.mean(metric_dict["translation_loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_rotation_loss': np.mean(metric_dict["rotation_loss"][start_idx:])}, step=self.global_step)
 
                 if self.config.grad_clip is not None:
                     torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)

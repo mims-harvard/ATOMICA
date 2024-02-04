@@ -487,10 +487,12 @@ class DenoisePretrainModel(nn.Module):
             if self.atom_noise:
                 pred_noise_scale = self.bottom_scale_noise_ffn(bottom_block_repr)
                 pred_noise = pred_noise * pred_noise_scale
+                pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
                 if self.hierarchical:
                     top_atom_noise = scatter_mean(atom_noise, block_id, dim=0)  # [Nb, 3]
                     pred_noise_scale_top = self.top_scale_noise_ffn(block_repr)
                     pred_noise_top = pred_noise_top * pred_noise_scale_top
+                    pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nu, n_channel, 3]
                 
                 atom_loss = F.mse_loss(pred_noise[perturb_mask], atom_noise[perturb_mask], reduction='none')  # [Nperturb, 3]
                 atom_loss = atom_loss.sum(dim=-1)  # [Nperturb]

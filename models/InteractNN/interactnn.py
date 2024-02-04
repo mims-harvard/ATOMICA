@@ -156,9 +156,10 @@ class InteractionModule(torch.nn.Module):
 
         if self.return_noise:
             # Local denoising
+            local_edge_length_embedding = self.local_denoise_edge_embedder(edge_length)
             edge_attr = torch.cat(
                 (
-                    edge_length_embedding,
+                    local_edge_length_embedding,
                     edge_type_attr,
                     node_attr[edges[0], : self.ns],
                     node_attr[edges[1], : self.ns],
