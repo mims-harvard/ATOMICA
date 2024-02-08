@@ -11,6 +11,7 @@ from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
 from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper
+from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
 import models
@@ -86,6 +87,7 @@ def parse():
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
+    parser.add_argument('--pretrain_state', type=str, default=None, help='path of the pretrained training state to load for resuming training')
     parser.add_argument('--partial_finetune', action="store_true", default=False, help='only finetune energy head')
 
     # logging
@@ -148,21 +150,14 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
     return dataset
 
 
-def create_trainer(model, train_loader, valid_loader, config):
+def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
     if model_type == models.AffinityPredictor:
-        Trainer = trainers.AffinityTrainer
-    elif model_type == models.GraphPairClassifier:
-        Trainer = trainers.GraphPairClassificationTrainer
-    elif model_type == models.GraphClassifier:
-        Trainer = trainers.GraphClassificationTrainer
+        trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
-        Trainer = trainers.PretrainTrainer
-    elif model_type == models.GraphMultiBinaryClassifier:
-        Trainer = trainers.ECTrainer
+        trainer = trainers.PretrainTrainer(model, train_loader, valid_loader, config, resume_state)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
-    trainer = Trainer(model, train_loader, valid_loader, config)
     os.makedirs(config.save_dir, exist_ok=True)
     with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
         json.dump(vars(args), f)
@@ -211,7 +206,7 @@ def main(args):
         args.local_rank = int(os.environ['LOCAL_RANK'])
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(backend='nccl', world_size=len(args.gpus))
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set, shuffle=args.shuffle)
+        train_sampler = DistributedSamplerResume(train_set, shuffle=args.shuffle, seed=args.seed)
         if args.max_n_vertex_per_gpu is None:
             args.batch_size = int(args.batch_size / len(args.gpus))
         if args.local_rank == 0:
@@ -247,7 +242,7 @@ def main(args):
                                   collate_fn=collate_fn)
     else:
         valid_loader = None
-    trainer = create_trainer(model, train_loader, valid_loader, config)
+    trainer = create_trainer(model, train_loader, valid_loader, config, resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
     if args.local_rank <= 0: # only log on the main process
         os.makedirs(config.save_dir, exist_ok=True)
         with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
