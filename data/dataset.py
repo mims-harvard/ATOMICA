@@ -337,11 +337,14 @@ class DynamicBatchWrapper(torch.utils.data.Dataset):
 
         cur_vertex_cnt = 0
         batch = []
+        
+        num_too_large = 0
 
         for i in self.indexes:
             data = self.dataset[i]
             item_len = len(data['B']) if 'B' in data else data['len']
             if item_len > self.max_n_vertex_per_item:
+                num_too_large += 1
                 continue
             cur_vertex_cnt += item_len
             if cur_vertex_cnt > self.max_n_vertex_per_batch:
@@ -350,6 +353,7 @@ class DynamicBatchWrapper(torch.utils.data.Dataset):
                 cur_vertex_cnt = item_len
             batch.append(i)
         self.batch_indexes.append(batch)
+        print_log(f'Number of items too large: {num_too_large} out of {len(self.indexes)}. Remaining: {len(self.indexes) - num_too_large} batches. Created {len(self.batch_indexes)} batches.')
 
         if self.total_size is None:
             self.total_size = len(self.batch_indexes)

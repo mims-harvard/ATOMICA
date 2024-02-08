@@ -16,6 +16,8 @@ class SchNetEncoder(nn.Module):
 
         if edge_size != 0:
             self.edge_linear = nn.Linear(edge_size, self.num_gaussians)
+        
+        self.out_dim = hidden_size
 
     def forward(self, H, Z, block_id, batch_id, edges, edge_attr=None):
         H, Z = scatter_mean(H, block_id, dim=0), scatter_mean(Z, block_id, dim=0)

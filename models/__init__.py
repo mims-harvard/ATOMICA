@@ -5,25 +5,34 @@ from .affinity_predictor import AffinityPredictor
 from .graph_classifier import GraphClassifier
 from .graph_pair_classifier import GraphPairClassifier
 from .graph_multi_binary_classifier import GraphMultiBinaryClassifier
+import torch
 
 def create_model(args):
     model_type = args.model_type
     if 'pretrain' in args.task.lower():
-        return DenoisePretrainModel(
-            model_type=model_type,
-            hidden_size=args.hidden_size,
-            n_channel=args.n_channel,
-            n_rbf=args.n_rbf,
-            edge_size=args.edge_size,
-            cutoff=args.cutoff,
-            radial_size=args.radial_size,
-            k_neighbors=args.k_neighbors,
-            n_layers=args.n_layers,
-            n_head=args.n_head,
-            atom_level=args.atom_level,
-            hierarchical=args.hierarchical,
-            no_block_embedding=args.no_block_embedding
-        )
+        if args.pretrain_ckpt:
+            model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
+        else:
+            model = DenoisePretrainModel(
+                model_type=model_type,
+                hidden_size=args.hidden_size,
+                n_channel=args.n_channel,
+                n_rbf=args.n_rbf,
+                cutoff=args.cutoff,
+                edge_size=args.edge_size,
+                radial_size=args.radial_size,
+                k_neighbors=args.k_neighbors,
+                n_layers=args.n_layers,
+                n_head=args.n_head,
+                atom_level=args.atom_level,
+                hierarchical=args.hierarchical,
+                no_block_embedding=args.no_block_embedding,
+                denoising=True,
+                atom_noise=args.atom_noise,
+                translation_noise=args.translation_noise,
+                rotation_noise=args.rotation_noise,
+            )
+        return model
     else:
         add_params = {}
         if args.task == 'LEP':

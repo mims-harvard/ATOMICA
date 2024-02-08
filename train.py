@@ -68,7 +68,7 @@ def parse():
     parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
     parser.add_argument('--n_channel', type=int, default=1, help='number of channels')
     parser.add_argument('--n_rbf', type=int, default=1, help='Dimension of RBF')
-    parser.add_argument('--edge_size', type=int, default=16, help='Dimension of RBF')
+    parser.add_argument('--edge_size', type=int, default=16, help='Dimension of edge embeddings')
     parser.add_argument('--cutoff', type=float, default=7.0, help='Cutoff in RBF')
     parser.add_argument('--n_head', type=int, default=1, help='Number of heads in the multi-head attention')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
@@ -79,6 +79,10 @@ def parse():
     parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
     parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
     parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
+
+    parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
+    parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')
+    parser.add_argument('--rotation_noise', action='store_true', help='apply global rotation noise')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -127,6 +131,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = PDBBindBenchmark(path)
     elif task == 'pretrain':
         dataset1 = PDBBindBenchmark(path)
+        if path2 is None and path3 is None:
+            return dataset1
         datasets = [dataset1]
         if path2 is not None:
             dataset2 = PDBBindBenchmark(path2)
@@ -161,6 +167,7 @@ def create_trainer(model, train_loader, valid_loader, config):
     with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
         json.dump(vars(args), f)
     return trainer
+
 
 def main(args):
     setup_seed(args.seed)
@@ -241,9 +248,10 @@ def main(args):
     else:
         valid_loader = None
     trainer = create_trainer(model, train_loader, valid_loader, config)
-    os.makedirs(config.save_dir, exist_ok=True)
-    with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
-        json.dump(vars(args), f)
+    if args.local_rank <= 0: # only log on the main process
+        os.makedirs(config.save_dir, exist_ok=True)
+        with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
+            json.dump(vars(args), f)
     trainer.set_valid_requires_grad('pretrain' in args.task.lower())
     trainer.train(args.gpus, args.local_rank, args.use_wandb)
     
