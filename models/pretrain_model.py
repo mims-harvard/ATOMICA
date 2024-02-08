@@ -361,12 +361,12 @@ class DenoisePretrainModel(nn.Module):
             pred_noise = pred_noise.view(-1, self.n_channel, 3)  # [Nu, n_channel, 3]
             pred_noise_scale = self.bottom_scale_noise_ffn(bottom_block_repr)
             pred_noise = pred_noise * pred_noise_scale.unsqueeze(-1)
-            # pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
+            pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
             if self.hierarchical:
                 pred_noise_top = pred_noise_top.view(-1, self.n_channel, 3)  # [Nb, n_channel, 3]
                 pred_noise_scale_top = self.top_scale_noise_ffn(block_repr)
                 pred_noise_top = pred_noise_top * pred_noise_scale_top.unsqueeze(-1)
-                # pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, n_channel, 3]
+                pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nb, n_channel, 3]
                 top_noise = scatter_mean(noise, block_id, dim=0)  # [Nb, n_channel, 3]
         else:
             # old GET code
