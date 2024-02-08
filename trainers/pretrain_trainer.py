@@ -22,12 +22,17 @@ class PretrainTrainer(Trainer):
         self.max_step = config.max_epoch * config.step_per_epoch
         self.log_alpha = log(config.final_lr / config.lr) / self.max_step
         super().__init__(model, train_loader, valid_loader, config)
+        self.training_state_dir = os.path.join(self.config.save_dir, 'training_state')
         if resume_state is not None:
             if not torch.distributed.is_available():
                 raise NotImplementedError("Only DistributedDataParallel supports resuming training from a specific batch.")
             self.global_step = resume_state['global_step']
             self.epoch = resume_state['epoch']
             self.optimizer.load_state_dict(resume_state['optimizer'])
+            for state in self.optimizer.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.cuda()
             self.scheduler.load_state_dict(resume_state['scheduler'])                
             self.train_loader.sampler.set_epoch(epoch=self.epoch, resume_index=resume_state['resume_index'])
             print_log(f"Resume training from epoch {self.epoch}, global step {self.global_step}")
@@ -103,7 +108,7 @@ class PretrainTrainer(Trainer):
             else:
                 raise e
 
-    def _train_epoch(self, device, validation_freq=5000):
+    def _train_epoch(self, device, validation_freq=5):
         self._before_train_epoch_start()
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
             self.train_loader.sampler.set_epoch(self.epoch)
@@ -187,7 +192,9 @@ class PretrainTrainer(Trainer):
         if self.valid_loader is None:
             if self._is_main_proc():
                 save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
-                training_save_path = os.path.join(self.model_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
+                if not os.path.exists(self.training_state_dir):
+                    os.makedirs(self.training_state_dir)
+                training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
                 module_to_save = self.model.module if self.local_rank == 0 else self.model
                 if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
                     print_log(f'No validation, save path: {save_path}')
@@ -225,9 +232,11 @@ class PretrainTrainer(Trainer):
             module_to_save = self.model.module if self.local_rank == 0 else self.model
             torch.save(module_to_save, save_path)
             self._maintain_topk_checkpoint(valid_metric, save_path)
-            if os.path.exists(save_path): # if save_path exists, then save training state
-                training_save_path = os.path.join(self.model_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
-                torch.save(self._get_training_state(), training_save_path)
+            training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
+            if not os.path.exists(self.training_state_dir):
+                os.makedirs(self.training_state_dir)
+            torch.save(self._get_training_state(), training_save_path)
+            print_log(f'Training state save path: {training_save_path}')
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
         if self._metric_better(valid_metric):
             self.patience = self.config.patience
