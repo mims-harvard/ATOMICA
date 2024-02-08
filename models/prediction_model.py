@@ -22,7 +22,8 @@ class PredictionModel(DenoisePretrainModel):
         super().__init__(
             model_type, hidden_size, n_channel, n_rbf, cutoff, n_head, radial_size, edge_size,
             k_neighbors, n_layers, dropout=dropout, std=std, atom_level=atom_level,
-            hierarchical=hierarchical, no_block_embedding=no_block_embedding, denoising=False)
+            hierarchical=hierarchical, no_block_embedding=no_block_embedding, 
+            denoising=False, atom_noise=False, translation_noise=False, rotation_noise=False)
         # del self.sigmas  # no need for noise level
 
     @classmethod
@@ -61,9 +62,9 @@ class PredictionModel(DenoisePretrainModel):
         return torch.zeros(batch_size, dtype=torch.long, device=device)
 
     @torch.no_grad()
-    def perturb(self, Z, block_id, batch_id, batch_size, segment_ids, receptor_segment):
+    def perturb(self, Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment):
         # do not perturb in prediction model
-        return Z, None, None, None, None
+        return Z, None, None, None, None, None, None, None, None
     
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False) -> ReturnValue:
         return_value = super().forward(

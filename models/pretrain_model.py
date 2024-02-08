@@ -165,7 +165,8 @@ class DenoisePretrainModel(nn.Module):
         self.rotation_noise = rotation_noise
         self.mse_loss = nn.MSELoss()
 
-        assert self.atom_noise or self.translation_noise or self.rotation_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
+        if self.denoising:
+            assert self.atom_noise or self.translation_noise or self.rotation_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
 
         self.theta_range = np.linspace(0.1, np.pi/4, 100)
         self.sigma_range = np.linspace(0, 10.0, 100) + 0.1
@@ -211,7 +212,7 @@ class DenoisePretrainModel(nn.Module):
             )
         elif model_type == 'InteractNN':
             from .InteractNN.encoder import InteractNNEncoder
-            self.encoder = InteractNNEncoder(hidden_size, edge_size, n_layers, return_noise=True)
+            self.encoder = InteractNNEncoder(hidden_size, edge_size, n_layers, return_noise=self.denoising)
         elif model_type == 'SchNet':
             from .SchNet.encoder import SchNetEncoder
             self.encoder = SchNetEncoder(hidden_size, edge_size, n_layers)
@@ -449,7 +450,7 @@ class DenoisePretrainModel(nn.Module):
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
                 top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
-                _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, edges, edge_attr)
+                _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr)
                 bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, Z_perturbed, block_id)
@@ -460,27 +461,6 @@ class DenoisePretrainModel(nn.Module):
 
         # predict energy
         if self.denoising:
-            # f = torch.autograd.grad(pred_energy.sum(), Z_perturbed, create_graph=True, retain_graph=True)[0] # [Nu, 1, 3]
-            # f = f.squeeze() # [Nu, 3]
-            # Z_perturbed = Z_perturbed.squeeze()  # [Nu, 3]
-            # # Translation force
-            # t = scatter_mean(f[perturb_mask], bottom_batch_id[perturb_mask], dim=0) # [B,3]
-            # # Rotation force using Euler's Rotation Equation
-            # center = Z[(B[block_id] == self.global_block_id) & perturb_mask]  # [bs]
-            # Z_perturbed = Z_perturbed - center[batch_id][block_id] # set rotation center to zero
-            # G = torch.cross(Z_perturbed, f, dim=-1)  # [Nu,3]
-            # G = scatter_sum((G * perturb_mask[...,None]), bottom_batch_id, dim=0)  # [B,3] angular momentum
-            # I = self.inertia(Z_perturbed, perturb_mask, bottom_batch_id) # [B,3,3] inertia matrix
-            # w = torch.linalg.solve(I.detach(), G)  # angular velocity
-            # score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
-            # wloss = self.mse_loss(w, hat_w * score.unsqueeze(-1))
-            # tloss = self.mse_loss(t * eps, -hat_t / eps)
-            # atom_loss = torch.tensor(0.0)
-            # rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean()
-            # translation_base = ((-hat_t / eps)**2).mean()
-            # noise_loss = wloss + tloss
-            # # Score matching loss
-
             noise_loss = torch.tensor(0.0).cuda()
 
             # Atom denoising loss
@@ -549,8 +529,10 @@ class DenoisePretrainModel(nn.Module):
             block_energy = None
             pred_energy = None
         else:
+            pred_noise = None,
             noise_loss, align_loss, noise_level_loss, loss = None, None, None, None
-            tloss, wloss = None, None
+            atom_loss, tloss, wloss = None, None, None
+            translation_base, rotation_base = None, None
             block_energy = self.energy_ffn(block_repr).squeeze(-1)
             pred_energy = scatter_sum(block_energy, batch_id)
         

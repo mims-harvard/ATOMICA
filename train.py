@@ -158,9 +158,6 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.PretrainTrainer(model, train_loader, valid_loader, config, resume_state)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
-    os.makedirs(config.save_dir, exist_ok=True)
-    with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
-        json.dump(vars(args), f)
     return trainer
 
 
@@ -216,15 +213,6 @@ def main(args):
         train_sampler = None
 
     if args.local_rank <= 0:
-        if args.use_wandb:
-            wandb.init(
-                entity="ada-f",
-                dir=args.save_dir,
-                settings=wandb.Settings(start_method="fork"),
-                project="GET",
-                name=args.run_name,
-                config=vars(args),
-            )
         if args.max_n_vertex_per_gpu is not None:
             print_log(f'Dynamic batch enabled. Max number of vertex per GPU: {args.max_n_vertex_per_gpu}')
         if args.pretrain_ckpt:
@@ -244,9 +232,19 @@ def main(args):
         valid_loader = None
     trainer = create_trainer(model, train_loader, valid_loader, config, resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
     if args.local_rank <= 0: # only log on the main process
+        print_log(f"Saving model checkpoints to: {config.save_dir}")
         os.makedirs(config.save_dir, exist_ok=True)
         with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
             json.dump(vars(args), f)
+        if args.use_wandb:
+            wandb.init(
+                entity="ada-f",
+                dir=args.save_dir,
+                settings=wandb.Settings(start_method="fork"),
+                project="GET",
+                name=config.save_dir,
+                config=vars(args),
+            )
     trainer.set_valid_requires_grad('pretrain' in args.task.lower())
     trainer.train(args.gpus, args.local_rank, args.use_wandb)
     
