@@ -131,6 +131,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = PDBBindBenchmark(path)
     elif task == 'pretrain':
         dataset1 = PDBBindBenchmark(path)
+        if path2 is None and path3 is None:
+            return dataset1
         datasets = [dataset1]
         if path2 is not None:
             dataset2 = PDBBindBenchmark(path2)
@@ -246,9 +248,10 @@ def main(args):
     else:
         valid_loader = None
     trainer = create_trainer(model, train_loader, valid_loader, config)
-    os.makedirs(config.save_dir, exist_ok=True)
-    with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
-        json.dump(vars(args), f)
+    if args.local_rank <= 0: # only log on the main process
+        os.makedirs(config.save_dir, exist_ok=True)
+        with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
+            json.dump(vars(args), f)
     trainer.set_valid_requires_grad('pretrain' in args.task.lower())
     trainer.train(args.gpus, args.local_rank, args.use_wandb)
     
