@@ -33,9 +33,10 @@ class PretrainTrainer(Trainer):
                 for k, v in state.items():
                     if isinstance(v, torch.Tensor):
                         state[k] = v.cuda()
-            self.scheduler.load_state_dict(resume_state['scheduler'])                
-            self.train_loader.sampler.set_epoch(epoch=self.epoch, resume_index=resume_state['resume_index'])
-            print_log(f"Resume training from epoch {self.epoch}, global step {self.global_step}")
+            self.scheduler.load_state_dict(resume_state['scheduler'])
+            self.resume_index = resume_state['resume_index'] % (len(self.train_loader) * self.train_loader.batch_size)
+        else:
+            self.resume_index = 0                
             
     def get_optimizer(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
@@ -108,10 +109,15 @@ class PretrainTrainer(Trainer):
             else:
                 raise e
 
-    def _train_epoch(self, device, validation_freq=5):
+    def _train_epoch(self, device, validation_freq=5000):
         self._before_train_epoch_start()
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
-            self.train_loader.sampler.set_epoch(self.epoch)
+            if self.resume_index > 0:
+                self.train_loader.sampler.set_epoch(epoch=self.epoch, resume_index=self.resume_index)
+                print_log(f"Resume training from epoch {self.epoch}, global step {self.global_step}")
+                self.resume_index = 0
+            else:
+                self.train_loader.sampler.set_epoch(self.epoch)
         t_iter = tqdm(enumerate(self.train_loader)) if self._is_main_proc() else enumerate(self.train_loader)
         metric_dict = defaultdict(list)
         print(f"NUMBATCHES = {len(self.train_loader)}")
@@ -184,7 +190,7 @@ class PretrainTrainer(Trainer):
             "optimizer": self.optimizer.state_dict(),
             "scheduler": self.scheduler.state_dict(),
             "epoch": self.epoch,
-            "resume_index": (self.global_step+1)*self.train_loader.batch_size, 
+            "resume_index": ((self.global_step+1) % len(self.train_loader)) *self.train_loader.batch_size, 
             "global_step": self.global_step+1,
         }
     

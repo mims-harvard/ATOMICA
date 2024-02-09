@@ -31,6 +31,7 @@ def create_model(args):
                 atom_noise=args.atom_noise,
                 translation_noise=args.translation_noise,
                 rotation_noise=args.rotation_noise,
+                global_message_passing=args.global_message_passing,
             )
         return model
     else:
@@ -76,5 +77,6 @@ def create_model(args):
                 atom_level=args.atom_level,
                 hierarchical=args.hierarchical,
                 no_block_embedding=args.no_block_embedding,
+                global_message_passing=args.global_message_passing,
                 **add_params
             )

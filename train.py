@@ -76,6 +76,7 @@ def parse():
     parser.add_argument('--radial_size', type=int, default=16, help='Radial size in GET')
     parser.add_argument('--radial_dist_cutoff', type=float, default=5, help='Distance cutoff in radial graph')
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')
+    parser.add_argument('--global_message_passing', action="store_true", default=False, help='message passing between global nodes and normal nodes')
 
     parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
     parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
@@ -239,10 +240,10 @@ def main(args):
         if args.use_wandb:
             wandb.init(
                 entity="ada-f",
-                dir=args.save_dir,
+                dir=config.save_dir,
                 settings=wandb.Settings(start_method="fork"),
                 project="GET",
-                name=config.save_dir,
+                name=args.run_name,
                 config=vars(args),
             )
     trainer.set_valid_requires_grad('pretrain' in args.task.lower())
