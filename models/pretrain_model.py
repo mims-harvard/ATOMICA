@@ -540,12 +540,10 @@ class DenoisePretrainModel(nn.Module):
             noise_loss, align_loss, noise_level_loss, loss = None, None, None, None
             atom_loss, tloss, wloss = None, None, None
             translation_base, rotation_base = None, None
-            if self.global_message_passing:
-                block_energy = self.energy_ffn(block_repr).squeeze(-1)
-                pred_energy = scatter_sum(block_energy, batch_id)
-            else: # ignore global blocks
-                block_energy = self.energy_ffn(block_repr[B != self.global_block_id]).squeeze(-1)
-                pred_energy = scatter_sum(block_energy, batch_id[B != self.global_block_id])
+            block_energy = self.energy_ffn(block_repr).squeeze(-1)
+            if not self.global_message_passing: # ignore global blocks
+                block_energy[B == self.global_block_id] = 0
+            pred_energy = scatter_sum(block_energy, batch_id)
         
         return ReturnValue(
             # denoising variables
