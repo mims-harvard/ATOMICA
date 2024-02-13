@@ -18,11 +18,11 @@ class PredictionModel(DenoisePretrainModel):
                  n_rbf=1, cutoff=7.0, n_head=1,
                  radial_size=16, edge_size=64, k_neighbors=9,
                  n_layers=3, dropout=0.1, std=10, atom_level=False,
-                 hierarchical=False, no_block_embedding=False) -> None:
+                 hierarchical=False, no_block_embedding=False, global_message_passing=False) -> None:
         super().__init__(
             model_type, hidden_size, n_channel, n_rbf, cutoff, n_head, radial_size, edge_size,
             k_neighbors, n_layers, dropout=dropout, std=std, atom_level=atom_level,
-            hierarchical=hierarchical, no_block_embedding=no_block_embedding, 
+            hierarchical=hierarchical, no_block_embedding=no_block_embedding, global_message_passing=global_message_passing,
             denoising=False, atom_noise=False, translation_noise=False, rotation_noise=False)
         # del self.sigmas  # no need for noise level
 
