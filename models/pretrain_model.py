@@ -212,7 +212,10 @@ class DenoisePretrainModel(nn.Module):
             )
         elif model_type == 'InteractNN':
             from .InteractNN.encoder import InteractNNEncoder
-            self.encoder = InteractNNEncoder(hidden_size, edge_size, n_layers, return_noise=self.denoising)
+            self.encoder = InteractNNEncoder(
+                hidden_size, edge_size, n_layers=n_layers, 
+                return_noise=self.denoising, 
+                global_message_passing=global_message_passing)
         elif model_type == 'SchNet':
             from .SchNet.encoder import SchNetEncoder
             self.encoder = SchNetEncoder(hidden_size, edge_size, n_layers)
@@ -432,32 +435,36 @@ class DenoisePretrainModel(nn.Module):
             if self.denoising:
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-                _, bottom_block_repr, graph_repr_bottom, _, trans_noise, rot_noise, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr)
-                #top level 
+                atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
+                _, bottom_block_repr, graph_repr_bottom, _, trans_noise, rot_noise, pred_noise = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
+                # top level 
                 top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
                 top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
-                _, block_repr, graph_repr, _, trans_noise_top, rot_noise_top, pred_noise_top = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr)
+                global_mask = B != self.global_block_id if not self.global_message_passing else None
+                _, block_repr, graph_repr, _, trans_noise_top, rot_noise_top, pred_noise_top = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
                 bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
             else:
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
-                _, bottom_block_repr, _, _ = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr)
-                
+                atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
+                _, bottom_block_repr, _, _ = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
                 #top level 
                 top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
                 top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
-                _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr)
+                global_mask = B != self.global_block_id if not self.global_message_passing else None
+                _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
                 bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, Z_perturbed, block_id)
+            atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
             if self.denoising:
-                bottom_block_repr, block_repr, graph_repr, _, trans_noise, rot_noise, pred_noise = self.encoder(H_0, Z_perturbed, block_id, perturb_mask, batch_id, edges, edge_attr)
+                bottom_block_repr, block_repr, graph_repr, _, trans_noise, rot_noise, pred_noise = self.encoder(H_0, Z_perturbed, block_id, perturb_mask, batch_id, edges, edge_attr, global_mask=atom_mask)
             else:
-                bottom_block_repr, block_repr, graph_repr, _ = self.encoder(H_0, Z_perturbed, block_id, batch_id, perturb_mask, edges, edge_attr)
+                bottom_block_repr, block_repr, graph_repr, _ = self.encoder(H_0, Z_perturbed, block_id, batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
 
         # predict energy
         if self.denoising:
@@ -534,6 +541,8 @@ class DenoisePretrainModel(nn.Module):
             atom_loss, tloss, wloss = None, None, None
             translation_base, rotation_base = None, None
             block_energy = self.energy_ffn(block_repr).squeeze(-1)
+            if not self.global_message_passing: # ignore global blocks
+                block_energy[B == self.global_block_id] = 0
             pred_energy = scatter_sum(block_energy, batch_id)
         
         return ReturnValue(
@@ -564,3 +573,4 @@ class DenoisePretrainModel(nn.Module):
             translation_base=translation_base,
             rotation_base=rotation_base,
         )
+    
