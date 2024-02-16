@@ -55,6 +55,7 @@ def create_model(args):
             if Model == AffinityPredictor:
                 add_params = {
                     'partial_finetune': args.partial_finetune,
+                    'global_message_passing': args.global_message_passing,
                 }
             model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
             print(f"Model size: {sum(p.numel() for p in model.parameters())}")

@@ -30,8 +30,6 @@ class PredictionModel(DenoisePretrainModel):
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
         partial_finetune = kwargs.get('partial_finetune', False)
-        if 'partial_finetune' in kwargs:
-            del kwargs['partial_finetune']
         model = cls(
             model_type=pretrained_model.model_type,
             hidden_size=pretrained_model.hidden_size,
@@ -48,7 +46,7 @@ class PredictionModel(DenoisePretrainModel):
             atom_level=pretrained_model.atom_level,
             hierarchical=pretrained_model.hierarchical,
             no_block_embedding=pretrained_model.no_block_embedding,
-            **kwargs
+            global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
         )
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
         if partial_finetune:
