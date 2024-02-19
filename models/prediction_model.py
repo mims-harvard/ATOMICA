@@ -52,6 +52,11 @@ class PredictionModel(DenoisePretrainModel):
         if partial_finetune:
             model.requires_grad_(requires_grad=False)
             model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
+        if pretrained_model.global_message_passing is False and model.global_message_passing is True:
+            model.edge_embedding.requires_grad_(requires_grad=True)
+            model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
+            model.top_encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
+            print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
     ########## overload ##########
