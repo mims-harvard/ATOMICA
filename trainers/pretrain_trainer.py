@@ -46,7 +46,7 @@ class PretrainTrainer(Trainer):
         log_alpha = self.log_alpha
         lr_lambda = lambda step: exp(log_alpha * (step + 1))  # equal to alpha^{step}
         # scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=50000, eta_min=self.config.final_lr)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=200000, eta_min=self.config.final_lr)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'

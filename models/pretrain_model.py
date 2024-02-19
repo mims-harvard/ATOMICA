@@ -57,7 +57,6 @@ def plot_graph(Z, segment_ids, bottom_batch_id, block_id, batch_idx):
     fig.show()
     return fig
 
-
 def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, complexity=-1):
     if complexity == -1:  # don't do splicing
         intra_edges, inter_edges, global_global_edges, global_normal_edges, _ = edge_constructor(B, batch_id, segment_ids, X=X, block_id=block_id)
@@ -140,7 +139,9 @@ class DenoisePretrainModel(nn.Module):
                  n_rbf=1, cutoff=7.0, n_head=1,
                  radial_size=16, edge_size=16, k_neighbors=9, n_layers=3,
                  dropout=0.1, std=10, global_message_passing=False,
-                 atom_level=False, hierarchical=False, no_block_embedding=False, denoising=True, atom_noise=True, translation_noise=True, rotation_noise=True) -> None:
+                 atom_level=False, hierarchical=False, no_block_embedding=False, 
+                 denoising=True, atom_noise=True, translation_noise=True, 
+                 rotation_noise=True, rot_sigma=1.5) -> None:
         super().__init__()
 
         self.model_type = model_type
@@ -169,7 +170,7 @@ class DenoisePretrainModel(nn.Module):
             assert self.atom_noise or self.translation_noise or self.rotation_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
 
         self.theta_range = np.linspace(0.1, np.pi/4, 100)
-        self.sigma_range = np.linspace(0, 10.0, 100) + 0.1
+        self.sigma_range = np.linspace(0.1, rot_sigma, 100)
         self.expansion = [_expansion(self.theta_range, sigma) for sigma in self.sigma_range]
         self.density = [_density(exp, self.theta_range) for exp in self.expansion]
         self.score = [_score(exp, self.theta_range, sigma) for exp, sigma in zip(self.expansion, self.sigma_range)]
@@ -484,12 +485,12 @@ class DenoisePretrainModel(nn.Module):
                 atom_loss = F.mse_loss(pred_noise[perturb_mask], atom_noise[perturb_mask], reduction='none')  # [Nperturb, 3]
                 atom_loss = atom_loss.sum(dim=-1)  # [Nperturb]
                 atom_loss = scatter_mean(atom_loss, batch_id[block_id][perturb_mask])  # [batch_size] # FIXME: used to be scatter_sum
-                atom_loss = 0.5 * atom_loss.mean()  # [1]
+                atom_loss = atom_loss.mean()  # [1]
                 if self.hierarchical:
                     atom_loss_top = F.mse_loss(pred_noise_top[perturb_block_mask], top_atom_noise[perturb_block_mask], reduction='none')
                     atom_loss_top = atom_loss_top.sum(dim=-1)  # [Nperturb]
                     atom_loss_top = scatter_mean(atom_loss_top, batch_id[perturb_block_mask])  # [batch_size] # FIXME: used to be scatter_sum
-                    atom_loss += 0.5 * atom_loss_top.mean()
+                    atom_loss += atom_loss_top.mean()
                 noise_loss += atom_loss
             else:
                 atom_loss = torch.tensor(0.0)
@@ -573,4 +574,3 @@ class DenoisePretrainModel(nn.Module):
             translation_base=translation_base,
             rotation_base=rotation_base,
         )
-    
