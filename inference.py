@@ -66,7 +66,7 @@ def main(args):
             
             # for attention visualization
             # model.encoder.encoder.prefix = str(batch_id)
-
+            #print(batch)
             results = model.infer(batch)
             if type(results) == tuple:
                 results = (res.tolist() for res in results)

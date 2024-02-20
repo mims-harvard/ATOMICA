@@ -108,6 +108,8 @@ class DenoisePretrainModel(nn.Module):
         self.denoising = denoising
 
         assert not (self.hierarchical and self.atom_level), 'Hierarchical model is incompatible with atom-level model'
+        
+        print('initialize my model!')
 
         self.global_block_id = VOCAB.symbol_to_idx(VOCAB.GLB)
 
@@ -216,6 +218,7 @@ class DenoisePretrainModel(nn.Module):
         noise[~perturb_mask] = 0  # only one side of the complex is perturbed
 
         Z_perturbed = Z + noise # * used_sigmas.unsqueeze(-1).unsqueeze(-1) # FIXME: I think this is wrong
+        print('apply noise!')
 
         return Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask
     
@@ -261,6 +264,7 @@ class DenoisePretrainModel(nn.Module):
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=True, return_loss=True) -> ReturnValue:
 
         # batch_id and block_id
+        print('Here!')
         with torch.no_grad():
 
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
@@ -291,6 +295,7 @@ class DenoisePretrainModel(nn.Module):
             Z = self.normalize(Z, B, block_id, batch_id, segment_ids, receptor_segment)
             # perturbation
             Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask = self.perturb(Z, block_id, batch_id, batch_size, segment_ids, receptor_segment)
+            
             Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
 
         Z_perturbed.requires_grad_(True)
