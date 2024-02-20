@@ -12,6 +12,8 @@ def main(processed_csd_dir):
             continue
         with open(f"{processed_csd_dir}/{fname}", "rb") as f:
             data = pickle.load(f)
+            if not fname.startswith("QBioLiP"):
+                continue
             if "train" in fname:
                 train_dataset.extend(data)
             else:

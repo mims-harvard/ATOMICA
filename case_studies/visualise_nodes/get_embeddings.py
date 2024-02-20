@@ -26,9 +26,9 @@ from models import DenoisePretrainModel, AffinityPredictor
 
 
 def get_embeddings(dataset, model, out_dir):
-    dataset = DynamicBatchWrapper(dataset, 400)
+    # dataset = DynamicBatchWrapper(dataset, 200)
     train_loader = DataLoader(dataset, batch_size=1,
-                                num_workers=1,
+                                num_workers=4,
                                 shuffle=False, # for same ordering between pretraining and finetuning runs
                                 collate_fn = dataset.collate_fn)
     model = model.to("cuda")
@@ -38,29 +38,37 @@ def get_embeddings(dataset, model, out_dir):
     atom_id = []
     graph_embeddings = []
     for idx, batch in tqdm(enumerate(train_loader)):
-        model.eval()
-        with torch.no_grad():
-            batch = Trainer.to_device(batch, "cuda")
-            if isinstance(model, AffinityPredictor):
-                pred_binding_affinity, output = model.infer(batch, extra_info=True)
+        try:
+            model.eval()
+            with torch.no_grad():
+                batch = Trainer.to_device(batch, "cuda")
+                if isinstance(model, AffinityPredictor):
+                    pred_binding_affinity, output = model.infer(batch, extra_info=True)
+                else:
+                    output = model(Z=batch['X'], B=batch['B'], A=batch['A'],
+                                atom_positions=batch['atom_positions'],
+                                block_lengths=batch['block_lengths'],
+                                lengths=batch['lengths'],
+                                segment_ids=batch['segment_ids'],
+                                label=None,
+                                return_loss=True)
+                block_embedding = output.block_repr.detach().clone().cpu()
+                atom_embedding = output.unit_repr.detach().clone().cpu()
+                graph_embedding = output.graph_repr.detach().clone().cpu()
+                del output
+                # embedding = embedding[batch['B'].cpu() > 3] # remove special tokens
+                block_embeddings.append(block_embedding.numpy())
+                block_id.append(batch['B'].cpu().numpy()) 
+                atom_embeddings.append(atom_embedding.numpy())
+                atom_id.append(batch['A'].cpu().numpy())
+                graph_embeddings.append(graph_embedding.numpy())
+        except Exception as e:
+            if "CUDA out of memory" in str(e):
+                print(f"Out of memory at {idx}, num_blocks: {batch['B'].shape}, num_atoms: {batch['A'].shape}")
+                torch.cuda.empty_cache()
+                continue
             else:
-                output = model(Z=batch['X'], B=batch['B'], A=batch['A'],
-                            atom_positions=batch['atom_positions'],
-                            block_lengths=batch['block_lengths'],
-                            lengths=batch['lengths'],
-                            segment_ids=batch['segment_ids'],
-                            label=None,
-                            return_loss=True)
-            block_embedding = output.block_repr.detach().clone().cpu()
-            atom_embedding = output.unit_repr.detach().clone().cpu()
-            graph_embedding = output.graph_repr.detach().clone().cpu()
-            del output
-            # embedding = embedding[batch['B'].cpu() > 3] # remove special tokens
-            block_embeddings.append(block_embedding.numpy())
-            block_id.append(batch['B'].cpu().numpy()) 
-            atom_embeddings.append(atom_embedding.numpy())
-            atom_id.append(batch['A'].cpu().numpy())
-            graph_embeddings.append(graph_embedding.numpy())
+                raise e
 
     block_embeddings = np.concatenate(block_embeddings, axis=0)
     block_id = np.concatenate(block_id, axis=0)
@@ -104,5 +112,3 @@ if __name__ == "__main__":
         os.makedirs(out_dir, exist_ok=True)
         get_embeddings(dataset, model, out_dir)
     
-    out_dir = "case_studies/visualise_nodes/PLA30/data_finetuned"
-
