@@ -11,6 +11,7 @@ from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
 from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper
+from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
 import models
@@ -68,20 +69,26 @@ def parse():
     parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
     parser.add_argument('--n_channel', type=int, default=1, help='number of channels')
     parser.add_argument('--n_rbf', type=int, default=1, help='Dimension of RBF')
-    parser.add_argument('--edge_size', type=int, default=16, help='Dimension of RBF')
+    parser.add_argument('--edge_size', type=int, default=16, help='Dimension of edge embeddings')
     parser.add_argument('--cutoff', type=float, default=7.0, help='Cutoff in RBF')
     parser.add_argument('--n_head', type=int, default=1, help='Number of heads in the multi-head attention')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
     parser.add_argument('--radial_size', type=int, default=16, help='Radial size in GET')
     parser.add_argument('--radial_dist_cutoff', type=float, default=5, help='Distance cutoff in radial graph')
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')
+    parser.add_argument('--global_message_passing', action="store_true", default=False, help='message passing between global nodes and normal nodes')
 
     parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
     parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
     parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
 
+    parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
+    parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')
+    parser.add_argument('--rotation_noise', action='store_true', help='apply global rotation noise')
+
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
+    parser.add_argument('--pretrain_state', type=str, default=None, help='path of the pretrained training state to load for resuming training')
     parser.add_argument('--partial_finetune', action="store_true", default=False, help='only finetune energy head')
 
     # logging
@@ -127,6 +134,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = PDBBindBenchmark(path)
     elif task == 'pretrain':
         dataset1 = PDBBindBenchmark(path)
+        if path2 is None and path3 is None:
+            return dataset1
         datasets = [dataset1]
         if path2 is not None:
             dataset2 = PDBBindBenchmark(path2)
@@ -142,25 +151,16 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
     return dataset
 
 
-def create_trainer(model, train_loader, valid_loader, config):
+def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
     if model_type == models.AffinityPredictor:
-        Trainer = trainers.AffinityTrainer
-    elif model_type == models.GraphPairClassifier:
-        Trainer = trainers.GraphPairClassificationTrainer
-    elif model_type == models.GraphClassifier:
-        Trainer = trainers.GraphClassificationTrainer
+        trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
-        Trainer = trainers.PretrainTrainer
-    elif model_type == models.GraphMultiBinaryClassifier:
-        Trainer = trainers.ECTrainer
+        trainer = trainers.PretrainTrainer(model, train_loader, valid_loader, config, resume_state)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
-    trainer = Trainer(model, train_loader, valid_loader, config)
-    os.makedirs(config.save_dir, exist_ok=True)
-    with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
-        json.dump(vars(args), f)
     return trainer
+
 
 def main(args):
     setup_seed(args.seed)
@@ -204,7 +204,7 @@ def main(args):
         args.local_rank = int(os.environ['LOCAL_RANK'])
         torch.cuda.set_device(args.local_rank)
         torch.distributed.init_process_group(backend='nccl', world_size=len(args.gpus))
-        train_sampler = torch.utils.data.distributed.DistributedSampler(train_set, shuffle=args.shuffle)
+        train_sampler = DistributedSamplerResume(train_set, shuffle=args.shuffle, seed=args.seed)
         if args.max_n_vertex_per_gpu is None:
             args.batch_size = int(args.batch_size / len(args.gpus))
         if args.local_rank == 0:
@@ -214,15 +214,6 @@ def main(args):
         train_sampler = None
 
     if args.local_rank <= 0:
-        if args.use_wandb:
-            wandb.init(
-                entity="ada-f",
-                dir=args.save_dir,
-                settings=wandb.Settings(start_method="fork"),
-                project="GET",
-                name=args.run_name,
-                config=vars(args),
-            )
         if args.max_n_vertex_per_gpu is not None:
             print_log(f'Dynamic batch enabled. Max number of vertex per GPU: {args.max_n_vertex_per_gpu}')
         if args.pretrain_ckpt:
@@ -240,10 +231,21 @@ def main(args):
                                   collate_fn=collate_fn)
     else:
         valid_loader = None
-    trainer = create_trainer(model, train_loader, valid_loader, config)
-    os.makedirs(config.save_dir, exist_ok=True)
-    with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
-        json.dump(vars(args), f)
+    trainer = create_trainer(model, train_loader, valid_loader, config, resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
+    if args.local_rank <= 0: # only log on the main process
+        print_log(f"Saving model checkpoints to: {config.save_dir}")
+        os.makedirs(config.save_dir, exist_ok=True)
+        with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
+            json.dump(vars(args), f)
+        if args.use_wandb:
+            wandb.init(
+                entity="ada-f",
+                dir=config.save_dir,
+                settings=wandb.Settings(start_method="fork"),
+                project="GET",
+                name=args.run_name,
+                config=vars(args),
+            )
     trainer.set_valid_requires_grad('pretrain' in args.task.lower())
     trainer.train(args.gpus, args.local_rank, args.use_wandb)
     

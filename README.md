@@ -53,12 +53,18 @@ python scripts/data_process/process_QBioLiP.py \
 For PL=protein-small molecule ligand, PRNA=protein-RNA, PDNA=protein-DNA, Ppeptide=protein-peptide, Pion=protein-ion, RNAL=RNA-small molecule ligand use the following commands:
 
 ```bash
-/n/home13/afang/.conda/envs/interactenv1/bin/python scripts/data_process/process_QBioLiP.py \
+python scripts/data_process/process_QBioLiP.py \
     --data_dir_rec ./datasets/BioLiP/qbiolip/PL/nonredund_rec/ \
     --data_dir_lig ./datasets/BioLiP/PL/nonredund_lig/ \
     --out_dir  ./datasets/BioLiP/processed/ \
     --exclude_path ./datasets/BioLiP/PDBbind_v2020_index.txt\
     --index_path ./datasets/BioLiP/PL/PL_annotations_nonredund.txt --task PL --num_workers 20
+```
+
+Then to merge all the training valid splits created from all the categories in Q-BioLiP into one train file and one valid file, use the following command:
+```bash
+python scripts/data_process/merge_QBioLiP.py\
+    --processed_data_dir ./datasets/BioLiP/processed/
 ```
 
 ### 0.1 Data for Pretraining with CSD
@@ -77,10 +83,10 @@ Then process the dataset with the provided script:
 ```bash
 ./datasets/CSD/csd-activator/ccdc-utilities/software-activation/bin/ccdc_activator -a -k <activation-key>
 python scripts/data_process/process_csd.py \
-    --csd_data_directory /n/holylabs/LABS/mzitnik_lab/Users/afang/MolInteractV2/CSD/csd_data/ccdc-data/csd \
-    --processed_dir datasets/csd/processed \
+    --csd_data_directory ./datasets/CSD/csd_data/ccdc-data/csd # this directory contains all the CSD .sqlite files\
+    --processed_dir ./datasets/csd/processed \
 python scripts/data_process/split_csd.py \
-    --processed_data_dir datasets/csd/processed
+    --processed_data_dir ./datasets/csd/processed
 ```
 This will create a processed dataset in `./datasets/csd/processed` and split the dataset into train, val pickle files.
 
@@ -215,15 +221,15 @@ python scripts/data_process/process_PDBbind_NL.py \
 ## Pretraining
 Pretraining hierarchical model on BioLiP and CSD data. 
 ```bash
-python train.py --gpu 0 --task pretrain --lr 0.0001 --final_lr 0.0001 --max_epoch 10000 --save_topk 10 --shuffle --model_type InteractNN --hidden_size 32 --n_layers 3\
- --radial_size 16 --n_channel 1 --n_rbf 16 --n_head 4 --k_neighbors 9 --hierarchical\
- --valid_set /n/holyscratch01/mzitnik_lab/afang/GET/datasets/BioLiP/processed/BioLiP_selected_index_min_1_max_500/BioLiP_valid.pkl\
- --train_set /n/holyscratch01/mzitnik_lab/afang/GET/datasets/BioLiP/processed/BioLiP_selected_index_min_1_max_500/BioLiP_train.pkl\
- --train_set2 /n/holyscratch01/mzitnik_lab/afang/GET/datasets/csd3/train.pkl\
- --valid_set2 /n/holyscratch01/mzitnik_lab/afang/GET/datasets/csd3/valid.pkl\
- --save_dir /n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN\
+torchrun --nnodes=1 --nproc_per_node=4 --standalone train.py --gpu 0 1 2 3 --task pretrain --lr 0.0001 --final_lr 0.000001 --max_epoch 10000 --save_topk 10 --shuffle --model_type InteractNN --hidden_size 40 --n_layers 6 --hierarchical \
+ --max_n_vertex_per_gpu 400 --atom_noise --translation_noise --rotation_noise \
+ --radial_size 16 --n_channel 1 --n_rbf 16 --edge_size 32 --k_neighbors 9 \
+ --valid_set ./datasets/BioLiP/processed/valid.pkl\
+ --train_set ./datasets/BioLiP/processed/train.pkl\
+ --train_set2 ./datasets/csd/processed/train.pkl\
+ --valid_set2 ./datasets/csd/processed/valid.pkl\
  --save_dir ./pretrain/models/InteractNN\
- --seed 2023 --run_name test_PPA_pretrain_interactnn_with_denoising_head --batch_size 4 --atom_level
+ --seed 2023 --run_name pretrain --use_wandb
 ```
 
 ## Training
