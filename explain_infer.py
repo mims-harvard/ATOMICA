@@ -10,6 +10,7 @@ from torch.utils.data import DataLoader
 from train import create_dataset
 from data.pdb_utils import VOCAB
 from src.edgeshaper import edgeshaper
+import os
 
 
 def parse():
@@ -70,7 +71,7 @@ def main(args):
             edges, edge_attr = model.precalculate_edges(batch)
             num_node = batch['lengths'].sum().item()
             x=torch.zeros(num_node, 2, device="cuda:0")
-            edges_explanations = edgeshaper(model, x, edges, M = 5, target_class = None, device = "cuda:0", edge_weight = edge_attr, batch=batch)
+            edges_explanations = edgeshaper(model, x, edges, M = 10, target_class = None, device = "cuda:0", edge_weight = edge_attr, batch=batch)
             print(edges_explanations)
             results = model.infer(batch)
             if type(results) == tuple:
@@ -102,11 +103,9 @@ def main(args):
                 f.write("Interaction name: " + str(item_id) + "\n\n")
                 f.write("GT Affinity: " + str(gt) + "\n")
                 f.write("Predicted value: " + str(pred_label) + "\n\n")
-
-
-            f.write("Shapley values for edges: \n\n")
-            for e in range(len(edges_explanations)):
-                f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
+                f.write("Shapley values for edges: \n\n")
+                for e in range(len(edges_explanations)):
+                    f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
     
     fout.close()
 
