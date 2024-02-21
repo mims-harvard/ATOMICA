@@ -69,9 +69,9 @@ class PredictionModel(DenoisePretrainModel):
         # do not perturb in prediction model
         return Z, None, None, None, None, None, None, None, None
     
-    def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False) -> ReturnValue:
+    def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False, altered_edges=None, altered_edge_attr=None) -> ReturnValue:
         return_value = super().forward(
             Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label,
-            return_noise=return_noise, return_loss=False)
+            return_noise=return_noise, return_loss=False, altered_edges=altered_edges, altered_edge_attr=altered_edge_attr)
         
         return return_value

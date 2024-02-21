@@ -334,15 +334,6 @@ class DenoisePretrainModel(nn.Module):
         Z_perturbed = self.rigid_transform(Z_perturbed, w, hat_t, perturb_mask, bottom_batch_id, batch_size)
         Z_perturbed = Z_perturbed + center[batch_id][block_id]
 
-<<<<<<< HEAD
-        noise = torch.clamp(torch.randn_like(Z), min=-1, max=1)  # [Nu, channel, 3]
-        noise[~perturb_mask] = 0  # only one side of the complex is perturbed
-
-        Z_perturbed = Z + noise # * used_sigmas.unsqueeze(-1).unsqueeze(-1) # FIXME: I think this is wrong
-        print('apply noise!')
-
-        return Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask
-=======
         # Apply atom level coordinate noise
         if self.atom_noise:
             atom_noise = torch.clamp(torch.randn_like(Z), min=-1, max=1)  # [Nu, channel, 3]
@@ -351,7 +342,6 @@ class DenoisePretrainModel(nn.Module):
         else:
             atom_noise = None
         return Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask
->>>>>>> b71a5962d2c856cdf4d4db41d0aa265fe0ec117e
     
     @torch.no_grad()
     def update_global_block(self, Z, B, block_id):
@@ -390,6 +380,28 @@ class DenoisePretrainModel(nn.Module):
 
         return edges, edge_attr
     
+    def precalculate_edges(self, batch):
+        Z = batch['X']
+        B=batch['B']
+        A=batch['A']
+        block_lengths=batch['block_lengths']
+        lengths=batch['lengths']
+        segment_ids=batch['segment_ids']
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids)  # [Nb]
+            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+            block_id = torch.zeros_like(A) # [Nu]
+            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+            
+            assert Z.shape[1] == 1, "n_channel must be 1"
+            top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
+            top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+            edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+        return edges, edge_attr
+    
     def inertia(self, X, mask, batch_id):
         # X: [Nu, 3], mask: [Nu], batch_id: [Nu]
         inner = (X ** 2).sum(dim=-1) # [Nu]
@@ -398,9 +410,8 @@ class DenoisePretrainModel(nn.Module):
         inertia = (inner - outer) * mask[...,None,None] # [Nu,3,3]
         return 0.1 * scatter_sum(inertia, batch_id, dim=0)  # [B,3,3]
 
-    def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=True, return_loss=True) -> ReturnValue:
+    def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=True, return_loss=True, altered_edges=None, altered_edge_attr=None) -> ReturnValue:
         # batch_id and block_id
-        print('Here!')
         with torch.no_grad():
 
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
@@ -428,14 +439,9 @@ class DenoisePretrainModel(nn.Module):
             # select receptor
             receptor_segment = self.choose_receptor(batch_size, batch_id.device)
             # perturbation
-<<<<<<< HEAD
-            Z_perturbed, noise, noise_level, perturb_mask, perturb_block_mask = self.perturb(Z, block_id, batch_id, batch_size, segment_ids, receptor_segment)
-            
-=======
             assert Z.shape[1] == 1, "n_channel must be 1"
             Z = Z.squeeze() # [Nu, n_channel, 3] -> [Nu, 3], n_channel == 1
             Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask = self.perturb(Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment)
->>>>>>> b71a5962d2c856cdf4d4db41d0aa265fe0ec117e
             Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
             Z_perturbed = Z_perturbed.unsqueeze(1)  # [Nu, 1, 3]
             # FIXME: update global atom block A == VOCAB.get_atom_global_idx())
@@ -473,6 +479,9 @@ class DenoisePretrainModel(nn.Module):
                 top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+                if altered_edges is not None:
+                    edges = altered_edges
+                    edge_attr = altered_edge_attr
                 top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
                 global_mask = B != self.global_block_id if not self.global_message_passing else None
                 _, block_repr, graph_repr, _ = self.top_encoder(top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)

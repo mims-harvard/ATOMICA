@@ -27,7 +27,7 @@ class AffinityPredictor(PredictionModel):
         aff = scatter_sum(self.affinity_ffn(return_value.block_repr).squeeze(-1), return_value.batch_id)
         return F.mse_loss(aff, label)
     
-    def infer(self, batch, extra_info=False):
+    def infer(self, batch, extra_info=False, altered_edges=None, altered_edge_attr=None):
         self.eval()
         return_value = super().forward(
             Z=batch['X'], B=batch['B'], A=batch['A'],
@@ -35,7 +35,9 @@ class AffinityPredictor(PredictionModel):
             block_lengths=batch['block_lengths'],
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
-            label=None
+            label=None,
+            altered_edges=altered_edges,
+            altered_edge_attr=altered_edge_attr,
         )
         if extra_info:
             return -return_value.energy, return_value
