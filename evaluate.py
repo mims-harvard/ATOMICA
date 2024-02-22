@@ -95,7 +95,7 @@ def main(args):
             'MAE': mae
         }
         y_pred = [ preds[_id] for _id in cover_ids ]
-    elif task == 'NL':
+    elif task == 'NL' or task == 'PN':
         metrics = {
             'Pearson': pearsonr,
             'Spearman': spearmanr,

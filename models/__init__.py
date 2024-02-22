@@ -41,7 +41,7 @@ def create_model(args):
             add_params = {
                 'num_class': 2
             }
-        elif args.task == 'PLA' or args.task == 'PPA' or args.task == 'AffMix' or args.task == 'PDBBind' or args.task == 'NL' or args.task == 'PLA_frag':
+        elif args.task in {'PLA', 'PPA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN'}:
             Model = AffinityPredictor
         elif args.task == 'EC':
             Model = GraphMultiBinaryClassifier

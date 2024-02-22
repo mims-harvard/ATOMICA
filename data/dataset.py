@@ -157,6 +157,7 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         database: path/directory containing the complete data
         dist_th: threshold for deciding the interacting environment (minimum distance between heavy atoms of residues)
         n_cpu: number of cpus used in parallel preprocessing
+        keep_segment: for analysis only not for training, if -1, keep all segments; if 0, keep protein; if 1, keep ligand
         '''
         super().__init__()
         self.dist_th = dist_th
@@ -228,6 +229,30 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         return item
+    
+    @classmethod
+    def filter_for_segment(cls, data, keep_segment):
+        # segment_id = 0, protein
+        # segment_id = 1, ligand
+        for k, v in data.items():
+            if type(v) is list:
+                data[k] = np.array(v)
+
+        block_mask = data['segment_ids'] == keep_segment
+        block_id = np.zeros_like(data["A"]) # [Nu]
+        block_id[np.cumsum(data["block_lengths"], axis=0)[:-1]] = 1
+        block_id = np.cumsum(block_id, axis=0)
+        atom_mask = data["segment_ids"][block_id] == keep_segment
+
+        new_data = {}
+        new_data['X'] = data['X'][atom_mask].tolist()
+        new_data['B'] = data['B'][block_mask].tolist()
+        new_data['A'] = data['A'][atom_mask].tolist()
+        new_data['atom_positions'] = data['atom_positions'][atom_mask].tolist()
+        new_data['block_lengths'] = data['block_lengths'][block_mask].tolist()
+        new_data['segment_ids'] = data['segment_ids'][block_mask].tolist()
+        new_data['label'] = data['label']
+        return new_data
 
     @classmethod
     def collate_fn(cls, batch):
@@ -244,8 +269,7 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
-
-
+    
 class PDBBindBenchmark(torch.utils.data.Dataset):
 
     def __init__(self, data_file):

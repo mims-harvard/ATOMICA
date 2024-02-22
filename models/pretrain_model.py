@@ -20,7 +20,7 @@ from .GET.modules.tools import BlockEmbedding, KNNBatchEdgeConstructor
 ReturnValue = namedtuple(
     'ReturnValue',
     ['energy', 'block_energy', 'noise', 'noise_level',
-     'unit_repr', 'block_repr', 'graph_repr',
+     'unit_repr', 'block_repr', 'graph_repr', 'graph_unit_repr',
      'batch_id', 'block_id',
      'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'atom_loss', 'rotation_loss', 'translation_loss', 'rotation_base', 'translation_base'],
     )
@@ -450,7 +450,7 @@ class DenoisePretrainModel(nn.Module):
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
                 atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
-                _, bottom_block_repr, _, _ = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
+                _, bottom_block_repr, graph_repr_bottom, _ = self.encoder(bottom_H_0, Z_perturbed, bottom_block_id, bottom_batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
                 #top level 
                 top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
@@ -558,6 +558,7 @@ class DenoisePretrainModel(nn.Module):
             unit_repr=bottom_block_repr,
             block_repr=block_repr,
             graph_repr=graph_repr,
+            graph_unit_repr=graph_repr_bottom if self.hierarchical else None,
 
             # batch information
             batch_id=batch_id,

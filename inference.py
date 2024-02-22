@@ -14,7 +14,7 @@ from data.pdb_utils import VOCAB
 def parse():
     parser = argparse.ArgumentParser(description='inference dG')
     parser.add_argument('--test_set', type=str, required=True, help='Path to the test set')
-    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS'],
+    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS', 'PN'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ')

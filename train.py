@@ -28,7 +28,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip'],
+                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ' + \
@@ -124,6 +124,14 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             datasets.append(BlockGeoAffDataset(path2))
         if path3 is not None:
             datasets.append(LBADataset(path3, fragment=fragment))
+        if len(datasets) == 1:
+            dataset = datasets[0]
+        else:
+            dataset = MixDatasetWrapper(*datasets)
+    elif task == 'PN':
+        datasets = [BlockGeoAffDataset(path)]
+        if path2 is not None:
+            datasets.append(LBADataset(path2, fragment=fragment))
         if len(datasets) == 1:
             dataset = datasets[0]
         else:
