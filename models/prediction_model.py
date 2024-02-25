@@ -52,6 +52,8 @@ class PredictionModel(DenoisePretrainModel):
         if partial_finetune:
             model.requires_grad_(requires_grad=False)
             model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
+            if hasattr(model, "ddg_ffn"): # for DDGPredictor
+                model.ddg_ffn.requires_grad_(requires_grad=True)
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
             model.edge_embedding.requires_grad_(requires_grad=True)
             model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)

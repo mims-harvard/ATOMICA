@@ -10,7 +10,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
@@ -28,7 +28,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN'],
+                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN', 'DDG'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ' + \
@@ -138,6 +138,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             dataset = MixDatasetWrapper(*datasets)
     elif task == 'EC':
         dataset = ECDataset(path)
+    elif task == 'DDG':
+        dataset = MutationDataset(path)
     elif task == 'pretrain_biolip':
         dataset = PDBBindBenchmark(path)
     elif task == 'pretrain':
@@ -165,6 +167,8 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
         trainer = trainers.PretrainTrainer(model, train_loader, valid_loader, config, resume_state)
+    elif model_type == models.DDGPredictor:
+        trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
     return trainer

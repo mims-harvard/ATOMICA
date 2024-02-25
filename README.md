@@ -218,6 +218,16 @@ python scripts/data_process/process_PDBbind_NL.py \
     --out_dir ./datasets/NL/processed
 ```
 
+### 6. Data for mutation DDG prediction
+Downlaod single substitution core dataset from https://quantum.tencent.com/mdrdb/
+Then process the data: 
+```bash
+python scripts/data_process/process_mrbdb.py \
+  --data_dir ./datasets/MdrDB/Single_Substitution/ \
+  --index_path ./datasets/MdrDB/MdrDB_CoreSet_release_v1.0.2022.tsv \
+  --out_dir ./datasets//MdrDB/processed
+```
+
 ## Pretraining
 Pretraining hierarchical model on BioLiP and CSD data. 
 ```bash

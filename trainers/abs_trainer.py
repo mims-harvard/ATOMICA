@@ -133,6 +133,8 @@ class Trainer:
             except RuntimeError as e:
                 if "out of memory" in str(e) and torch.cuda.is_available():
                     print_log(e, level='ERROR')
+                    if not type(batch) is dict:
+                        batch = batch[0]
                     print_log(
                         f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0]}, 
                         num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}, 

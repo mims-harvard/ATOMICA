@@ -5,6 +5,7 @@ from .affinity_predictor import AffinityPredictor
 from .graph_classifier import GraphClassifier
 from .graph_pair_classifier import GraphPairClassifier
 from .graph_multi_binary_classifier import GraphMultiBinaryClassifier
+from .ddG_predictor import DDGPredictor
 import torch
 
 def create_model(args):
@@ -48,11 +49,13 @@ def create_model(args):
             add_params = {
                 'n_task': 538
             }
+        elif args.task == 'DDG':
+            Model = DDGPredictor
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
             
         if args.pretrain_ckpt:
-            if Model == AffinityPredictor:
+            if Model == AffinityPredictor or Model == DDGPredictor:
                 add_params = {
                     'partial_finetune': args.partial_finetune,
                     'global_message_passing': args.global_message_passing,

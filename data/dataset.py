@@ -157,7 +157,6 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         database: path/directory containing the complete data
         dist_th: threshold for deciding the interacting environment (minimum distance between heavy atoms of residues)
         n_cpu: number of cpus used in parallel preprocessing
-        keep_segment: for analysis only not for training, if -1, keep all segments; if 0, keep protein; if 1, keep ligand
         '''
         super().__init__()
         self.dist_th = dist_th
@@ -269,6 +268,70 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
+    
+
+class MutationDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data_file):
+        super().__init__()
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ {'id': item['id'], 'label': item['ddG'] } for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        [
+            # wild type
+            {
+                'X': [Natom, n_channel, 3],
+                'B': [Nblock],
+                'A': [Natom],
+                'atom_positions': [Natom],
+                'block_lengths': [Natom]
+                'segment_ids': [Nblock]
+            },
+            # mutated
+            {
+                'X': [Natom, n_channel, 3],
+                'B': [Nblock],
+                'A': [Natom],
+                'atom_positions': [Natom],
+                'block_lengths': [Natom]
+                'segment_ids': [Nblock]
+            },
+            # label
+            [1]
+        ]
+        '''
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        wt = [item[0] for item in batch]
+        mt = [item[1] for item in batch]
+        label = [item[2] for item in batch]
+        wt_batch = cls.collate_fn_(wt)
+        mt_batch = cls.collate_fn_(mt)
+        return wt_batch, mt_batch, torch.tensor(label, dtype=torch.float)
+
+    @classmethod
+    def collate_fn_(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
+        return res
+    
     
 class PDBBindBenchmark(torch.utils.data.Dataset):
 

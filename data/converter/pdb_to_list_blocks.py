@@ -7,7 +7,7 @@ from Bio.PDB import PDBParser
 from data.dataset import Block, Atom, VOCAB
 
 
-def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> List[List[Block]]:
+def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, return_indexes=False) -> List[List[Block]]:
     '''
         Convert pdb file to a list of lists of blocks using Biopython.
         Each chain will be a list of blocks.
@@ -32,7 +32,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
     parser = PDBParser(QUIET=True)
     structure = parser.get_structure('anonym', pdb)
 
-    list_blocks, chain_ids = [], {}
+    list_blocks, list_indexes, chain_ids = [], [], {}
 
     for chain in structure.get_chains():
 
@@ -40,7 +40,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
         if (selected_chains is not None) and (_id not in selected_chains):
             continue
 
-        residues, res_ids = [], {}
+        residues, indexes, res_ids = [], [], {}
 
         for residue in chain:
             abrv = residue.get_resname()
@@ -58,6 +58,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
             atoms = [ Atom(atom.get_id(), atom.get_coord(), atom.element) for atom in residue if atom.element != 'H' ]
             residues.append(Block(symbol, atoms))
             res_ids[res_id] = True
+            indexes.append(f"{_id}_{res_number}")
         
         # the last few residues might be non-relevant molecules in the solvent if their types are unk
         end = len(residues) - 1
@@ -67,16 +68,21 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
             else:
                 break
         residues = residues[:end + 1]
+        indexes = indexes[:end + 1]
         if len(residues) == 0:  # not a chain
             continue
 
         chain_ids[_id] = len(list_blocks)
         list_blocks.append(residues)
+        list_indexes.append(indexes)
 
     # reorder
     if selected_chains is not None:
         list_blocks = [list_blocks[chain_ids[chain_id]] for chain_id in selected_chains]
+        list_indexes = [list_indexes[chain_ids[chain_id]] for chain_id in selected_chains]
     
+    if return_indexes:
+        return list_blocks, list_indexes
     return list_blocks
 
 
