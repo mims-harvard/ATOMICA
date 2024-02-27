@@ -83,6 +83,37 @@ def blocks_to_data(*blocks_list: List[List[Block]]):
     return data
 
 
+def data_to_blocks(data):
+    curr_atom_idx = 0
+    list_of_blocks = []
+    curr_segment_id = 0
+    curr_blocks = []
+    for block_idx, block in enumerate(data['B']):
+        symbol = VOCAB.idx_to_symbol(block)
+        if symbol == VOCAB.GLB:
+            curr_atom_idx += data['block_lengths'][block_idx]
+            continue
+        atom_coords = data['X'][curr_atom_idx:curr_atom_idx+data['block_lengths'][block_idx]]
+        atom_positions = data['atom_positions'][curr_atom_idx:curr_atom_idx+data['block_lengths'][block_idx]]
+        atoms = []
+        for i, atom in enumerate(data['A'][curr_atom_idx:curr_atom_idx+data['block_lengths'][block_idx]]):
+            atom_name=VOCAB.idx_to_atom(atom)
+            if atom_name == VOCAB.atom_global:
+                continue
+            element=VOCAB.idx_to_atom(atom)
+            coordinate=atom_coords[i]
+            pos_code=VOCAB.idx_to_atom_pos(atom_positions[i])
+            atoms.append(Atom(atom_name=atom_name, element=element, coordinate=coordinate, pos_code=pos_code))
+        curr_atom_idx += data['block_lengths'][block_idx]
+        if data['segment_ids'][block_idx] != curr_segment_id:
+            list_of_blocks.append(curr_blocks)
+            curr_blocks = []
+            curr_segment_id = data['segment_ids'][block_idx]
+        curr_blocks.append(Block(symbol, atoms))
+    list_of_blocks.append(curr_blocks)
+    return list_of_blocks
+
+
 def blocks_to_coords(blocks: List[Block]):
     max_n_unit = 0
     coords, masks = [], []

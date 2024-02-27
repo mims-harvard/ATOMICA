@@ -33,6 +33,7 @@ def create_model(args):
                 translation_noise=args.translation_noise,
                 rotation_noise=args.rotation_noise,
                 global_message_passing=args.global_message_passing,
+                fragmentation_method=args.fragmentation_method,
             )
         return model
     else:
@@ -82,5 +83,6 @@ def create_model(args):
                 hierarchical=args.hierarchical,
                 no_block_embedding=args.no_block_embedding,
                 global_message_passing=args.global_message_passing,
+                fragmentation_method=args.fragmentation_method,
                 **add_params
             )

@@ -46,6 +46,7 @@ class PredictionModel(DenoisePretrainModel):
             atom_level=pretrained_model.atom_level,
             hierarchical=pretrained_model.hierarchical,
             no_block_embedding=pretrained_model.no_block_embedding,
+            fragmentation_method=pretrained_model.fragmentation_method,
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
         )
         model.load_state_dict(pretrained_model.state_dict(), strict=False)

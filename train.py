@@ -81,6 +81,7 @@ def parse():
     parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
     parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
     parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
+    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation method for small molecules')
 
     parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
     parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')

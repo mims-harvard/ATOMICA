@@ -61,7 +61,6 @@ def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, com
     if complexity == -1:  # don't do splicing
         intra_edges, inter_edges, global_global_edges, global_normal_edges, _ = edge_constructor(B, batch_id, segment_ids, X=X, block_id=block_id)
         return intra_edges, inter_edges, global_global_edges, global_normal_edges
-
     # do splicing
     offset, bs_id_start, bs_id_end = 0, 0, 0
     mini_intra_edges, mini_inter_edges, mini_global_global_edges, mini_global_normal_edges = [], [], [], []
@@ -141,7 +140,7 @@ class DenoisePretrainModel(nn.Module):
                  dropout=0.1, std=10, global_message_passing=False,
                  atom_level=False, hierarchical=False, no_block_embedding=False, 
                  denoising=True, atom_noise=True, translation_noise=True, 
-                 rotation_noise=True, rot_sigma=1.5) -> None:
+                 rotation_noise=True, rot_sigma=1.5, fragmentation_method=None) -> None:
         super().__init__()
 
         self.model_type = model_type
@@ -165,6 +164,9 @@ class DenoisePretrainModel(nn.Module):
         self.translation_noise = translation_noise
         self.rotation_noise = rotation_noise
         self.mse_loss = nn.MSELoss()
+        self.fragmentation_method = fragmentation_method
+
+        VOCAB.load_tokenizer(fragmentation_method)
 
         if self.denoising:
             assert self.atom_noise or self.translation_noise or self.rotation_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
