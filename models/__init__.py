@@ -34,6 +34,7 @@ def create_model(args):
                 rotation_noise=args.rotation_noise,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
+                rot_sigma=args.rot_sigma,
             )
         return model
     else:

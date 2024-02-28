@@ -83,7 +83,9 @@ def blocks_to_data(*blocks_list: List[List[Block]]):
     return data
 
 
-def data_to_blocks(data):
+def data_to_blocks(data, fragmentation_method=None):
+    if fragmentation_method:
+        VOCAB.load_tokenizer(fragmentation_method)
     curr_atom_idx = 0
     list_of_blocks = []
     curr_segment_id = 0

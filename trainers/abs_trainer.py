@@ -17,7 +17,7 @@ import wandb
 
 class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch, warmup=0,
-                 metric_min_better=True, patience=3,
+                 metric_min_better=True, patience=3, cycle_steps=1,
                  grad_clip=None, save_topk=-1,  # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
@@ -28,6 +28,7 @@ class TrainConfig:
         self.patience = patience if patience > 0 else max_epoch
         self.grad_clip = grad_clip
         self.save_topk = save_topk
+        self.cycle_steps = cycle_steps # for cyclic learning rate
         self.__dict__.update(kwargs)
 
     def add_parameter(self, **kwargs):

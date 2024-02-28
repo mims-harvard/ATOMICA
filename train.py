@@ -57,6 +57,7 @@ def parse():
     parser.add_argument('--shuffle', action='store_true', help='shuffle data')
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--seed', type=int, default=SEED)
+    parser.add_argument('--cycle_steps', type=int, default=100000, help='number of steps per cycle in lr_scheduler.CosineAnnealingWarmRestarts')
 
     # device
     parser.add_argument('--gpus', type=int, nargs='+', required=True, help='gpu to use, -1 for cpu')
@@ -86,6 +87,7 @@ def parse():
     parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
     parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')
     parser.add_argument('--rotation_noise', action='store_true', help='apply global rotation noise')
+    parser.add_argument('--rot_sigma', type=float, default=1.5, help='magnitude of rotation noise')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -204,6 +206,7 @@ def main(args):
     ########## define your model/trainer/trainconfig #########
     step_per_epoch = (len(train_set) + args.batch_size - 1) // args.batch_size
     config = trainers.TrainConfig(args.save_dir, args.lr, args.max_epoch,
+                                  cycle_steps=args.cycle_steps,
                                   warmup=args.warmup,
                                   patience=args.patience,
                                   grad_clip=args.grad_clip,
