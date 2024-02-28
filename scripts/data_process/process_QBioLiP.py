@@ -133,7 +133,8 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
     item['affinity'] = { 'neglog_aff': -1.0 }
 
     try:
-        list_blocks1 = pdb_to_list_blocks(rec)
+        is_rna = "_RNA_" in rec # for RNAL
+        list_blocks1 = pdb_to_list_blocks(rec, is_rna=is_rna)
     except Exception as e:
         print_log(f'{rec} protein parsing failed: {e}', level='ERROR')
         return None
@@ -141,7 +142,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
     lig_type = complex_file_name[1].split("_")[2]
     if lig_type in {"RNA", "DNA", "III"}:
         try:
-            list_of_blocks2 = pdb_to_list_blocks(lig)
+            list_of_blocks2 = pdb_to_list_blocks(lig, is_rna=lig_type=="RNA", is_dna=lig_type=="DNA")
             blocks2 = []
             for b in list_of_blocks2:
                 blocks2.extend(b)
