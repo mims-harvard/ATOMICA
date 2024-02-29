@@ -7,7 +7,7 @@ from Bio.PDB import PDBParser
 from data.dataset import Block, Atom, VOCAB
 
 
-def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, return_indexes=False) -> List[List[Block]]:
+def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, return_indexes=False, is_rna=False, is_dna=False) -> List[List[Block]]:
     '''
         Convert pdb file to a list of lists of blocks using Biopython.
         Each chain will be a list of blocks.
@@ -52,6 +52,12 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, retu
                 continue  # the solution (e.g. H_EDO (EDO))
             if abrv == 'MSE':
                 abrv = 'MET'  # MET is usually transformed to MSE for structural analysis
+            
+            # some pdbs use single letter code for DNA and RNA
+            if is_dna and abrv in {'A', 'T', 'G', 'C'} and not abrv.startswith("D"):
+                abrv = "D" + abrv
+            if is_rna and abrv in {'A', 'U', 'G', 'C'} and not abrv.startswith("R"):
+                abrv = "R" + abrv
             symbol = VOCAB.abrv_to_symbol(abrv)
                 
             # filter Hs because not all data include them
@@ -84,6 +90,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, retu
     if return_indexes:
         return list_blocks, list_indexes
     return list_blocks
+
 
 
 if __name__ == '__main__':

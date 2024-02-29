@@ -50,6 +50,7 @@ def main(args):
             new_data.append(new_item)
             num_success += 1
         else:
+            new_data.append(item) # use original data
             num_fail += 1
     print(f'num_success: {num_success}, num_fail: {num_fail}')
     with open(args.output_path, 'wb') as f:
