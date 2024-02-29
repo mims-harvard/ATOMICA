@@ -140,6 +140,9 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
         return None
 
     lig_type = complex_file_name[1].split("_")[2]
+    if len(lig_type) != 3:
+        if "RNA" in lig_type: # for PRNA some ligands are RNA|DNA etc
+            lig_type = "RNA"
     if lig_type in {"RNA", "DNA", "III"}:
         try:
             list_of_blocks2 = pdb_to_list_blocks(lig, is_rna=lig_type=="RNA", is_dna=lig_type=="DNA")
@@ -169,6 +172,13 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
     if lig_type in {"RNA", "DNA", "III"} and len(blocks2) > 100:
         print_log(f'{lig} ligand is too big cropping it to interface', level='ERROR')
         blocks2 = interface_blocks2
+    
+    if lig_type in {"RNA", "DNA"}:
+        blocks2_symbols = set([block.symbol for block in blocks2])
+        invalid_blocks = blocks2_symbols.difference({"DA", "DT", "DC", "DG", "RU", "RA", "RG", "RC", "RI", VOCAB.UNK})
+        if len(invalid_blocks) > 0:
+            print_log(f'{lig} ligand has invalid symbols: {invalid_blocks}', level='ERROR')
+            return None
 
     data = blocks_to_data(blocks1, blocks2)
     for key in data:
