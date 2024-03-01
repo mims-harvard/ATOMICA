@@ -225,7 +225,8 @@ class GlobalTranslationTransform:
         eps = np.random.uniform(0.1, self.tr_sigma)
         noise = np.random.normal(0, self.tr_sigma, (1, 3)) * eps
         data['X'][global_atom:global_atom+segment_atoms] += noise
-        return data, noise/eps**2 # return the score
+        tr_score = noise/eps**2 # return the score
+        return data, np.squeeze(tr_score)
 
 
 def _expansion(theta, sigma, L=2000):  # the summation term only
@@ -296,4 +297,5 @@ class GlobalRotationTransform:
 
         data['X'][global_atom+1:global_atom+segment_atoms] = new_coords
         data['X'][global_atom] = new_coords.mean(axis=0)
-        return data, hat_w * self.score[sidx][tidx]
+        rot_score = hat_w * self.score[sidx][tidx]
+        return data, np.squeeze(rot_score)

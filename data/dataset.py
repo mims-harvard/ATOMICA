@@ -462,6 +462,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     @classmethod
     def collate_fn(cls, batch):
+        # FIXME: what to do when tor is empty?
         keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'tor_score']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}
