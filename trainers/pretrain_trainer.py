@@ -78,6 +78,10 @@ class PretrainTrainer(Trainer):
                 block_lengths=batch['block_lengths'],
                 lengths=batch['lengths'],
                 segment_ids=batch['segment_ids'],
+                receptor_segment=batch['receptor_segment'], 
+                atom_score=batch['atom_score'], 
+                tr_score=batch['tr_score'], 
+                rot_score=batch['rot_score'],
                 label=None,
                 return_loss=True)
 

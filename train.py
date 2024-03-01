@@ -10,7 +10,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, PretrainTorsionDataset, PretrainAtomDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
@@ -159,6 +159,10 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = MixDatasetWrapper(*datasets)
     elif task == 'pretrain_PPA':
         dataset = BlockGeoAffDataset(path)
+    elif task == 'pretrain_torsion':
+        dataset = PretrainTorsionDataset(path)
+    elif task == 'pretrain_gaussian':
+        dataset = PretrainAtomDataset(path)
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset

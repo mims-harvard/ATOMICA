@@ -25,37 +25,6 @@ ReturnValue = namedtuple(
      'loss', 'noise_loss', 'noise_level_loss', 'align_loss', 'atom_loss', 'rotation_loss', 'translation_loss', 'rotation_base', 'translation_base'],
     )
 
-ELEMENTS_COLOR = {
-    0: "#1aaeed",  # blue
-    1: "#ff0000",  # red
-}
-
-def plot_graph(Z, segment_ids, bottom_batch_id, block_id, batch_idx):
-    fig = go.Figure()
-    Z = Z.cpu()
-    Z = Z[bottom_batch_id.cpu() == batch_idx]
-    segment_ids = segment_ids[block_id][bottom_batch_id == batch_idx]
-    x = Z[:, 0]
-    y = Z[:, 1]
-    z = Z[:, 2]
-
-    color = [ELEMENTS_COLOR[i.cpu().item()] for i in segment_ids]
-    fig.add_trace(
-        go.Scatter3d(
-            x=x,
-            y=y,
-            z=z,
-            mode="markers",  # +text",
-            textposition="middle center",
-            marker=dict(size=6, color=color, line=dict(width=2, color="#4f4f4f")),
-        )
-    )
-
-    fig.update_xaxes(showticklabels=False, showgrid=False, zeroline=False)
-    fig.update_yaxes(showticklabels=False, showgrid=False, zeroline=False)
-
-    fig.show()
-    return fig
 
 def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, complexity=-1):
     if complexity == -1:  # don't do splicing
@@ -342,7 +311,7 @@ class DenoisePretrainModel(nn.Module):
         else:
             atom_noise = None
         return Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask
-    
+
     @torch.no_grad()
     def update_global_block(self, Z, B, block_id):
         is_global = B[block_id] == self.global_block_id  # [Nu]
@@ -388,7 +357,7 @@ class DenoisePretrainModel(nn.Module):
         inertia = (inner - outer) * mask[...,None,None] # [Nu,3,3]
         return 0.1 * scatter_sum(inertia, batch_id, dim=0)  # [B,3,3]
 
-    def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=True, return_loss=True) -> ReturnValue:
+    def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, receptor_segment, atom_score, tr_score, rot_score, label, return_noise=True, return_loss=True) -> ReturnValue:
         # batch_id and block_id
         with torch.no_grad():
 
@@ -412,15 +381,19 @@ class DenoisePretrainModel(nn.Module):
                 bottom_B = B[block_id]  # [Nu]
                 bottom_segment_ids = segment_ids[block_id]  # [Nu]
                 bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
+            
+            perturb_block_mask = segment_ids == receptor_segment[batch_id]  # [Nb]
+            perturb_mask = perturb_block_mask[block_id]  # [Nu]
 
             batch_size = lengths.shape[0]
             # select receptor
-            receptor_segment = self.choose_receptor(batch_size, batch_id.device)
+            # receptor_segment = self.choose_receptor(batch_size, batch_id.device)
             # perturbation
             assert Z.shape[1] == 1, "n_channel must be 1"
             Z = Z.squeeze() # [Nu, n_channel, 3] -> [Nu, 3], n_channel == 1
-            Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask = self.perturb(Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment)
-            Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
+            Z_perturbed = Z.clone()
+            # Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask = self.perturb(Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment)
+            # Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
             Z_perturbed = Z_perturbed.unsqueeze(1)  # [Nu, 1, 3]
             # FIXME: update global atom block A == VOCAB.get_atom_global_idx())
 
@@ -479,12 +452,12 @@ class DenoisePretrainModel(nn.Module):
                 pred_noise = pred_noise * pred_noise_scale
                 pred_noise = torch.clamp(pred_noise, min=-1, max=1)  # [Nu, n_channel, 3]
                 if self.hierarchical:
-                    top_atom_noise = scatter_mean(atom_noise, block_id, dim=0)  # [Nb, 3]
+                    top_atom_noise = scatter_mean(atom_score, block_id, dim=0)  # [Nb, 3]
                     pred_noise_scale_top = self.top_scale_noise_ffn(block_repr)
                     pred_noise_top = pred_noise_top * pred_noise_scale_top
                     pred_noise_top = torch.clamp(pred_noise_top, min=-1, max=1)  # [Nu, n_channel, 3]
                 
-                atom_loss = F.mse_loss(pred_noise[perturb_mask], atom_noise[perturb_mask], reduction='none')  # [Nperturb, 3]
+                atom_loss = F.mse_loss(pred_noise[perturb_mask], atom_score[perturb_mask], reduction='none')  # [Nperturb, 3]
                 atom_loss = atom_loss.sum(dim=-1)  # [Nperturb]
                 atom_loss = scatter_mean(atom_loss, batch_id[block_id][perturb_mask])  # [batch_size] # FIXME: used to be scatter_sum
                 atom_loss = atom_loss.mean()  # [1]
@@ -501,15 +474,15 @@ class DenoisePretrainModel(nn.Module):
             if self.translation_noise:
                 trans_noise_scale = self.bottom_translation_scale_ffn(graph_repr_bottom)
                 trans_noise = trans_noise * trans_noise_scale
-                tloss = self.mse_loss(trans_noise * eps, -hat_t / eps)
+                tloss = self.mse_loss(trans_noise, -tr_score)
                 if self.hierarchical:
                     trans_noise_scale_top = self.top_translation_scale_ffn(graph_repr)
                     trans_noise_top = trans_noise_top * trans_noise_scale_top
-                    tloss_top = self.mse_loss(trans_noise_top * eps, -hat_t / eps)
+                    tloss_top = self.mse_loss(trans_noise_top, -tr_score)
                 else:
                     tloss_top = torch.tensor(0.0).cuda()
                 tloss += tloss_top
-                translation_base = ((hat_t / eps)**2).mean() * (2 if self.hierarchical else 1)
+                translation_base = (tr_score**2).mean() * (2 if self.hierarchical else 1)
                 noise_loss += tloss
             else:
                 tloss = torch.tensor(0.0)
@@ -517,18 +490,18 @@ class DenoisePretrainModel(nn.Module):
 
             # Global rotation loss
             if self.rotation_noise:
-                score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
+                # score = torch.tensor([self.score[i][j] for i,j in zip(sidx, tidx)]).float().cuda()
                 rot_noise_scale = self.bottom_rotation_scale_ffn(graph_repr_bottom)
                 rot_noise = rot_noise * rot_noise_scale
-                wloss = self.mse_loss(rot_noise, hat_w * score.unsqueeze(-1))
+                wloss = self.mse_loss(rot_noise, rot_score)
                 if self.hierarchical:
                     rot_noise_scale_top = self.top_rotation_scale_ffn(graph_repr)
                     rot_noise_top = rot_noise_top * rot_noise_scale_top
-                    wloss_top = self.mse_loss(rot_noise_top, hat_w * score.unsqueeze(-1))
+                    wloss_top = self.mse_loss(rot_noise_top, rot_score)
                 else:
                     wloss_top = torch.tensor(0.0).cuda()
                 wloss += wloss_top
-                rotation_base = ((hat_w * score.unsqueeze(-1))**2).mean() * (2 if self.hierarchical else 1)
+                rotation_base = (rot_score**2).mean() * (2 if self.hierarchical else 1)
                 noise_loss += wloss
             else:
                 wloss = torch.tensor(0.0)
