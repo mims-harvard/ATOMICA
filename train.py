@@ -5,6 +5,7 @@ import argparse
 import torch
 from torch.utils.data import DataLoader
 import json
+import numpy as np
 
 from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
@@ -28,7 +29,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN', 'DDG'],
+                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN', 'DDG', 'pretrain_gaussian'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ' + \
@@ -84,10 +85,10 @@ def parse():
     parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
     parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation method for small molecules')
 
-    parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
-    parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')
-    parser.add_argument('--rotation_noise', action='store_true', help='apply global rotation noise')
-    parser.add_argument('--rot_sigma', type=float, default=1.5, help='magnitude of rotation noise')
+    parser.add_argument('--atom_noise', type=float, default=0, help='apply noise to atom coordinates')
+    parser.add_argument('--translation_noise', type=float, default=0, help='apply global translation noise')
+    parser.add_argument('--rotation_noise', type=float, default=0, help='apply global rotation noise')
+    parser.add_argument('--max_rotation', type=float, default=np.pi/4, help='max global rotation angle')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -168,6 +169,15 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
     return dataset
 
 
+def set_noise(dataset, args):
+    if args.atom_noise != 0:
+        dataset.set_atom_noise(args.atom_noise)
+    if args.translation_noise != 0:
+        dataset.set_translation_noise(args.translation_noise)
+    if args.rotation_noise != 0:
+        dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
+
+
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
     if model_type == models.AffinityPredictor:
@@ -189,8 +199,12 @@ def main(args):
 
     ########### load your train / valid set ###########
     train_set = create_dataset(args.task, args.train_set, args.train_set2, args.train_set3, args.fragment)
+    if args.task in {'pretrain_torsion', 'pretrain_gaussian'}:
+        set_noise(train_set, args)
     if args.valid_set is not None:
         valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragment)
+        if args.task in {'pretrain_torsion', 'pretrain_gaussian'}:
+            set_noise(valid_set, args)
         print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
     else:
         valid_set = None

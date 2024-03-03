@@ -78,9 +78,10 @@ class PretrainTrainer(Trainer):
                 block_lengths=batch['block_lengths'],
                 lengths=batch['lengths'],
                 segment_ids=batch['segment_ids'],
-                receptor_segment=batch['receptor_segment'], 
+                receptor_segment=batch['noisy_segment'], 
                 atom_score=batch['atom_score'], 
                 tr_score=batch['tr_score'], 
+                tr_eps=batch['tr_eps'],
                 rot_score=batch['rot_score'],
                 label=None,
                 return_loss=True)
@@ -143,6 +144,7 @@ class PretrainTrainer(Trainer):
                     wandb.log({f'train_atom_loss': loss_obj.atom_loss.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_translation_loss': loss_obj.translation_loss.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_rotation_loss': loss_obj.rotation_loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_atom_base': loss_obj.atom_base.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_translation_base': loss_obj.translation_base.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_rotation_base': loss_obj.rotation_base.detach().cpu().item()}, step=self.global_step)
                     if batch_idx % 500 == 0 and batch_idx > 0:

@@ -223,10 +223,9 @@ class GlobalTranslationTransform:
         global_atom = np.sum(block_id < global_block)
 
         eps = np.random.uniform(0.1, self.tr_sigma)
-        noise = np.random.normal(0, self.tr_sigma, (1, 3)) * eps
-        data['X'][global_atom:global_atom+segment_atoms] += noise
-        tr_score = noise/eps**2 # return the score
-        return data, np.squeeze(tr_score)
+        tr_score = np.random.normal(0, self.tr_sigma, (1, 3))
+        data['X'][global_atom:global_atom+segment_atoms] += tr_score * eps
+        return data, np.squeeze(tr_score), eps
 
 
 def _expansion(theta, sigma, L=2000):  # the summation term only
@@ -252,8 +251,8 @@ def _score(exp, theta, sigma, L=2000):
 
 
 class GlobalRotationTransform:
-    def __init__(self, rot_sigma):
-        self.theta_range = np.linspace(0.1, np.pi/4, 100)
+    def __init__(self, rot_sigma, max_theta):
+        self.theta_range = np.linspace(0.1, max_theta, 100)
         self.sigma_range = np.linspace(0.1, rot_sigma, 100)
         self.expansion = [_expansion(self.theta_range, sigma) for sigma in self.sigma_range]
         self.density = [_density(exp, self.theta_range) for exp in self.expansion]

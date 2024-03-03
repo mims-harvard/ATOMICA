@@ -12,6 +12,7 @@ import copy
 
 import numpy as np
 import torch
+from collections import defaultdict
 
 from utils.logger import print_log
 
@@ -447,8 +448,24 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         data = copy.deepcopy(item['data'])
         data['label'] = -1  # dummy label
 
-        chosen_segment = np.random.choice([0, 1])
-        data, rot_score = self.global_rot(data, chosen_segment)
+        choices = []
+
+        segment_length = defaultdict(int)
+        for segment_id, block_len in zip(data['segment_ids'], data['block_lengths']):
+            segment_length[segment_id] += block_len
+
+        # segment length 2 means only one atom + global node, no need to add noise
+        if data['torsion_mask'][0]['edges'] is not None and segment_length[0] > 2:
+            choices.append(0)
+        if data['torsion_mask'][1]['edges'] is not None and segment_length[1] > 2:
+            choices.append(1)
+        chosen_segment = np.random.choice(choices)
+        
+        # segment length 2 means only one atom + global node, no need to rotate
+        if any([segment_length[0] <= 2, segment_length[1] <= 2]):
+            rot_score = np.array([0, 0, 0])
+        else:
+            data, rot_score = self.global_rot(data, chosen_segment)
         data, tr_score = self.global_tr(data, chosen_segment)
         data, tor_score, tor_edges = self.tor(data, chosen_segment)
 
@@ -468,23 +485,24 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         res = {}
         for key, _type in zip(keys, types):
             val = []
-            print(key)
             for item in batch:
                 val.append(torch.tensor(item[key], dtype=_type))
             res[key] = torch.cat(val, dim=0)
         keys_scalars = ['rot_score', 'tr_score', 'noisy_segment']
         types_scalars = [torch.float, torch.float, torch.long]
         for key, _type in zip(keys_scalars, types_scalars):
-            print(key)
             val = [item[key] for item in batch]
             res[key] = torch.tensor(val, dtype=_type)
         res['tor_edges'] = []
+        res['tor_batch'] = []
         num_atoms = 0
-        for item in batch:
+        for i, item in enumerate(batch):
             res['tor_edges'].append(torch.tensor(item['tor_edges'] + num_atoms, dtype=torch.long))
             num_atoms += len(item['A'])
-        print(res['tor_edges'])
+            res['tor_batch'].extend([i for _ in range(len(item['tor_edges']))])
         res['tor_edges'] = torch.cat(res['tor_edges'], dim=0)
+        res['tor_batch'] = torch.tensor(res['tor_batch'], dtype=torch.long)
+        assert res['tor_edges'].shape[0] == res['tor_score'].shape[0] == res['tor_batch'].shape[0], "mismatch in tor score and number of tor edges"
         res['label'] = torch.tensor([-1 for _ in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
@@ -498,9 +516,17 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
         self.indexes = [ {'id': item['id'], 'label': item['affinity']['neglog_aff'] } for item in self.data ]  # to satify the requirements of inference.py
-        self.global_rot = GlobalRotationTransform(1.5)
-        self.global_tr = GlobalTranslationTransform(1)
-        self.atom_noise = GaussianNoiseTransform(np.pi/2)
+        self.atom_noise, self.global_tr, self.global_rot = None, None, None
+    
+    def set_atom_noise(self, noise_level):
+        self.atom_noise = GaussianNoiseTransform(noise_level)
+    
+    def set_translation_noise(self, noise_level):
+        self.global_tr = GlobalTranslationTransform(noise_level)
+
+    def set_rotation_noise(self, noise_level, max_theta):
+        self.global_rot = GlobalRotationTransform(noise_level, max_theta)
+
 
     def __len__(self):
         return len(self.data)
@@ -517,42 +543,71 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
             'segment_ids': [Nblock]
             'rot_score': [1]
             'tr_score': [1]
-            'atom_score': [N_atom_in_segment, 3]
+            'atom_score': [noisy_atoms, 3]
             'noisy_segment': [1]
         }        
         '''
         item = self.data[idx]
-        data = item['data']
+        data = copy.deepcopy(item['data'])
         data['label'] = -1  # dummy label
 
-        chosen_segment = np.random.choice([0, 1])
-        data, rot_score = self.global_rot(data, chosen_segment)
-        data, tr_score = self.global_tr(data, chosen_segment)
-        data, atom_score = self.atom_noise(data, chosen_segment)
+        choices = []
+        
+        segment_length = defaultdict(int)
+        for segment_id, block_len in zip(data['segment_ids'], data['block_lengths']):
+            segment_length[segment_id] += block_len
+
+        # segment length 2 means only one atom + global node, no need to add noise
+        if segment_length[0] > 2:
+            choices.append(0)
+        if segment_length[1] > 2:
+            choices.append(1)
+        chosen_segment = np.random.choice(choices)
+
+        # segment length 2 means only one atom + global node, no need to rotate
+        if self.global_rot is not None:
+            if any([segment_length[0] <= 2, segment_length[1] <= 2]):
+                rot_score = np.array([0, 0, 0])
+            else:
+                data, rot_score = self.global_rot(data, chosen_segment)
+        else:
+            rot_score = np.array([0, 0, 0])
+        if self.global_tr is not None: 
+            data, tr_score, tr_eps = self.global_tr(data, chosen_segment)
+        else:
+            tr_score = np.array([0, 0, 0])
+            tr_eps = 0
+        if self.atom_noise is not None:
+            data, atom_score = self.atom_noise(data, chosen_segment)
+        else:
+            atom_score = np.zeros_like(data['X'])
 
         data['rot_score'] = rot_score
         data['tr_score'] = tr_score
+        data['tr_eps'] = tr_eps
         data['atom_score'] = atom_score
         data['noisy_segment'] = chosen_segment
 
         return data
+    
 
     @classmethod
     def collate_fn(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'rot_score', 'tr_score', 'tor_score', 'noisy_segment']
-        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float, torch.float, torch.float, torch.long]
+        # FIXME: what to do when tor is empty?
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'atom_score']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
                 val.append(torch.tensor(item[key], dtype=_type))
             res[key] = torch.cat(val, dim=0)
-        res['tor_edges'] = []
-        num_atoms = 0
-        for item in batch:
-            res['tor_edges'].append(item['tor_edges'] + num_atoms)
-            num_atoms += len(item['A'])
-        res['tor_edges'] = torch.cat(res['tor_edges'], dim=0, dtype=torch.long)
+        keys_scalars = ['rot_score', 'tr_score', 'noisy_segment', 'tr_eps']
+        types_scalars = [torch.float, torch.float, torch.long, torch.float]
+        for key, _type in zip(keys_scalars, types_scalars):
+            val = [item[key] for item in batch]
+            val = np.array(val)
+            res[key] = torch.tensor(val, dtype=_type)
         res['label'] = torch.tensor([-1 for _ in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
