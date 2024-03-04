@@ -85,6 +85,8 @@ class TorsionNoiseTransform:
             chosen_segment: segment id
         Returns:
             data with torsion noise
+            torsion score [n_tor_edges], None if no torsion edges
+            torsion edges [2, n_tor_edges]
         """
         if type(data['X']) == list:
             data['X'] = np.array(data['X'])
@@ -106,7 +108,7 @@ class TorsionNoiseTransform:
 
             all_none = all([edges is None for edges in data['torsion_mask'][chosen_segment]['edges']])
             if all_none:
-                return data, 0, torch.empty((0,2), dtype=torch.long)
+                return data, None, torch.empty((2,0), dtype=torch.long)
 
             for i, (edges, mask_rotate) in enumerate(zip(data['torsion_mask'][chosen_segment]['edges'], data['torsion_mask'][chosen_segment]['mask_rotate'])):
                 if edges is None:
@@ -130,7 +132,7 @@ class TorsionNoiseTransform:
             mask_rotate = data['torsion_mask'][chosen_segment]['mask_rotate']
 
             if edges is None:
-                return data, 0, torch.empty((0,2), dtype=torch.long)
+                return data, None, torch.empty((2,0), dtype=torch.long)
 
             start_atoms = np.sum(block_id < start_block)
             
@@ -155,7 +157,7 @@ class TorsionNoiseTransform:
         global_block = np.sum(data['segment_ids'] < chosen_segment)
         global_atom = np.sum(block_id < global_block)
         data['X'][global_atom] = data['X'][global_atom+1:global_atom+segment_atoms].mean(axis=0)
-        return data, torus_score(torsion_updates, self.tor_sigma), torsion_edges
+        return data, torus_score(torsion_updates, self.tor_sigma), torsion_edges.T
     
 
 class GaussianNoiseTransform:
@@ -186,12 +188,13 @@ class GaussianNoiseTransform:
         global_block = np.sum(data['segment_ids'] < chosen_segment)
         global_atom = np.sum(block_id < global_block)
 
-        noise = np.random.normal(0, self.sigma, (segment_atoms-1, 3))
+        noise = np.random.normal(0, 1, (segment_atoms-1, 3))
+        eps = np.random.uniform(0.1, self.sigma)
         original_coords = copy.deepcopy(data['X'])
-        data['X'][global_atom+1:global_atom+segment_atoms] += noise
+        data['X'][global_atom+1:global_atom+segment_atoms] += noise*eps
         data['X'][global_atom] = data['X'][global_atom+1:global_atom+segment_atoms].mean(axis=0)
-        atom_score = original_coords - data['X']
-        return data, atom_score
+        atom_score = (original_coords - data['X'])/eps
+        return data, atom_score, eps
 
 
 class GlobalTranslationTransform:
@@ -223,7 +226,7 @@ class GlobalTranslationTransform:
         global_atom = np.sum(block_id < global_block)
 
         eps = np.random.uniform(0.1, self.tr_sigma)
-        tr_score = np.random.normal(0, self.tr_sigma, (1, 3))
+        tr_score = np.random.normal(0, 1, (1, 3))
         data['X'][global_atom:global_atom+segment_atoms] += tr_score * eps
         return data, np.squeeze(tr_score), eps
 

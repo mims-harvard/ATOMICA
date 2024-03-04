@@ -29,7 +29,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN', 'DDG', 'pretrain_gaussian'],
+                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ' + \
@@ -88,6 +88,7 @@ def parse():
     parser.add_argument('--atom_noise', type=float, default=0, help='apply noise to atom coordinates')
     parser.add_argument('--translation_noise', type=float, default=0, help='apply global translation noise')
     parser.add_argument('--rotation_noise', type=float, default=0, help='apply global rotation noise')
+    parser.add_argument('--torsion_noise', type=float, default=0, help='max torsion rotation noise')
     parser.add_argument('--max_rotation', type=float, default=np.pi/4, help='max global rotation angle')
 
     # load pretrain
@@ -170,12 +171,17 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
 
 
 def set_noise(dataset, args):
-    if args.atom_noise != 0:
-        dataset.set_atom_noise(args.atom_noise)
-    if args.translation_noise != 0:
-        dataset.set_translation_noise(args.translation_noise)
-    if args.rotation_noise != 0:
-        dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
+    if type(dataset) == PretrainAtomDataset or type(dataset) == PretrainTorsionDataset:
+        if args.atom_noise != 0 and args.torsion_noise != 0:
+            raise ValueError('Cannot set both atom and torsion noise at the same time')
+        if type(dataset) == PretrainAtomDataset and args.atom_noise != 0:
+            dataset.set_atom_noise(args.atom_noise)
+        if args.translation_noise != 0:
+            dataset.set_translation_noise(args.translation_noise)
+        if args.rotation_noise != 0:
+            dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
+        if type(dataset) == PretrainTorsionDataset and args.torsion_noise != 0:
+            dataset.set_torsion_noise(args.torsion_noise)
 
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):

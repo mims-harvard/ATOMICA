@@ -29,9 +29,10 @@ def create_model(args):
                 hierarchical=args.hierarchical,
                 no_block_embedding=args.no_block_embedding,
                 denoising=True,
-                atom_noise=args.atom_noise,
-                translation_noise=args.translation_noise,
-                rotation_noise=args.rotation_noise,
+                atom_noise=args.atom_noise != 0,
+                translation_noise=args.translation_noise != 0,
+                rotation_noise=args.rotation_noise != 0,
+                torsion_noise=args.torsion_noise != 0,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
             )
