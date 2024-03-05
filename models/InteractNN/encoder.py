@@ -20,7 +20,8 @@ class InteractNNEncoder(nn.Module):
         H, Z = scatter_mean(H, block_id, dim=0), scatter_mean(Z, block_id, dim=0)
         Z = Z.squeeze()
         if self.return_noise:
-            block_repr, trans_noise, rot_noise, atom_noise, tor_noise = self.encoder(H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=tor_edges, tor_batch=tor_batch)  # [Nb, hidden]
+            output = self.encoder(H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=tor_edges, tor_batch=tor_batch)  # [Nb, hidden]
+            block_repr, trans_noise, rot_noise, atom_noise, tor_noise = output
         else:
             block_repr = self.encoder(H, Z, batch_id, perturb_mask, edges, edge_attr)  # [Nb, hidden]
         block_repr = F.normalize(block_repr, dim=-1)

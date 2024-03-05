@@ -210,6 +210,7 @@ class DenoisePretrainModel(nn.Module):
             self.top_encoder = deepcopy(self.encoder)
             if self.torsion_noise and model_type == 'InteractNN':
                 self.top_encoder.encoder.return_torsion_noise = False # torsion noise is only applied to the bottom level
+                self.top_encoder.return_noise = any([self.top_encoder.encoder.return_atom_noise, self.top_encoder.encoder.return_global_noise])
         
         if not self.denoising:
             self.energy_ffn = nn.Sequential(
@@ -428,8 +429,13 @@ class DenoisePretrainModel(nn.Module):
                 edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
                 top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
                 global_mask = B != self.global_block_id if not self.global_message_passing else None
-                _, block_repr, graph_repr, _, trans_noise_top, rot_noise_top, pred_noise_top, _ = self.top_encoder(
-                    top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
+                if self.top_encoder.return_noise:
+                    _, block_repr, graph_repr, _, trans_noise_top, rot_noise_top, pred_noise_top, _ = self.top_encoder(
+                        top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
+                else:
+                    # For the hierarchical denoising model, if torsion noise only and no global translation or rotation, the top encoder is not required to return noise
+                    _, block_repr, graph_repr, _ = self.top_encoder(
+                        top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
                 bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
             else:
                 # bottom level message passing

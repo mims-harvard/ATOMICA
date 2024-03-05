@@ -475,6 +475,8 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
                 rot_score = np.array([0, 0, 0])
             else:
                 data, rot_score = self.global_rot(data, chosen_segment)
+        else:
+            rot_score = np.array([0, 0, 0])
         if self.global_tr is not None: 
             data, tr_score, tr_eps = self.global_tr(data, chosen_segment)
         else:

@@ -246,7 +246,6 @@ class InteractionModule(torch.nn.Module):
                 torsion_noise = self.tor_final_layer(pred).flatten()
             else:
                 torsion_noise = None
-
             return self.out_ffn(node_embeddings), trans_noise, rot_noise, atom_noise, torsion_noise
         else:
             node_embeddings = self.out_ffn(node_embeddings)
