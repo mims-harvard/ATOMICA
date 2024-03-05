@@ -369,8 +369,8 @@ class DenoisePretrainModel(nn.Module):
         return 0.1 * scatter_sum(inertia, batch_id, dim=0)  # [B,3,3]
 
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, 
-                receptor_segment, atom_score, atom_eps, tr_score, tr_eps, rot_score, 
-                tor_edges, tor_score, tor_batch, label, return_noise=True, return_loss=True) -> ReturnValue:
+                receptor_segment=None, atom_score=None, atom_eps=None, tr_score=None, tr_eps=None, rot_score=None, 
+                tor_edges=None, tor_score=None, tor_batch=None, label=None, return_noise=True, return_loss=True) -> ReturnValue:
         # batch_id and block_id
         with torch.no_grad():
 
@@ -409,8 +409,6 @@ class DenoisePretrainModel(nn.Module):
 
         # Z_perturbed.requires_grad_(True)
         Z_perturbed = Z.unsqueeze(1)
-        perturb_block_mask = segment_ids == receptor_segment[batch_id]  # [Nb]
-        perturb_mask = perturb_block_mask[block_id]  # [Nu]
 
         # embedding
         if self.hierarchical:
@@ -422,6 +420,8 @@ class DenoisePretrainModel(nn.Module):
         # encoding
         if self.hierarchical:
             if self.denoising:
+                perturb_block_mask = segment_ids == receptor_segment[batch_id]  # [Nb]
+                perturb_mask = perturb_block_mask[block_id]  # [Nu]
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
                 atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
@@ -443,6 +443,8 @@ class DenoisePretrainModel(nn.Module):
                         top_H_0, top_Z, top_block_id, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
                 bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
             else:
+                perturb_mask = None
+                perturb_block_mask = None
                 # bottom level message passing
                 edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z_perturbed, bottom_block_id)
                 atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
@@ -545,8 +547,8 @@ class DenoisePretrainModel(nn.Module):
         else:
             pred_noise = None,
             noise_loss, align_loss, noise_level_loss, loss = None, None, None, None
-            atom_loss, tloss, wloss = None, None, None
-            translation_base, rotation_base = None, None
+            atom_loss, tloss, wloss, tor_loss = None, None, None, None
+            atom_base, translation_base, rotation_base, tor_base = None, None, None, None
             block_energy = self.energy_ffn(block_repr).squeeze(-1)
             if not self.global_message_passing: # ignore global blocks
                 block_energy[B == self.global_block_id] = 0

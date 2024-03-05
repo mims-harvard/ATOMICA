@@ -18,12 +18,12 @@ class PredictionModel(DenoisePretrainModel):
                  n_rbf=1, cutoff=7.0, n_head=1,
                  radial_size=16, edge_size=64, k_neighbors=9,
                  n_layers=3, dropout=0.1, std=10, atom_level=False,
-                 hierarchical=False, no_block_embedding=False, global_message_passing=False) -> None:
+                 hierarchical=False, no_block_embedding=False, global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
             model_type, hidden_size, n_channel, n_rbf, cutoff, n_head, radial_size, edge_size,
             k_neighbors, n_layers, dropout=dropout, std=std, atom_level=atom_level,
             hierarchical=hierarchical, no_block_embedding=no_block_embedding, global_message_passing=global_message_passing,
-            denoising=False, atom_noise=False, translation_noise=False, rotation_noise=False)
+            denoising=False, atom_noise=False, translation_noise=False, rotation_noise=False, torsion_noise=False, fragmentation_method=fragmentation_method)
         # del self.sigmas  # no need for noise level
 
     @classmethod
@@ -48,6 +48,10 @@ class PredictionModel(DenoisePretrainModel):
             no_block_embedding=pretrained_model.no_block_embedding,
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
+            atom_noise=False,
+            translation_noise=False,
+            rotation_noise=False,
+            torsion_noise=False,
         )
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
         if partial_finetune:
@@ -74,7 +78,7 @@ class PredictionModel(DenoisePretrainModel):
     
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False) -> ReturnValue:
         return_value = super().forward(
-            Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label,
+            Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label=label,
             return_noise=return_noise, return_loss=False)
         
         return return_value
