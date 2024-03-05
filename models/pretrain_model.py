@@ -111,7 +111,8 @@ class DenoisePretrainModel(nn.Module):
                  dropout=0.1, std=10, global_message_passing=False,
                  atom_level=False, hierarchical=False, no_block_embedding=False, 
                  denoising=True, atom_noise=True, translation_noise=True, 
-                 rotation_noise=True, torsion_noise=True, rot_sigma=1.5, fragmentation_method=None) -> None:
+                 rotation_noise=True, torsion_noise=True, rot_sigma=1.5, fragmentation_method=None,
+                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1) -> None:
         super().__init__()
 
         self.model_type = model_type
@@ -137,6 +138,10 @@ class DenoisePretrainModel(nn.Module):
         self.torsion_noise = torsion_noise
         self.mse_loss = nn.MSELoss()
         self.fragmentation_method = fragmentation_method
+        self.atom_weight = atom_weight
+        self.translation_weight = translation_weight
+        self.rotation_weight = rotation_weight
+        self.torsion_weight = torsion_weight
 
         VOCAB.load_tokenizer(fragmentation_method)
 
@@ -480,7 +485,7 @@ class DenoisePretrainModel(nn.Module):
                     atom_loss_top = atom_loss_top.sum(dim=-1)  # [Nperturb]
                     atom_loss_top = scatter_mean(atom_loss_top, batch_id[perturb_block_mask])  # [batch_size] # FIXME: used to be scatter_sum
                     atom_loss += atom_loss_top.mean()
-                noise_loss += atom_loss
+                noise_loss += self.atom_weight * atom_loss
                 atom_base = scatter_mean((atom_score[perturb_mask]**2).mean(dim=-1), batch_id[block_id][perturb_mask]).mean() * (2 if self.hierarchical else 1) # [1]
             else:
                 atom_loss = torch.tensor(0.0)
@@ -490,7 +495,7 @@ class DenoisePretrainModel(nn.Module):
                 tor_loss = F.mse_loss(tor_noise, tor_score, reduction='none') # [n_tor_edges]
                 tor_loss = scatter_mean(tor_loss, tor_batch, dim=0) # [batch_size]
                 tor_loss = tor_loss.mean() # [1]
-                noise_loss += tor_loss
+                noise_loss += self.torsion_weight * tor_loss
                 tor_base = (tor_score**2).mean() # [1]
             else:
                 tor_loss = torch.tensor(0.0)
@@ -509,7 +514,7 @@ class DenoisePretrainModel(nn.Module):
                     tloss_top = torch.tensor(0.0).cuda()
                 tloss += tloss_top
                 translation_base = (tr_score**2).mean() * (2 if self.hierarchical else 1)
-                noise_loss += tloss
+                noise_loss += self.translation_weight * tloss
             else:
                 tloss = torch.tensor(0.0)
                 translation_base = torch.tensor(0.0)
@@ -528,7 +533,7 @@ class DenoisePretrainModel(nn.Module):
                     wloss_top = torch.tensor(0.0).cuda()
                 wloss += wloss_top
                 rotation_base = (rot_score**2).mean() * (2 if self.hierarchical else 1)
-                noise_loss += wloss
+                noise_loss += self.rotation_weight * wloss
             else:
                 wloss = torch.tensor(0.0)
                 rotation_base = torch.tensor(0.0)

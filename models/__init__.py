@@ -35,6 +35,10 @@ def create_model(args):
                 torsion_noise=args.torsion_noise != 0,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
+                atom_weight=args.atom_weight,
+                translation_weight=args.tr_weight,
+                rotation_weight=args.rot_weight,
+                torsion_weight=args.tor_weight,
             )
         return model
     else:

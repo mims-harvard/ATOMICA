@@ -18,7 +18,7 @@ import wandb
 class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch, warmup=0,
                  metric_min_better=True, patience=3, cycle_steps=1,
-                 grad_clip=None, save_topk=-1,  # -1 for save all
+                 grad_clip=None, save_topk=-1, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr

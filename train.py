@@ -90,6 +90,10 @@ def parse():
     parser.add_argument('--rotation_noise', type=float, default=0, help='apply global rotation noise')
     parser.add_argument('--torsion_noise', type=float, default=0, help='max torsion rotation noise')
     parser.add_argument('--max_rotation', type=float, default=np.pi/4, help='max global rotation angle')
+    parser.add_argument('--tr_weight', type=float, default=1.0, help='Weight of translation loss')
+    parser.add_argument('--rot_weight', type=float, default=1.0, help='Weight of rotation loss')
+    parser.add_argument('--tor_weight', type=float, default=1.0, help='Weight of torsional loss')
+    parser.add_argument('--atom_weight', type=float, default=1.0, help='Weight of atom loss')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -189,7 +193,10 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
     if model_type == models.AffinityPredictor:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
-        trainer = trainers.PretrainTrainer(model, train_loader, valid_loader, config, resume_state)
+        trainer = trainers.PretrainTrainer(
+            model, train_loader, valid_loader, config, 
+            resume_state=resume_state,
+        )
     elif model_type == models.DDGPredictor:
         trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
     else:
@@ -229,12 +236,14 @@ def main(args):
 
     ########## define your model/trainer/trainconfig #########
     step_per_epoch = (len(train_set) + args.batch_size - 1) // args.batch_size
-    config = trainers.TrainConfig(args.save_dir, args.lr, args.max_epoch,
-                                  cycle_steps=args.cycle_steps,
-                                  warmup=args.warmup,
-                                  patience=args.patience,
-                                  grad_clip=args.grad_clip,
-                                  save_topk=args.save_topk)
+    config = trainers.TrainConfig(
+        args.save_dir, args.lr, args.max_epoch,
+        cycle_steps=args.cycle_steps,
+        warmup=args.warmup,
+        patience=args.patience,
+        grad_clip=args.grad_clip,
+        save_topk=args.save_topk,
+    )
     config.add_parameter(step_per_epoch=step_per_epoch,
                          final_lr=args.final_lr)
     if args.valid_batch_size is None:
