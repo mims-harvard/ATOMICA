@@ -142,7 +142,13 @@ class InteractionModule(torch.nn.Module):
             nn.Dropout(dropout),
             nn.Linear(self.node_embedding_dim, ns),
         )
-
+    
+    def remove_torsion_denoiser(self):
+        self.return_torsion_noise = False
+        self.torsion_edge_embedder = None
+        self.final_tp_tor = None
+        self.tor_bond_conv = None
+        self.tor_final_layer = None
 
     def forward(self, node_attr, coords, batch_id, perturb_mask, edges, edge_type_attr, tor_edges=None, tor_batch=None):
         edge_vec = coords[edges[1]] - coords[edges[0]]

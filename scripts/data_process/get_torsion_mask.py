@@ -3,6 +3,7 @@ import sys
 import argparse
 import pickle
 from tqdm import tqdm
+import multiprocessing
 
 PROJ_DIR = os.path.join(
     os.path.split(os.path.abspath(__file__))[0],
@@ -11,7 +12,6 @@ PROJ_DIR = os.path.join(
 print(f'Project directory: {PROJ_DIR}')
 sys.path.append(PROJ_DIR)
 
-from data.dataset import PDBBindBenchmark
 from utils.torsion import *
 from data.dataset import data_to_blocks
 from data.pdb_utils import VOCAB
@@ -62,17 +62,19 @@ def main(args):
     VOCAB.load_tokenizer(args.fragmentation_method)
     with open(args.data_file, "rb") as f:
         dataset = pickle.load(f)
-    output = []
-    for item in tqdm(dataset):
-        output.append(process_one(item))
+    
+    with multiprocessing.Pool(args.num_workers) as pool:
+        results = list(tqdm(pool.imap(process_one, dataset), total=len(dataset), desc="Processing torsion edges"))
+
     with open(args.output_file, "wb") as f:
-        pickle.dump(output, f)
+        pickle.dump(results, f)
 
 def parse():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_file", type=str, required=True)
     parser.add_argument("--output_file", type=str, required=True)
     parser.add_argument("--fragmentation_method", type=str, default=None, choices=["PS_300", "PS_500"])
+    parser.add_argument("--num_workers", type=int, default=1)
     return parser.parse_args()
 
 if __name__ == "__main__":

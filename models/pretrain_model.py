@@ -214,7 +214,7 @@ class DenoisePretrainModel(nn.Module):
         if self.hierarchical:
             self.top_encoder = deepcopy(self.encoder)
             if self.torsion_noise and model_type == 'InteractNN':
-                self.top_encoder.encoder.return_torsion_noise = False # torsion noise is only applied to the bottom level
+                self.top_encoder.encoder.remove_torsion_denoiser() # torsion noise is only applied to the bottom level
                 self.top_encoder.return_noise = any([self.top_encoder.encoder.return_atom_noise, self.top_encoder.encoder.return_global_noise])
         
         if not self.denoising:

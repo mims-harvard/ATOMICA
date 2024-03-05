@@ -467,7 +467,11 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
             choices.append(0)
         if data['torsion_mask'][1]['edges'] is not None and segment_length[1] > 2:
             choices.append(1)
-        chosen_segment = np.random.choice(choices)
+        
+        if len(choices) == 0:
+            chosen_segment = 0 # choose 0 by default
+        else:
+            chosen_segment = np.random.choice(choices)
         
         if self.global_rot is not None:
             # segment length 2 means only one atom + global node, no need to rotate
@@ -498,19 +502,25 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
     @classmethod
     def collate_fn(cls, batch):
         # FIXME: what to do when tor is empty?
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'tor_score']
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
-                if item[key] is None:
-                    if key == 'tor_score':
-                        continue
-                    else:
-                        raise ValueError(f"key {key} is None")
                 val.append(torch.tensor(item[key], dtype=_type))
             res[key] = torch.cat(val, dim=0)
+
+        res['tor_score'] = []
+        for item in batch:
+            if item['tor_score'] is not None:
+                res['tor_score'].append(torch.tensor(item['tor_score'], dtype=torch.float))
+        if len(res['tor_score']) == 0:
+            # Sometimes you get a batch with no torsion angles
+            res['tor_score'] = torch.zeros(0, dtype=torch.float)
+        else:
+            res['tor_score'] = torch.cat(res['tor_score'], dim=0)
+
         keys_scalars = ['rot_score', 'tr_score', 'noisy_segment', 'tr_eps']
         types_scalars = [torch.float, torch.float, torch.long, torch.float]
         for key, _type in zip(keys_scalars, types_scalars):
