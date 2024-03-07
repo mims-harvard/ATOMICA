@@ -96,7 +96,7 @@ class Vocab:
 
         bases = [ # bases for RNA/DNA
                 ('DA', 'DA'), ('DG', 'DG'), ('DC', 'DC'), ('DT', 'DT'), # DNA
-                ('RA', 'RA'), ('RG', 'RG'), ('RC', 'RC'), ('RU', 'RU'), ('RI', 'RI'), # RNA, RI = inosine
+                ('RA', 'RA'), ('RG', 'RG'), ('RC', 'RC'), ('RU', 'RU'), # RNA, RI = inosine
         ]
 
         sms = [(atom.lower(), atom) for atom in ATOMS]

@@ -175,7 +175,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
     
     if lig_type in {"RNA", "DNA"}:
         blocks2_symbols = set([block.symbol for block in blocks2])
-        invalid_blocks = blocks2_symbols.difference({"DA", "DT", "DC", "DG", "RU", "RA", "RG", "RC", "RI", VOCAB.UNK})
+        invalid_blocks = blocks2_symbols.difference({"DA", "DT", "DC", "DG", "RU", "RA", "RG", "RC", VOCAB.UNK})
         if len(invalid_blocks) > 0:
             print_log(f'{lig} ligand has invalid symbols: {invalid_blocks}', level='ERROR')
             return None

@@ -26,11 +26,16 @@ def get_torsion_mask(atoms, coords):
     to_rotate = []
     edges = list(nx.edges(G))
     mask_edges, mask_rotate = [], []
+    original_num_components = nx.number_connected_components(G)
+    if original_num_components > 1: 
+        # if the molecule is disconnected, then we do not want to rotate
+        # this is normally because there are two molecules there
+        mask_edges = [False] * len(edges)
+        return np.array(edges), np.array(mask_edges), np.array(mask_rotate)
     for i in range(0, len(edges)):
         G2 = G.copy()
-        num_connected_components = nx.number_connected_components(G2)
         G2.remove_edge(*edges[i])
-        if nx.number_connected_components(G2) > num_connected_components:
+        if nx.number_connected_components(G2) == 2:
             l1 = list(sorted(nx.connected_components(G2), key=len)[0])
             l2 = list(sorted(nx.connected_components(G2), key=len)[1])
             if len(l1) > 1 and len(l2) > 1:
