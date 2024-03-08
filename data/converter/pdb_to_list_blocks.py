@@ -7,7 +7,8 @@ from Bio.PDB import PDBParser
 from data.dataset import Block, Atom, VOCAB
 
 
-def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, return_indexes=False, is_rna=False, is_dna=False) -> List[List[Block]]:
+def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, 
+                       return_indexes=False, is_rna=False, is_dna=False) -> List[List[Block]]:
     '''
         Convert pdb file to a list of lists of blocks using Biopython.
         Each chain will be a list of blocks.
@@ -27,6 +28,9 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, retu
                     [residueB1, residueB2, ...]   # chain B
                 ],
                 where each residue is instantiated by Block data class.
+            
+            If return_indexes, also returns a list of residue indexes for each chain. 
+            Each residue is indexed with the format "<chain_id>_<residue_number>".
     '''
 
     parser = PDBParser(QUIET=True)

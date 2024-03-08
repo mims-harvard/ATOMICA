@@ -12,7 +12,7 @@ from data.converter.pdb_to_list_blocks import pdb_to_list_blocks
 from data.converter.sm_pdb_to_blocks import sm_pdb_to_blocks
 from data.dataset import VOCAB
 from data.dataset import blocks_interface, blocks_to_data
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, DynamicBatchWrapper
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, DynamicBatchWrapper, PDBDataset
 from data.atom3d_dataset import LBADataset
 import models
 import torch
@@ -92,7 +92,8 @@ def get_embeddings(dataset, model, out_dir):
 
 
 if __name__ == "__main__":
-    pretrain_ckpt = "/n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN-global/version_76/checkpoint/epoch8_step690593.ckpt"
+    pretrain_ckpt = "/n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN-torsion/version_1/checkpoint/epoch11_step188074.ckpt"
+    # pretrain_ckpt = "/n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN-gaussian/version_0/checkpoint/epoch1_step26644.ckpt"
     model = AffinityPredictor.load_from_pretrained(pretrain_ckpt)
     out_type = "pretrained"
 
@@ -100,28 +101,37 @@ if __name__ == "__main__":
     # model = torch.load(finetune_ckpt, map_location="cpu")
     # out_type = "finetuned"
     
-    out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings/PLA30"
-    dataset = LBADataset("/n/holyscratch01/mzitnik_lab/afang/GET/datasets/LBA/split-by-sequence-identity-30/data/train")
-    dataset = DynamicBatchWrapper(dataset, 500)
-    get_embeddings(dataset, model, out_dir)
-
-    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings/CSD"
-    # dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/CSD/train_subsampled_2000.pkl")
+    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings1/PLA30"
+    # dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/PDBBind/processed_PS_300/identity30/valid.pkl")
     # dataset = DynamicBatchWrapper(dataset, 500)
     # get_embeddings(dataset, model, out_dir)
+    # print("Finished PLA30")
 
-    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings/BioLiP"
+    out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings_all/CSD_valid_PS_300"
+    dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/CSD/valid_PS_300.pkl")
+    dataset = DynamicBatchWrapper(dataset, 500)
+    get_embeddings(dataset, model, out_dir)
+    print("Finished CSD")
+
+    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings1/BioLiP"
     # dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/BioLiP/processed-QBioLiP/train_subsampled_2000.pkl")
     # dataset = DynamicBatchWrapper(dataset, 500)
     # get_embeddings(dataset, model, out_dir)
 
-    # datasets = os.listdir("datasets/BioLiP/processed-QBioLiP/subsampled")
-    # for dataset in datasets:
-    #     datatype = dataset.split("_")[1]
-    #     dataset = PDBBindBenchmark(f"datasets/BioLiP/processed-QBioLiP/subsampled/{dataset}")
-    #     out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings/{datatype}"
-    #     os.makedirs(out_dir, exist_ok=True)
-    #     dataset = DynamicBatchWrapper(dataset, 500)
-    #     get_embeddings(dataset, model, out_dir)
-    #     print(f"Finished {datatype}")
+    datasets = os.listdir("./datasets/BioLiP/processed-QBioLiP/")
+    for dataset_name in datasets:
+        if not dataset_name.startswith("QBioLiP") or not dataset_name.endswith(".pkl") or "train" in dataset_name:
+            continue
+        datatype = dataset_name.split("_")[1]
+        dataset = PDBBindBenchmark(f"datasets/BioLiP/processed-QBioLiP/{dataset_name}")
+        out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings_all/{dataset_name[:-len('.pkl')]}"
+        os.makedirs(out_dir, exist_ok=True)
+        dataset = DynamicBatchWrapper(dataset, 500)
+        get_embeddings(dataset, model, out_dir)
+        print(f"Finished {datatype}. Saved to {out_dir}")
+
+    # out_dir = "/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/case_studies/wdr_proteins/embeddings"
+    # dataset = PDBDataset("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/case_studies/wdr_proteins/wdr_interfaces.pkl")
+    # dataset = DynamicBatchWrapper(dataset, 500)
+    # get_embeddings(dataset, model, out_dir)
     

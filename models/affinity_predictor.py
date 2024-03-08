@@ -21,8 +21,6 @@ class AffinityPredictor(PredictionModel):
     def forward(self, Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise=False) -> ReturnValue:
         return_value = super().forward(Z, B, A, atom_positions, block_lengths, lengths, segment_ids, label, return_noise)
         energy = return_value.energy
-        print("Prediction:", -energy)
-        print("Label:", label)
         return F.mse_loss(-energy, label)  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
         aff = scatter_sum(self.affinity_ffn(return_value.block_repr).squeeze(-1), return_value.batch_id)
         return F.mse_loss(aff, label)

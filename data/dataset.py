@@ -414,6 +414,51 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         return res
 
 
+class PDBDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data_file):
+        super().__init__()
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        {
+            'X': [Natom, n_channel, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+            'label': [1]
+        }        
+        '''
+        item = self.data[idx]
+        data = item['data']
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
+        return res
+
+
+
 class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):

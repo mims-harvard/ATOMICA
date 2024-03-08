@@ -48,11 +48,8 @@ class PredictionModel(DenoisePretrainModel):
             no_block_embedding=pretrained_model.no_block_embedding,
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
-            atom_noise=False,
-            translation_noise=False,
-            rotation_noise=False,
-            torsion_noise=False,
         )
+        assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
         if partial_finetune:
             model.requires_grad_(requires_grad=False)
