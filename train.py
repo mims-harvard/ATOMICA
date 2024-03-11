@@ -11,7 +11,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, PretrainTorsionDataset, PretrainAtomDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
@@ -166,8 +166,10 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
     elif task == 'pretrain_PPA':
         dataset = BlockGeoAffDataset(path)
     elif task == 'pretrain_torsion':
+        from data.dataset_pretrain import PretrainTorsionDataset
         dataset = PretrainTorsionDataset(path)
     elif task == 'pretrain_gaussian':
+        from data.dataset_pretrain import PretrainAtomDataset
         dataset = PretrainAtomDataset(path)
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
@@ -175,6 +177,7 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
 
 
 def set_noise(dataset, args):
+    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset
     if type(dataset) == PretrainAtomDataset or type(dataset) == PretrainTorsionDataset:
         if args.atom_noise != 0 and args.torsion_noise != 0:
             raise ValueError('Cannot set both atom and torsion noise at the same time')

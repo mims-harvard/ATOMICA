@@ -8,7 +8,8 @@ from data.dataset import Block, Atom, VOCAB
 
 
 def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, 
-                       return_indexes=False, is_rna=False, is_dna=False) -> List[List[Block]]:
+                       return_indexes: bool =False, is_rna: bool=False, is_dna: bool=False, 
+                       use_model:int =None) -> List[List[Block]]:
     '''
         Convert pdb file to a list of lists of blocks using Biopython.
         Each chain will be a list of blocks.
@@ -37,6 +38,9 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
     structure = parser.get_structure('anonym', pdb)
 
     list_blocks, list_indexes, chain_ids = [], [], {}
+    
+    if use_model is not None:
+        structure = structure[use_model]
 
     for chain in structure.get_chains():
 

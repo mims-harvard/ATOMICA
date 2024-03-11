@@ -15,7 +15,8 @@ class DDGPredictor(PredictionModel):
             nn.SiLU(),
             nn.Linear(hidden_size, hidden_size),
             nn.SiLU(),
-            nn.Linear(hidden_size, 1, bias=False)
+            nn.Linear(hidden_size, 1, bias=False),
+            nn.Sigmoid()
         )
     
     def forward(self, wt, mt, ddg, return_noise=False) -> ReturnValue:
@@ -35,7 +36,10 @@ class DDGPredictor(PredictionModel):
         
         diff = mt_return_value.graph_repr - wt_return_value.graph_repr 
         pred = self.ddg_ffn(diff).squeeze()
-        return F.mse_loss(pred, ddg)
+        ddg = (ddg > 0).float()
+        assert pred.shape == ddg.shape
+        loss = F.binary_cross_entropy(pred, ddg)
+        return loss
     
     def infer(self, batch):
         self.eval()

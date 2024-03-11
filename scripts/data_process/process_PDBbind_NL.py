@@ -6,8 +6,7 @@ import sys
 import math
 import pickle
 import argparse
-from argparse import Namespace
-
+from Bio.PDB import PDBParser
 import pandas as pd
 
 PROJ_DIR = os.path.join(
@@ -18,25 +17,188 @@ print(f'Project directory: {PROJ_DIR}')
 sys.path.append(PROJ_DIR)
 
 from utils.convert import kd_to_dg
-from utils.network import url_get
 from utils.logger import print_log
 from data.pdb_utils import Complex, Residue, VOCAB, Protein, Peptide
-from data.split import main as split
-from data.dataset import BlockGeoAffDataset
+from data.converter.pdb_to_list_blocks import pdb_to_list_blocks
+from data.pdb_utils import Atom, VOCAB
+from data.dataset import Block, blocks_interface, blocks_to_data
+from data.converter.atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 
+with open("./data/converter/excluded_qbiolip_ligands.txt", "r") as f:
+    EXCLUDE_LIGANDS = f.read().splitlines()
+CCD = pd.read_csv('./data/converter/pdb_chemical_components_smiles.txt', sep='\t', names=['smiles', 'id', 'name']).set_index('id')
 
 
 def parse():
     parser = argparse.ArgumentParser(description='Process PDBbind')
     parser.add_argument('--index_file', type=str, required=True,
-                        help='Path to the index file: INDEX_general_PP.2020')
+                        help='Path to the index file: INDEX_general_NL.2020')
     parser.add_argument('--pdb_dir', type=str, required=True,
                         help='Directory of pdbs: PP')
     parser.add_argument('--out_dir', type=str, required=True,
                         help='Output directory')
     parser.add_argument('--interface_dist_th', type=float, default=6.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')
+    parser.add_argument('--fragment', type=str, default=None, choices=['PS_300', 'PS_500'], help='Fragmentation of ligand')
     return parser.parse_args()
+
+def process_line_new(line, pdb_dir, interface_dist_th, fragmentation_method):
+    if line.startswith('#'):  # annotation
+        return ''
+
+    item = {}
+    line_split = re.split(r'\s+', line)
+    pdb, kd = line_split[0], line_split[3]
+    item['id'] = pdb  # pdb code, e.g. 1fc2
+    item['resolution'] = line_split[1]  # resolution of the pdb structure, e.g. 2.80, another kind of value is NMR
+    item['year'] = int(line_split[2])
+    item['ligand'] = ccd_code = line_split[6][1:-1]
+
+    if (not kd.startswith('Kd')) and (not kd.startswith('Ki')):  # IC50 is very different from Kd and Ki, therefore discarded
+        print_log(f'{pdb} not measured by Kd or Ki, dropped.', level='ERROR')
+        return None
+    
+    if '=' not in kd:  # some data only provide a threshold, e.g. Kd<1nM, discarded
+        print_log(f'{pdb} Kd only has threshold: {kd}', level='ERROR')
+        return None
+
+    kd = kd.split('=')[-1].strip()
+    aff, unit = float(kd[:-2]), kd[-2:]
+    if unit == 'mM':
+        aff *= 1e-3
+    elif unit == 'nM':
+        aff *= 1e-9
+    elif unit == 'uM':
+        aff *= 1e-6
+    elif unit == 'pM':
+        aff *= 1e-12
+    elif unit == 'fM':
+        aff *= 1e-15
+    else:
+        return None   # unrecognizable unit
+    
+    # affinity data
+    item['affinity'] = {
+        'Kd': aff,
+        'dG': kd_to_dg(aff, 25.0),   # regard as measured under the standard condition
+        'neglog_aff': -math.log(aff, 10)  # pK = -log_10 (Kd)
+    }
+    
+    pdb_file = os.path.join(pdb_dir, pdb + '.ent.pdb')
+    nucleic_acid_type = get_nucleic_acid_type(pdb_file)
+    nucleic_acid_blocks = pdb_to_list_blocks(pdb_file, is_rna=(nucleic_acid_type == 'RNA'), is_dna=(nucleic_acid_type == 'DNA'), use_model=0)
+   
+    if "-mer" in ccd_code:
+        peptide_blocks = []
+        nucleic_acid_blocks1 = []
+        for blocks in nucleic_acid_blocks:
+            if blocks[0].symbol in {'DA', 'DT', 'DC', 'DG', 'RA', 'RU', 'RC', 'RG'}:
+                nucleic_acid_blocks1.extend(blocks)
+            else:
+                peptide_blocks.extend(blocks)
+        blocks1, blocks2 = blocks_interface(nucleic_acid_blocks1, peptide_blocks, dist_th=interface_dist_th)
+        data = blocks_to_data(blocks1, blocks2)
+        item['data'] = data
+    else:
+        cleaned_nucleic_acid_blocks = []
+        for blocks in nucleic_acid_blocks:
+            cleaned_blocks = []
+            for block in blocks:
+                # The amino acid ligands get included in the NL chain, delete them as they are ligands
+                if block.symbol not in {VOCAB.UNK, 'DA', 'DT', 'DC', 'DG', 'RA', 'RU', 'RC', 'RG'}:
+                    continue
+                cleaned_blocks.append(block)
+            cleaned_nucleic_acid_blocks.append(cleaned_blocks)
+        nucleic_acid_blocks = cleaned_nucleic_acid_blocks
+
+        ligs = extract_ligand_blocks(pdb_file, fragmentation_method=fragmentation_method)
+        blocks2 = [] # merge ligand blocks, sometimes there are multiple of the same ligand in a pdb file
+        for lig in ligs:
+            lig_code = lig.split('_')[-1]
+            if lig_code != ccd_code:
+                continue
+            blocks2.extend(ligs[lig])
+        
+        # DNA has paired chains, keep all chains
+        blocks1 = []
+        for chain in nucleic_acid_blocks:
+            blocks1.extend(chain)
+        
+        blocks1, _ = blocks_interface(blocks1, blocks2, dist_th=interface_dist_th)
+        data = blocks_to_data(blocks1, blocks2)
+        item['data'] = data
+    return item
+
+
+def get_nucleic_acid_type(pdb_file):
+    with open(pdb_file, "r") as f:
+        lines = f.readlines()
+    line_split = re.split(r'\s+', lines[0])
+    for x in line_split:
+        if 'RNA' in x or 'TRANSLATION' in x or 'TRANSCRIPTION' in x: 
+            return 'RNA'
+        elif 'DNA' in x:
+            return 'DNA'
+    compound_lines = [l for l in lines if l.startswith('COMPND')]
+    for line in compound_lines:
+        line = line.strip(";")
+        line_split = re.split(r'\s+', line)
+        if 'DNA' in line_split:
+            return 'DNA'
+        elif 'RNA' in line_split:
+            return 'RNA'
+    raise ValueError(f'Unknown nucleic acid type: {pdb_file}, {line_split[1]}')
+
+
+def extract_ligand_blocks(pdb_filename, fragmentation_method, remove_Hs=True):
+
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure('PDB_structure', pdb_filename)
+    
+    ligand_info = {}
+    
+    for chain in structure.get_chains():
+        for residue in chain:
+            if residue.id[0] != ' ':  # HETATM records are prefixed with 'H_' in Bio.PDB
+                resname = f"{chain.id}_{residue.id[1]}_{residue.get_resname()}"
+                if residue.get_resname() not in ['HOH', 'WAT'] + EXCLUDE_LIGANDS:  # Exclude water molecules
+                    coords = []
+                    atoms = []
+                    num_carbons = 0
+                    for atom in residue:
+                        if atom.element == 'H' and remove_Hs:
+                            continue
+                        coords.append(list(atom.get_vector()))
+                        atoms.append(atom.element)
+                        if atom.element == 'C':
+                            num_carbons += 1
+                    if num_carbons > 5:
+                        blocks = convert_ligand_to_blocks(atoms, coords)
+                        if residue.get_resname() in CCD.index:
+                            smiles = CCD.loc[residue.get_resname()]['smiles']
+                            try:
+                                blocks = atom_blocks_to_frag_blocks(blocks, smiles=smiles, fragmentation_method=fragmentation_method)
+                            except Exception as e:
+                                print(f"Error tokenizing {resname}: {e}")
+                        ligand_info[resname] = blocks
+    return ligand_info
+
+
+def convert_ligand_to_blocks(atoms, coords):
+    blocks = []
+    for atom, coord in zip(atoms, coords):
+        atom_obj = Atom(
+            atom_name=atom,
+            # e.g. C1, C2, ..., these position code will be a unified encoding such as <sm> (small molecule) in our framework
+            coordinate=coord,
+            element=atom,
+            pos_code=VOCAB.atom_pos_sm
+        )
+        blocks.append(Block(
+            symbol=atom.lower(),
+            units=[atom_obj]
+        ))
+    return blocks
 
 
 def residue_to_pd_rows(chain: str, residue: Residue):
@@ -66,6 +228,8 @@ def process_line(line, pdb_dir, interface_dist_th):
     item['id'] = pdb  # pdb code, e.g. 1fc2
     item['resolution'] = line_split[1]  # resolution of the pdb structure, e.g. 2.80, another kind of value is NMR
     item['year'] = int(line_split[2])
+    ccd_code = line_split[6][1:-1]
+    item['ligand'] = CCD.loc[ccd_code]['smiles'] # three letter PDB code of the ligand
 
     if (not kd.startswith('Kd')) and (not kd.startswith('Ki')):  # IC50 is very different from Kd and Ki, therefore discarded
         print_log(f'{pdb} not measured by Kd or Ki, dropped.', level='ERROR')
@@ -169,7 +333,7 @@ def process_line(line, pdb_dir, interface_dist_th):
             for residue in chain_obj:
                 data.extend(residue_to_pd_rows(chain, residue))                
         item[f'atoms_protein{i + 1}'] = pd.DataFrame(data, columns=columns)
-
+    
     # if pdb == '1ytf':
     #     aa
     return item
@@ -184,7 +348,10 @@ def main(args):
     processed_pdbbind = []
     cnt = 0
     for i, line in enumerate(lines):
-        item = process_line(line, args.pdb_dir, args.interface_dist_th)
+        if args.fragment is not None:
+            item = process_line_new(line, args.pdb_dir, args.interface_dist_th, args.fragment)
+        else:
+            item = process_line(line, args.pdb_dir, args.interface_dist_th)
         if item == '':  # annotation
             continue
         cnt += 1

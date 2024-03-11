@@ -241,13 +241,17 @@ tar zxvf ./datasets/NL/PDBbind_v2020_NL.tar.gz -C ./datasets
 rm ./datasets/NL/PDBbind_v2020_NL.tar.gz
 ```
 
+Download the SMILES/InChI data file from the PDB website http://ligand-expo.rcsb.org/ld-download.html
+You can use the SMILES (OpenEye with stereo) file from the website.
 Then process the data:
 
 ```bash
 python scripts/data_process/process_PDBbind_NL.py \
     --index_file ./datasets/NL/index/INDEX_general_NL.2020 \
+    --smiles_file ./data/converter/pdb_chemical_components_smiles.txt \
+    --fragment PS_300 \
     --pdb_dir ./datasets/NL \
-    --out_dir ./datasets/NL/processed
+    --out_dir ./datasets/NL/processed_PS_300
 ```
 
 ### 6. Data for mutation DDG prediction
