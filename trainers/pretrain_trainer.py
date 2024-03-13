@@ -74,7 +74,6 @@ class PretrainTrainer(Trainer):
         try:
             loss = self.model(
                 Z=batch['X'], B=batch['B'], A=batch['A'],
-                atom_positions=batch['atom_positions'],
                 block_lengths=batch['block_lengths'],
                 lengths=batch['lengths'],
                 segment_ids=batch['segment_ids'],
@@ -87,15 +86,7 @@ class PretrainTrainer(Trainer):
                 tor_score=batch['tor_score'],
                 tor_edges=batch['tor_edges'],
                 tor_batch=batch['tor_batch'],
-                label=None,
-                return_loss=True)
-
-            log_type = 'Validation' if val else 'Train'
-
-            # self.log(f'Loss/loss/{log_type}', loss.loss, batch_idx, val)
-            # self.log(f'Loss/noise_loss/{log_type}', loss.noise_loss, batch_idx, val)
-            # self.log(f'Loss/noise_level_loss/{log_type}', loss.noise_level_loss, batch_idx, val)
-            # self.log(f'Loss/align_loss/{log_type}', loss.align_loss, batch_idx, val)
+            )
 
             if not val:
                 lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()

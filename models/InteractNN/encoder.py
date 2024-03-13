@@ -16,9 +16,7 @@ class InteractNNEncoder(nn.Module):
         self.return_noise = any([return_atom_noise, return_global_noise, return_torsion_noise])
         self.global_message_passing = global_message_passing
 
-    def forward(self, H, Z, block_id, batch_id, perturb_mask, edges, edge_attr, tor_edges=None, tor_batch=None, global_mask=None):
-        H, Z = scatter_mean(H, block_id, dim=0), scatter_mean(Z, block_id, dim=0)
-        Z = Z.squeeze()
+    def forward(self, H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=None, tor_batch=None, global_mask=None):
         if self.return_noise:
             output = self.encoder(H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=tor_edges, tor_batch=tor_batch)  # [Nb, hidden]
             block_repr, trans_noise, rot_noise, atom_noise, tor_noise = output
@@ -34,6 +32,6 @@ class InteractNNEncoder(nn.Module):
         graph_repr = F.normalize(graph_repr, dim=-1)
 
         if self.return_noise:
-            return H, block_repr, graph_repr, None, trans_noise, rot_noise, atom_noise, tor_noise
+            return block_repr, graph_repr, trans_noise, rot_noise, atom_noise, tor_noise
         else:
-            return H, block_repr, graph_repr, None
+            return block_repr, graph_repr

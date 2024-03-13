@@ -29,7 +29,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
@@ -132,7 +132,6 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         res['label'] = torch.tensor([-1 for _ in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         res['atom_score'], res['atom_eps'] = None, None # no atom noise
         return res
 
@@ -162,7 +161,7 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
@@ -210,6 +209,7 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
             data, atom_score, atom_eps = self.atom_noise(data, chosen_segment)
         else:
             atom_score = np.zeros_like(data['X'])
+            atom_eps = 0
 
         data['rot_score'] = rot_score
         data['tr_score'] = tr_score
@@ -241,7 +241,6 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
         res['label'] = torch.tensor([-1 for _ in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         res['tor_edges'], res['tor_score'], res['tor_batch'] = None, None, None # no tor noise
         return res
     

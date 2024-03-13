@@ -3,7 +3,6 @@
 from math import exp, pi, cos, log
 import torch
 from .abs_trainer import Trainer
-import wandb
 
 
 class AffinityTrainer(Trainer):
@@ -51,7 +50,6 @@ class AffinityTrainer(Trainer):
     def share_step(self, batch, batch_idx, val=False):
         loss = self.model(
             Z=batch['X'], B=batch['B'], A=batch['A'],
-            atom_positions=batch['atom_positions'],
             block_lengths=batch['block_lengths'],
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],

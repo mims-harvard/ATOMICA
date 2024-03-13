@@ -29,11 +29,12 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion'],
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
-                             'LEP: ligand efficacy prediction, ' + \
-                             'PDBBind: pdbbind benchmark, ')
+                             'PDBBind: pdbbind benchmark, ' + \
+                             'pretrain_gaussian: pretraining with gaussian atom coordinate noise, ' + \
+                             'pretrain_torsion: pretraining with torsion angle noise, ')
     parser.add_argument('--train_set2', type=str, default=None, help='path to another train set if task is PretrainMix')
     parser.add_argument('--valid_set2', type=str, default=None, help='path to another valid set if task is PretrainMix')
     parser.add_argument('--train_set3', type=str, default=None, help='path to the third train set')
@@ -66,25 +67,14 @@ def parse():
                         help="Local rank. Necessary for using the torch.distributed.launch utility.")
     
     # model
-    parser.add_argument('--model_type', type=str, required=True, choices=['GET', 'GETPool', 'SchNet', 'EGNN', 'DimeNet', 'TorchMD', 'InteractNN'], help='type of model to use')
-    parser.add_argument('--embed_dim', type=int, default=64, help='dimension of residue/atom embedding')
     parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
-    parser.add_argument('--n_channel', type=int, default=1, help='number of channels')
-    parser.add_argument('--n_rbf', type=int, default=1, help='Dimension of RBF')
     parser.add_argument('--edge_size', type=int, default=16, help='Dimension of edge embeddings')
-    parser.add_argument('--cutoff', type=float, default=7.0, help='Cutoff in RBF')
-    parser.add_argument('--n_head', type=int, default=1, help='Number of heads in the multi-head attention')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
-    parser.add_argument('--radial_size', type=int, default=16, help='Radial size in GET')
-    parser.add_argument('--radial_dist_cutoff', type=float, default=5, help='Distance cutoff in radial graph')
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')
     parser.add_argument('--global_message_passing', action="store_true", default=False, help='message passing between global nodes and normal nodes')
-
-    parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
-    parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
-    parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
     parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation method for small molecules')
 
+    # for pretraining
     parser.add_argument('--atom_noise', type=float, default=0, help='apply noise to atom coordinates')
     parser.add_argument('--translation_noise', type=float, default=0, help='apply global translation noise')
     parser.add_argument('--rotation_noise', type=float, default=0, help='apply global rotation noise')
@@ -114,8 +104,6 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         if path2 is not None:  # add protein dataset
             dataset2 = BlockGeoAffDataset(path2)
             dataset = MixDatasetWrapper(dataset, dataset2)
-    elif task == 'LEP':
-        dataset = LEPDataset(path, fragment=fragment)
     elif task == 'PPA':
         dataset = BlockGeoAffDataset(path)
         if path2 is not None:  # add small molecule dataset
@@ -145,32 +133,42 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             dataset = datasets[0]
         else:
             dataset = MixDatasetWrapper(*datasets)
-    elif task == 'EC':
-        dataset = ECDataset(path)
     elif task == 'DDG':
         dataset = MutationDataset(path)
-    elif task == 'pretrain_biolip':
-        dataset = PDBBindBenchmark(path)
-    elif task == 'pretrain':
-        dataset1 = PDBBindBenchmark(path)
+    elif task == 'pretrain_torsion':
+        from data.dataset_pretrain import PretrainTorsionDataset
+        dataset1 = PretrainTorsionDataset(path)
+        print_log(f'Pretrain dataset {path} size: {len(dataset1)}')
         if path2 is None and path3 is None:
             return dataset1
         datasets = [dataset1]
         if path2 is not None:
-            dataset2 = PDBBindBenchmark(path2)
+            dataset2 = PretrainTorsionDataset(path2)
             datasets.append(dataset2)
+            print_log(f'Pretrain dataset {path2} size: {len(dataset2)}')
         if path3 is not None:
-            dataset3 = PDBBindBenchmark(path3)
+            dataset3 = PretrainTorsionDataset(path3)
             datasets.append(dataset3)
+            print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
         dataset = MixDatasetWrapper(*datasets)
-    elif task == 'pretrain_PPA':
-        dataset = BlockGeoAffDataset(path)
-    elif task == 'pretrain_torsion':
-        from data.dataset_pretrain import PretrainTorsionDataset
-        dataset = PretrainTorsionDataset(path)
+        print_log(f'Mixed pretrain dataset size: {len(dataset)}')
     elif task == 'pretrain_gaussian':
         from data.dataset_pretrain import PretrainAtomDataset
-        dataset = PretrainAtomDataset(path)
+        dataset1 = PretrainAtomDataset(path)
+        print_log(f'Pretrain dataset {path} size: {len(dataset1)}')
+        if path2 is None and path3 is None:
+            return dataset1
+        datasets = [dataset1]
+        if path2 is not None:
+            dataset2 = PretrainAtomDataset(path2)
+            datasets.append(dataset2)
+            print_log(f'Pretrain dataset {path2} size: {len(dataset2)}')
+        if path3 is not None:
+            dataset3 = PretrainAtomDataset(path3)
+            datasets.append(dataset3)
+            print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
+        dataset = MixDatasetWrapper(*datasets)
+        print_log(f'Mixed pretrain dataset size: {len(dataset)}')
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset
@@ -189,6 +187,9 @@ def set_noise(dataset, args):
             dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
         if type(dataset) == PretrainTorsionDataset and args.torsion_noise != 0:
             dataset.set_torsion_noise(args.torsion_noise)
+    elif type(dataset) == MixDatasetWrapper:
+        for d in dataset.datasets:
+            set_noise(d, args)
 
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
@@ -283,7 +284,8 @@ def main(args):
                                   collate_fn=collate_fn)
     else:
         valid_loader = None
-    trainer = create_trainer(model, train_loader, valid_loader, config, resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
+    trainer = create_trainer(model, train_loader, valid_loader, config, 
+                             resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
     if args.local_rank <= 0: # only log on the main process
         print_log(f"Saving model checkpoints to: {config.save_dir}")
         os.makedirs(config.save_dir, exist_ok=True)

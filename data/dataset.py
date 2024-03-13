@@ -247,7 +247,7 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
@@ -296,7 +296,6 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
     
 
@@ -316,7 +315,7 @@ class MutationDataset(torch.utils.data.Dataset):
         [
             # wild type
             {
-                'X': [Natom, n_channel, 3],
+                'X': [Natom, 3],
                 'B': [Nblock],
                 'A': [Natom],
                 'atom_positions': [Natom],
@@ -325,7 +324,7 @@ class MutationDataset(torch.utils.data.Dataset):
             },
             # mutated
             {
-                'X': [Natom, n_channel, 3],
+                'X': [Natom, 3],
                 'B': [Nblock],
                 'A': [Natom],
                 'atom_positions': [Natom],
@@ -359,7 +358,6 @@ class MutationDataset(torch.utils.data.Dataset):
             res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
     
     
@@ -377,7 +375,7 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
@@ -405,7 +403,6 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
 
 
@@ -423,7 +420,7 @@ class PDBDataset(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
@@ -449,7 +446,6 @@ class PDBDataset(torch.utils.data.Dataset):
             res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
 
 
