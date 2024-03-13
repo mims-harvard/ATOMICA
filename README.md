@@ -356,3 +356,11 @@ python scripts/exps/NL_zeroshot.py \
     --config scripts/exps/configs/NL/get.json \
     --gpu 1 2
 ```
+
+### Edge Importance Visualization
+
+First run the `explain_infer.py` to get the Shapley value. Then use shapley_visual.ipynb to visualize edge importance. 
+
+In `shapley_visual.ipynb`, please in the first code block specify binding complex of interest, number of edges to visualize, and path to raw data, processed data and Shapley value. 
+
+Hit `Run All`, the visualization will output at the end of notebook. If edges clustered together, run the last code block again to generate another plot. 
