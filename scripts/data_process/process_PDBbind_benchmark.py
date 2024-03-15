@@ -99,7 +99,7 @@ def main(args):
     processed_pdbbind = {}
     cnt = 0
     for pdb_id in labels:
-        item = process_one(pdb_id, labels[pdb_id], args.benchmark_dir, args.interface_dist_th, args.fragment is not None)
+        item = process_one(pdb_id, labels[pdb_id], args.benchmark_dir, args.interface_dist_th, args.fragment)
         if item == '':  # annotation
             continue
         cnt += 1

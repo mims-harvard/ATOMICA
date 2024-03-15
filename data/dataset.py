@@ -1,10 +1,8 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
 import os
-import json
 import pickle
 import argparse
-import pandas as pd
 from tqdm.contrib.concurrent import process_map
 from os.path import basename, splitext
 from typing import List
@@ -15,8 +13,7 @@ import torch
 from utils.logger import print_log
 
 ########## import your packages below ##########
-from .pdb_utils import Protein, Atom, VOCAB, dist_matrix_from_coords
-
+from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
 
 class Block:
     def __init__(self, symbol: str, units: List[Atom]) -> None:
@@ -81,6 +78,39 @@ def blocks_to_data(*blocks_list: List[List[Block]]):
     }
 
     return data
+
+
+def data_to_blocks(data, fragmentation_method=None):
+    if fragmentation_method:
+        VOCAB.load_tokenizer(fragmentation_method)
+    curr_atom_idx = 0
+    list_of_blocks = []
+    curr_segment_id = 0
+    curr_blocks = []
+    for block_idx, block in enumerate(data['B']):
+        symbol = VOCAB.idx_to_symbol(block)
+        if symbol == VOCAB.GLB:
+            curr_atom_idx += data['block_lengths'][block_idx]
+            continue
+        atom_coords = data['X'][curr_atom_idx:curr_atom_idx+data['block_lengths'][block_idx]]
+        atom_positions = data['atom_positions'][curr_atom_idx:curr_atom_idx+data['block_lengths'][block_idx]]
+        atoms = []
+        for i, atom in enumerate(data['A'][curr_atom_idx:curr_atom_idx+data['block_lengths'][block_idx]]):
+            atom_name=VOCAB.idx_to_atom(atom)
+            if atom_name == VOCAB.atom_global:
+                continue
+            element=VOCAB.idx_to_atom(atom)
+            coordinate=atom_coords[i]
+            pos_code=VOCAB.idx_to_atom_pos(atom_positions[i])
+            atoms.append(Atom(atom_name=atom_name, element=element, coordinate=coordinate, pos_code=pos_code))
+        curr_atom_idx += data['block_lengths'][block_idx]
+        if data['segment_ids'][block_idx] != curr_segment_id:
+            list_of_blocks.append(curr_blocks)
+            curr_blocks = []
+            curr_segment_id = data['segment_ids'][block_idx]
+        curr_blocks.append(Block(symbol, atoms))
+    list_of_blocks.append(curr_blocks)
+    return list_of_blocks
 
 
 def blocks_to_coords(blocks: List[Block]):
@@ -217,7 +247,7 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
@@ -228,6 +258,30 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         return item
+    
+    @classmethod
+    def filter_for_segment(cls, data, keep_segment):
+        # segment_id = 0, protein
+        # segment_id = 1, ligand
+        for k, v in data.items():
+            if type(v) is list:
+                data[k] = np.array(v)
+
+        block_mask = data['segment_ids'] == keep_segment
+        block_id = np.zeros_like(data["A"]) # [Nu]
+        block_id[np.cumsum(data["block_lengths"], axis=0)[:-1]] = 1
+        block_id = np.cumsum(block_id, axis=0)
+        atom_mask = data["segment_ids"][block_id] == keep_segment
+
+        new_data = {}
+        new_data['X'] = data['X'][atom_mask].tolist()
+        new_data['B'] = data['B'][block_mask].tolist()
+        new_data['A'] = data['A'][atom_mask].tolist()
+        new_data['atom_positions'] = data['atom_positions'][atom_mask].tolist()
+        new_data['block_lengths'] = data['block_lengths'][block_mask].tolist()
+        new_data['segment_ids'] = data['segment_ids'][block_mask].tolist()
+        new_data['label'] = data['label']
+        return new_data
 
     @classmethod
     def collate_fn(cls, batch):
@@ -242,10 +296,71 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
+    
 
+class MutationDataset(torch.utils.data.Dataset):
 
+    def __init__(self, data_file):
+        super().__init__()
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ {'id': item['id'], 'label': item['ddG'] } for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        [
+            # wild type
+            {
+                'X': [Natom, 3],
+                'B': [Nblock],
+                'A': [Natom],
+                'atom_positions': [Natom],
+                'block_lengths': [Natom]
+                'segment_ids': [Nblock]
+            },
+            # mutated
+            {
+                'X': [Natom, 3],
+                'B': [Nblock],
+                'A': [Natom],
+                'atom_positions': [Natom],
+                'block_lengths': [Natom]
+                'segment_ids': [Nblock]
+            },
+            # label
+            [1]
+        ]
+        '''
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        wt = [item[0] for item in batch]
+        mt = [item[1] for item in batch]
+        label = [item[2] for item in batch]
+        wt_batch = cls.collate_fn_(wt)
+        mt_batch = cls.collate_fn_(mt)
+        return wt_batch, mt_batch, torch.tensor(label, dtype=torch.float)
+
+    @classmethod
+    def collate_fn_(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
+    
+    
 class PDBBindBenchmark(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
@@ -260,14 +375,14 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         '''
         an example of the returned data
         {
-            'X': [Natom, n_channel, 3],
+            'X': [Natom, 3],
             'B': [Nblock],
             'A': [Natom],
             'atom_positions': [Natom],
             'block_lengths': [Natom]
             'segment_ids': [Nblock]
             'label': [1]
-        }
+        }        
         '''
         item = self.data[idx]
         data = item['data']
@@ -288,7 +403,49 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
+        return res
+
+
+class PDBDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data_file):
+        super().__init__()
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+            'label': [1]
+        }        
+        '''
+        item = self.data[idx]
+        data = item['data']
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
 
 

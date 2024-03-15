@@ -4,6 +4,7 @@ from torch import nn
 from torch.nn import functional as F
 from .utils import TensorProductConvLayer, GaussianEmbedding
 from torch_scatter import scatter_mean
+from torch_cluster import radius
 
 class InteractionModule(torch.nn.Module):
     def __init__(
@@ -15,7 +16,9 @@ class InteractionModule(torch.nn.Module):
         edge_size,
         dropout=0.0,
         norm_type="layer",
-        return_noise=False,
+        return_atom_noise=False,
+        return_torsion_noise=False,
+        return_global_noise=False,
     ):
         super(InteractionModule, self).__init__()
         self.ns, self.nv = ns, nv
@@ -59,8 +62,10 @@ class InteractionModule(torch.nn.Module):
         self.norm_type = norm_type
         self.layers = nn.ModuleList(conv_layers)
 
-        self.return_noise = return_noise
-        if return_noise:
+        self.return_atom_noise = return_atom_noise
+        self.return_torsion_noise = return_torsion_noise
+        self.return_global_noise = return_global_noise
+        if return_global_noise:
             self.global_denoise_edge_embedder = nn.Sequential(
                 GaussianEmbedding(num_gaussians=edge_size, stop=20),
                 nn.Linear(edge_size, edge_size),
@@ -82,7 +87,33 @@ class InteractionModule(torch.nn.Module):
                 **global_denoise_parameters
             )
             self.global_denoise_predictor.norm_layer.affine_bias.requires_grad = False # when predicting noise, there are no scalar irreps so this parameter is not needed
-
+        if return_torsion_noise:
+            self.tor_max_radius = 4
+            self.tor_max_neighbors = 8
+            self.torsion_edge_embedder = nn.Sequential(
+                GaussianEmbedding(num_gaussians=edge_size, stop=20),
+                nn.Linear(edge_size, edge_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(edge_size, edge_size),
+            )
+            self.final_tp_tor = o3.FullTensorProduct(self.sh_irreps, "2e")
+            self.tor_bond_conv = TensorProductConvLayer(
+                in_irreps=irrep_seq[min(num_conv_layers, len(irrep_seq) - 1)],
+                sh_irreps=self.final_tp_tor.irreps_out,
+                out_irreps=f'{ns}x0o + {ns}x0e',
+                n_edge_features=2 * ns + edge_size,
+                residual=False,
+                dropout=dropout,
+                norm_type=norm_type,
+            )
+            self.tor_final_layer = nn.Sequential(
+                nn.Linear(2 * ns, ns, bias=False),
+                nn.Tanh(),
+                nn.Dropout(dropout),
+                nn.Linear(ns, 1, bias=False)
+            )
+        if return_atom_noise:
             self.local_denoise_edge_embedder = nn.Sequential(
                 GaussianEmbedding(num_gaussians=edge_size, stop=20),
                 nn.Linear(edge_size, edge_size),
@@ -111,9 +142,15 @@ class InteractionModule(torch.nn.Module):
             nn.Dropout(dropout),
             nn.Linear(self.node_embedding_dim, ns),
         )
+    
+    def remove_torsion_denoiser(self):
+        self.return_torsion_noise = False
+        self.torsion_edge_embedder = None
+        self.final_tp_tor = None
+        self.tor_bond_conv = None
+        self.tor_final_layer = None
 
-
-    def forward(self, node_attr, coords, batch_id, perturb_mask, edges, edge_type_attr):
+    def forward(self, node_attr, coords, batch_id, perturb_mask, edges, edge_type_attr, tor_edges=None, tor_batch=None):
         edge_vec = coords[edges[1]] - coords[edges[0]]
         edge_sh = o3.spherical_harmonics(
             self.sh_irreps,
@@ -153,50 +190,97 @@ class InteractionModule(torch.nn.Module):
                 ),
                 dim=1,
             )
+        
+        if any([self.return_atom_noise, self.return_torsion_noise, self.return_global_noise]):
+            if self.return_atom_noise:
+                # Local denoising
+                local_edge_length_embedding = self.local_denoise_edge_embedder(edge_length)
+                edge_attr = torch.cat(
+                    (
+                        local_edge_length_embedding,
+                        edge_type_attr,
+                        node_attr[edges[0], : self.ns],
+                        node_attr[edges[1], : self.ns],
+                    ),
+                    dim=1,
+                )
+                pred = self.local_denoise_predictor(
+                    node_attr, edges, edge_attr, edge_sh,
+                )
+                atom_noise = pred[:, :3] + pred[:, 3:]
+            else:
+                atom_noise = None
+            
+            if self.return_global_noise:
+                # Global denoising
+                center = scatter_mean(coords[perturb_mask], batch_id[perturb_mask], dim=0)
+                num_centers = center.shape[0]
+                global_edges = torch.stack((batch_id[perturb_mask], torch.nonzero(perturb_mask).flatten()), dim=0)
+                global_edge_length = torch.norm(coords[global_edges[1]] - center[global_edges[0]], dim=-1)
+                global_edge_length_embedding = self.global_denoise_edge_embedder(global_edge_length)
+                global_edge_attr = torch.cat(
+                    (
+                        global_edge_length_embedding,
+                        node_attr[global_edges[1], : self.ns],
+                    ),
+                    dim=1,
+                )
+                global_edge_sh = o3.spherical_harmonics(
+                    self.sh_irreps,
+                    coords[global_edges[1]] - center[global_edges[0]],
+                    normalize=True,
+                    normalization="component",
+                )
+                global_pred = self.global_denoise_predictor(
+                    node_attr, global_edges, global_edge_attr, global_edge_sh, out_nodes = num_centers,
+                )
+                trans_noise = global_pred[:, :3] + global_pred[:, 6:9]
+                rot_noise = global_pred[:, 3:6] + global_pred[:, 9:]
+            else:
+                trans_noise = None
+                rot_noise = None
 
-        if self.return_noise:
-            # Local denoising
-            local_edge_length_embedding = self.local_denoise_edge_embedder(edge_length)
-            edge_attr = torch.cat(
-                (
-                    local_edge_length_embedding,
-                    edge_type_attr,
-                    node_attr[edges[0], : self.ns],
-                    node_attr[edges[1], : self.ns],
-                ),
-                dim=1,
-            )
-            pred = self.local_denoise_predictor(
-                node_attr, edges, edge_attr, edge_sh,
-            )
-            atom_noise = pred[:, :3] + pred[:, 3:]
-
-            # Global denoising
-            center = scatter_mean(coords[perturb_mask], batch_id[perturb_mask], dim=0)
-            num_centers = center.shape[0]
-            global_edges = torch.stack((batch_id[perturb_mask], torch.nonzero(perturb_mask).flatten()), dim=0)
-            global_edge_length = torch.norm(coords[global_edges[1]] - center[global_edges[0]], dim=-1)
-            global_edge_length_embedding = self.global_denoise_edge_embedder(global_edge_length)
-            global_edge_attr = torch.cat(
-                (
-                    global_edge_length_embedding,
-                    node_attr[global_edges[1], : self.ns],
-                ),
-                dim=1,
-            )
-            global_edge_sh = o3.spherical_harmonics(
-                self.sh_irreps,
-                coords[global_edges[1]] - center[global_edges[0]],
-                normalize=True,
-                normalization="component",
-            )
-            global_pred = self.global_denoise_predictor(
-                node_attr, global_edges, global_edge_attr, global_edge_sh, out_nodes = num_centers,
-            )
-            trans_noise = global_pred[:, :3] + global_pred[:, 6:9]
-            rot_noise = global_pred[:, 3:6] + global_pred[:, 9:]
-            return self.out_ffn(node_embeddings), trans_noise, rot_noise, atom_noise
+            if self.return_torsion_noise:
+                if tor_edges.numel() == 0:
+                    print(f"No torsion edges found, returning None for torsion noise. tor_edges={tor_edges.shape}")
+                    torsion_noise = None
+                else:
+                    assert tor_edges is not None, "Torsion edges must be provided if return_torsion_noise is True."
+                
+                    #  Torsion denoising
+                    tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_tor_edges(
+                        tor_edges, coords, node_embeddings, batch_id, tor_batch)
+                    pred = self.tor_bond_conv(
+                        node_attr, tor_edge_index, tor_edge_attr, tor_edge_sh, out_nodes=tor_edges.shape[1],
+                    )
+                    torsion_noise = self.tor_final_layer(pred).flatten()
+                    assert torsion_noise.shape[0] == tor_edges.shape[1], f"Torsion noise {torsion_noise.shape} must be predicted for each torsion edge {tor_edges.shape}."
+            else:
+                torsion_noise = None
+            return self.out_ffn(node_embeddings), trans_noise, rot_noise, atom_noise, torsion_noise
         else:
             node_embeddings = self.out_ffn(node_embeddings)
             return node_embeddings
 
+    def build_tor_edges(self, tor_bonds, coords, node_embeddings, batch_id, tor_batch):
+        bond_pos = (coords[tor_bonds[1]] + coords[tor_bonds[0]]) / 2
+        tor_bond_attr = node_embeddings[tor_bonds[0]] + node_embeddings[tor_bonds[1]]
+        
+        edge_index = radius(coords, bond_pos, self.tor_max_radius, batch_x=batch_id, batch_y=tor_batch, 
+                                max_num_neighbors=self.tor_max_neighbors)
+        # 0-row is torsion edge index, 1-row is the node index
+        edge_vec = coords[edge_index[1]] - bond_pos[edge_index[0]]
+        edge_embed = self.torsion_edge_embedder(edge_vec.norm(dim=-1))
+        edge_attr = torch.cat((edge_embed,
+                                node_embeddings[edge_index[1], : self.ns], 
+                                tor_bond_attr[edge_index[0], : self.ns]), 
+                                dim=-1)
+        
+        edge_sh = o3.spherical_harmonics(self.sh_irreps, edge_vec, normalize=True, normalization="component")
+
+        tor_bonds_vec = coords[tor_bonds[1]] - coords[tor_bonds[0]]
+        tor_bonds_sh = o3.spherical_harmonics("2e", tor_bonds_vec, normalize=True, normalization="component")
+
+        
+        tor_edge_sh = self.final_tp_tor(edge_sh, tor_bonds_sh[edge_index[0]])
+        return edge_index, edge_attr, tor_edge_sh

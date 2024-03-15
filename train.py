@@ -5,12 +5,13 @@ import argparse
 import torch
 from torch.utils.data import DataLoader
 import json
+import numpy as np
 
 from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
@@ -28,11 +29,12 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'LEP', 'AffMix', 'PDBBind', 'NL', 'EC', 'pretrain', 'pretrain_PPA', 'pretrain_biolip'],
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
-                             'LEP: ligand efficacy prediction, ' + \
-                             'PDBBind: pdbbind benchmark, ')
+                             'PDBBind: pdbbind benchmark, ' + \
+                             'pretrain_gaussian: pretraining with gaussian atom coordinate noise, ' + \
+                             'pretrain_torsion: pretraining with torsion angle noise, ')
     parser.add_argument('--train_set2', type=str, default=None, help='path to another train set if task is PretrainMix')
     parser.add_argument('--valid_set2', type=str, default=None, help='path to another valid set if task is PretrainMix')
     parser.add_argument('--train_set3', type=str, default=None, help='path to the third train set')
@@ -57,6 +59,7 @@ def parse():
     parser.add_argument('--shuffle', action='store_true', help='shuffle data')
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--seed', type=int, default=SEED)
+    parser.add_argument('--cycle_steps', type=int, default=100000, help='number of steps per cycle in lr_scheduler.CosineAnnealingWarmRestarts')
 
     # device
     parser.add_argument('--gpus', type=int, nargs='+', required=True, help='gpu to use, -1 for cpu')
@@ -64,27 +67,23 @@ def parse():
                         help="Local rank. Necessary for using the torch.distributed.launch utility.")
     
     # model
-    parser.add_argument('--model_type', type=str, required=True, choices=['GET', 'GETPool', 'SchNet', 'EGNN', 'DimeNet', 'TorchMD', 'InteractNN'], help='type of model to use')
-    parser.add_argument('--embed_dim', type=int, default=64, help='dimension of residue/atom embedding')
     parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
-    parser.add_argument('--n_channel', type=int, default=1, help='number of channels')
-    parser.add_argument('--n_rbf', type=int, default=1, help='Dimension of RBF')
     parser.add_argument('--edge_size', type=int, default=16, help='Dimension of edge embeddings')
-    parser.add_argument('--cutoff', type=float, default=7.0, help='Cutoff in RBF')
-    parser.add_argument('--n_head', type=int, default=1, help='Number of heads in the multi-head attention')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
-    parser.add_argument('--radial_size', type=int, default=16, help='Radial size in GET')
-    parser.add_argument('--radial_dist_cutoff', type=float, default=5, help='Distance cutoff in radial graph')
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')
     parser.add_argument('--global_message_passing', action="store_true", default=False, help='message passing between global nodes and normal nodes')
+    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation method for small molecules')
 
-    parser.add_argument('--atom_level', action='store_true', help='train atom-level model (set each block to a single atom in GET)')
-    parser.add_argument('--hierarchical', action='store_true', help='train hierarchical model (atom-block)')
-    parser.add_argument('--no_block_embedding', action='store_true', help='do not add block embedding')
-
-    parser.add_argument('--atom_noise', action='store_true', help='apply noise to atom coordinates')
-    parser.add_argument('--translation_noise', action='store_true', help='apply global translation noise')
-    parser.add_argument('--rotation_noise', action='store_true', help='apply global rotation noise')
+    # for pretraining
+    parser.add_argument('--atom_noise', type=float, default=0, help='apply noise to atom coordinates')
+    parser.add_argument('--translation_noise', type=float, default=0, help='apply global translation noise')
+    parser.add_argument('--rotation_noise', type=float, default=0, help='apply global rotation noise')
+    parser.add_argument('--torsion_noise', type=float, default=0, help='max torsion rotation noise')
+    parser.add_argument('--max_rotation', type=float, default=np.pi/4, help='max global rotation angle')
+    parser.add_argument('--tr_weight', type=float, default=1.0, help='Weight of translation loss')
+    parser.add_argument('--rot_weight', type=float, default=1.0, help='Weight of rotation loss')
+    parser.add_argument('--tor_weight', type=float, default=1.0, help='Weight of torsional loss')
+    parser.add_argument('--atom_weight', type=float, default=1.0, help='Weight of atom loss')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -105,8 +104,6 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         if path2 is not None:  # add protein dataset
             dataset2 = BlockGeoAffDataset(path2)
             dataset = MixDatasetWrapper(dataset, dataset2)
-    elif task == 'LEP':
-        dataset = LEPDataset(path, fragment=fragment)
     elif task == 'PPA':
         dataset = BlockGeoAffDataset(path)
         if path2 is not None:  # add small molecule dataset
@@ -128,27 +125,71 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             dataset = datasets[0]
         else:
             dataset = MixDatasetWrapper(*datasets)
-    elif task == 'EC':
-        dataset = ECDataset(path)
-    elif task == 'pretrain_biolip':
-        dataset = PDBBindBenchmark(path)
-    elif task == 'pretrain':
-        dataset1 = PDBBindBenchmark(path)
+    elif task == 'PN':
+        datasets = [BlockGeoAffDataset(path)]
+        if path2 is not None:
+            datasets.append(LBADataset(path2, fragment=fragment))
+        if len(datasets) == 1:
+            dataset = datasets[0]
+        else:
+            dataset = MixDatasetWrapper(*datasets)
+    elif task == 'DDG':
+        dataset = MutationDataset(path)
+    elif task == 'pretrain_torsion':
+        from data.dataset_pretrain import PretrainTorsionDataset
+        dataset1 = PretrainTorsionDataset(path)
+        print_log(f'Pretrain dataset {path} size: {len(dataset1)}')
         if path2 is None and path3 is None:
             return dataset1
         datasets = [dataset1]
         if path2 is not None:
-            dataset2 = PDBBindBenchmark(path2)
+            dataset2 = PretrainTorsionDataset(path2)
             datasets.append(dataset2)
+            print_log(f'Pretrain dataset {path2} size: {len(dataset2)}')
         if path3 is not None:
-            dataset3 = PDBBindBenchmark(path3)
+            dataset3 = PretrainTorsionDataset(path3)
             datasets.append(dataset3)
+            print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
         dataset = MixDatasetWrapper(*datasets)
-    elif task == 'pretrain_PPA':
-        dataset = BlockGeoAffDataset(path)
+        print_log(f'Mixed pretrain dataset size: {len(dataset)}')
+    elif task == 'pretrain_gaussian':
+        from data.dataset_pretrain import PretrainAtomDataset
+        dataset1 = PretrainAtomDataset(path)
+        print_log(f'Pretrain dataset {path} size: {len(dataset1)}')
+        if path2 is None and path3 is None:
+            return dataset1
+        datasets = [dataset1]
+        if path2 is not None:
+            dataset2 = PretrainAtomDataset(path2)
+            datasets.append(dataset2)
+            print_log(f'Pretrain dataset {path2} size: {len(dataset2)}')
+        if path3 is not None:
+            dataset3 = PretrainAtomDataset(path3)
+            datasets.append(dataset3)
+            print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
+        dataset = MixDatasetWrapper(*datasets)
+        print_log(f'Mixed pretrain dataset size: {len(dataset)}')
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset
+
+
+def set_noise(dataset, args):
+    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset
+    if type(dataset) == PretrainAtomDataset or type(dataset) == PretrainTorsionDataset:
+        if args.atom_noise != 0 and args.torsion_noise != 0:
+            raise ValueError('Cannot set both atom and torsion noise at the same time')
+        if type(dataset) == PretrainAtomDataset and args.atom_noise != 0:
+            dataset.set_atom_noise(args.atom_noise)
+        if args.translation_noise != 0:
+            dataset.set_translation_noise(args.translation_noise)
+        if args.rotation_noise != 0:
+            dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
+        if type(dataset) == PretrainTorsionDataset and args.torsion_noise != 0:
+            dataset.set_torsion_noise(args.torsion_noise)
+    elif type(dataset) == MixDatasetWrapper:
+        for d in dataset.datasets:
+            set_noise(d, args)
 
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
@@ -156,7 +197,12 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
     if model_type == models.AffinityPredictor:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
-        trainer = trainers.PretrainTrainer(model, train_loader, valid_loader, config, resume_state)
+        trainer = trainers.PretrainTrainer(
+            model, train_loader, valid_loader, config, 
+            resume_state=resume_state,
+        )
+    elif model_type == models.DDGPredictor:
+        trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
     return trainer
@@ -170,8 +216,12 @@ def main(args):
 
     ########### load your train / valid set ###########
     train_set = create_dataset(args.task, args.train_set, args.train_set2, args.train_set3, args.fragment)
+    if args.task in {'pretrain_torsion', 'pretrain_gaussian'}:
+        set_noise(train_set, args)
     if args.valid_set is not None:
         valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragment)
+        if args.task in {'pretrain_torsion', 'pretrain_gaussian'}:
+            set_noise(valid_set, args)
         print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
     else:
         valid_set = None
@@ -190,11 +240,14 @@ def main(args):
 
     ########## define your model/trainer/trainconfig #########
     step_per_epoch = (len(train_set) + args.batch_size - 1) // args.batch_size
-    config = trainers.TrainConfig(args.save_dir, args.lr, args.max_epoch,
-                                  warmup=args.warmup,
-                                  patience=args.patience,
-                                  grad_clip=args.grad_clip,
-                                  save_topk=args.save_topk)
+    config = trainers.TrainConfig(
+        args.save_dir, args.lr, args.max_epoch,
+        cycle_steps=args.cycle_steps,
+        warmup=args.warmup,
+        patience=args.patience,
+        grad_clip=args.grad_clip,
+        save_topk=args.save_topk,
+    )
     config.add_parameter(step_per_epoch=step_per_epoch,
                          final_lr=args.final_lr)
     if args.valid_batch_size is None:
@@ -231,7 +284,8 @@ def main(args):
                                   collate_fn=collate_fn)
     else:
         valid_loader = None
-    trainer = create_trainer(model, train_loader, valid_loader, config, resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
+    trainer = create_trainer(model, train_loader, valid_loader, config, 
+                             resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
     if args.local_rank <= 0: # only log on the main process
         print_log(f"Saving model checkpoints to: {config.save_dir}")
         os.makedirs(config.save_dir, exist_ok=True)
