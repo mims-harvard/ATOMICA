@@ -195,27 +195,6 @@ class DenoisePretrainModel(nn.Module):
 
         return edges, edge_attr
     
-    def precalculate_edges(self, batch):
-        Z=batch['X']
-        B=batch['B']
-        A=batch['A']
-        block_lengths=batch['block_lengths']
-        lengths=batch['lengths']
-        segment_ids=batch['segment_ids']
-        with torch.no_grad():
-            batch_id = torch.zeros_like(segment_ids)  # [Nb]
-            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
-            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
-
-            block_id = torch.zeros_like(A) # [Nu]
-            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
-            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
-            
-            assert Z.shape[1] == 1, "n_channel must be 1"
-            top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
-            top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-            edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-        return edges, edge_attr
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, 
                 receptor_segment=None, atom_score=None, atom_eps=None, tr_score=None, 

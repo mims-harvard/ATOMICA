@@ -65,6 +65,41 @@ class PredictionModel(DenoisePretrainModel):
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
+    def precalculate_edges(self, batch, top_level=True):
+        """
+        Returns block level edges and edge_attr if top_level = True
+        Returns atom level edges and edge_attr if top_level = False
+        """
+        Z=batch['X']
+        B=batch['B']
+        A=batch['A']
+        block_lengths=batch['block_lengths']
+        lengths=batch['lengths']
+        segment_ids=batch['segment_ids']
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids)  # [Nb]
+            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+            block_id = torch.zeros_like(A) # [Nu]
+            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+
+            # transform blocks to single units
+            bottom_batch_id = batch_id[block_id]  # [Nu]
+            bottom_B = B[block_id]  # [Nu]
+            bottom_segment_ids = segment_ids[block_id]  # [Nu]
+            bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
+            
+            if top_level:
+                top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
+                top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+
+                edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+            else:
+                edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
+        return edges, edge_attr
+
     ########## overload ##########
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, altered_edges=None, altered_edge_attr=None) -> PredictionReturnValue:
         # batch_id and block_id
@@ -126,3 +161,18 @@ class PredictionModel(DenoisePretrainModel):
             batch_id=batch_id,
             block_id=block_id,
         )
+
+
+    def infer(self, batch, extra_info=False, altered_edges=None, altered_edge_attr=None):
+        self.eval()
+        return_value = self.forward(
+            Z=batch['X'], B=batch['B'], A=batch['A'],
+            block_lengths=batch['block_lengths'],
+            lengths=batch['lengths'],
+            segment_ids=batch['segment_ids'],
+            altered_edges=altered_edges,
+            altered_edge_attr=altered_edge_attr,
+        )
+        if extra_info:
+            return -return_value.energy, return_value
+        return -return_value.energy

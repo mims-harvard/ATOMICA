@@ -13,8 +13,8 @@ from tqdm import tqdm
 
 from rdkit import Chem
 from rdkit.Chem import Draw
-from rdkit_heatmaps import mapvalues2mol
-from rdkit_heatmaps.utils import transform2png
+from src.rdkit_heatmaps import mapvalues2mol
+from src.rdkit_heatmaps.utils import transform2png
 
 ###EdgeSHAPer as a class###
 
