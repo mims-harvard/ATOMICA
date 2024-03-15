@@ -202,6 +202,7 @@ class DenoisePretrainModel(nn.Module):
                 ) -> ReturnValue:
         # batch_id and block_id
         with torch.no_grad():
+            assert tor_edges.shape[1] == tor_score.shape[0], f"tor_edges {tor_edges.shape} and tor_score {tor_score.shape} should have the same length"
             assert self.atom_noise or self.translation_noise or self.rotation_noise or self.torsion_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
 
             batch_id = torch.zeros_like(segment_ids)  # [Nb]

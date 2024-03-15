@@ -12,10 +12,21 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         self.data = pickle.load(open(data_file, 'rb'))
         self.indexes = [ {'id': item['id'], 'label': item['affinity']['neglog_aff'] } for item in self.data ]  # to satify the requirements of inference.py
         self.atom_noise, self.global_tr, self.global_rot = None, None, None
+        # remove items with no torsion angles in either segment
+        cleaned_data = []
+        for item in self.data:
+            if self._can_apply_torsion_noise(item["data"], 0) or self._can_apply_torsion_noise(item["data"], 1):
+                cleaned_data.append(item)
+        print(f"Removed {len(self.data) - len(cleaned_data)} items with no torsion angles. Original={len(self.data)} Cleaned={len(cleaned_data)}")
+        self.data = cleaned_data
     
+    @classmethod
+    def _can_apply_torsion_noise(cls, data, chosen_segment):
+        return not ((data['torsion_mask'][chosen_segment]['edges'] is None) or all([edges is None for edges in data['torsion_mask'][chosen_segment]['edges']]))
+
     def set_torsion_noise(self, noise_level):
         self.tor = TorsionNoiseTransform(noise_level)
-    
+        
     def set_translation_noise(self, noise_level):
         self.global_tr = GlobalTranslationTransform(noise_level)
 
@@ -35,11 +46,11 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
             'atom_positions': [Natom],
             'block_lengths': [Natom]
             'segment_ids': [Nblock]
-            'rot_score': [1]
-            'tr_score': [1]
+            'rot_score': [3]
+            'tr_score': [3]
             'tr_eps': [1]
-            'tor_score': [n_edges]
-            'tor_edges': [2, n_edges]
+            'tor_score': [n_edges], None if no torsion angles
+            'tor_edges': [2, n_edges], [2,0] if no torsion angles
             'noisy_segment': [1]
         }        
         '''
@@ -54,15 +65,11 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
             segment_length[segment_id] += block_len
 
         # segment length 2 means only one atom + global node, no need to add noise
-        if data['torsion_mask'][0]['edges'] is not None and segment_length[0] > 2:
+        if self._can_apply_torsion_noise(data, 0) and segment_length[0] > 2:
             choices.append(0)
-        if data['torsion_mask'][1]['edges'] is not None and segment_length[1] > 2:
+        if self._can_apply_torsion_noise(data, 1) and segment_length[1] > 2:
             choices.append(1)
-        
-        if len(choices) == 0:
-            chosen_segment = 0 # choose 0 by default
-        else:
-            chosen_segment = np.random.choice(choices)
+        chosen_segment = np.random.choice(choices)
         
         if self.global_rot is not None:
             # segment length 2 means only one atom + global node, no need to rotate
@@ -92,7 +99,23 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     @classmethod
     def collate_fn(cls, batch):
-        # FIXME: what to do when tor is empty?
+        """
+        an example of the returned batch
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+            'rot_score': [Nbatch, 3]
+            'tr_score': [Nbatch, 3]
+            'tr_eps': [Nbatch]
+            'tor_score': [n_edges], torch.tensor([]) if no torsion angles
+            'tor_edges': [2, n_edges], [2,0] if no torsion angles
+            'noisy_segment': [Nbatch]
+        }        
+        """
         keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}

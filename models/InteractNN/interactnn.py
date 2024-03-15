@@ -241,15 +241,20 @@ class InteractionModule(torch.nn.Module):
                 rot_noise = None
 
             if self.return_torsion_noise:
-                assert tor_edges is not None, "Torsion edges must be provided if return_torsion_noise is True."
+                if tor_edges.numel() == 0:
+                    print(f"No torsion edges found, returning None for torsion noise. tor_edges={tor_edges.shape}")
+                    torsion_noise = None
+                else:
+                    assert tor_edges is not None, "Torsion edges must be provided if return_torsion_noise is True."
                 
-                #  Torsion denoising
-                tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_tor_edges(
-                    tor_edges, coords, node_embeddings, batch_id, tor_batch)
-                pred = self.tor_bond_conv(
-                    node_attr, tor_edge_index, tor_edge_attr, tor_edge_sh, out_nodes=tor_edges.shape[1],
-                )
-                torsion_noise = self.tor_final_layer(pred).flatten()
+                    #  Torsion denoising
+                    tor_edge_index, tor_edge_attr, tor_edge_sh = self.build_tor_edges(
+                        tor_edges, coords, node_embeddings, batch_id, tor_batch)
+                    pred = self.tor_bond_conv(
+                        node_attr, tor_edge_index, tor_edge_attr, tor_edge_sh, out_nodes=tor_edges.shape[1],
+                    )
+                    torsion_noise = self.tor_final_layer(pred).flatten()
+                    assert torsion_noise.shape[0] == tor_edges.shape[1], f"Torsion noise {torsion_noise.shape} must be predicted for each torsion edge {tor_edges.shape}."
             else:
                 torsion_noise = None
             return self.out_ffn(node_embeddings), trans_noise, rot_noise, atom_noise, torsion_noise
