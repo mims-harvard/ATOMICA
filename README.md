@@ -61,10 +61,26 @@ python scripts/data_process/process_QBioLiP.py \
     --index_path ./datasets/BioLiP/PL/PL_annotations_nonredund.txt --task PL --num_workers 20
 ```
 
+After convert the protein-ligand data into fragments using the following command:
+```bash
+python data_process/tokenize_QBioLiP_PL.py --data_path ./datasets/BioLiP/processed/QBioLiP_PL_train.pkl \
+    --output_path ./datasets/BioLiP/processed/QBioLiP_PL_train_PS_300.pkl --fragmentation_method PS_300
+python data_process/tokenize_QBioLiP_PL.py --data_path ./datasets/BioLiP/processed/QBioLiP_PL_valid.pkl \
+    --output_path ./datasets/BioLiP/processed/QBioLiP_PL_valid_PS_300.pkl --fragmentation_method PS_300
+```
+
 Then to merge all the training valid splits created from all the categories in Q-BioLiP into one train file and one valid file, use the following command:
 ```bash
 python scripts/data_process/merge_QBioLiP.py\
     --processed_data_dir ./datasets/BioLiP/processed/
+```
+
+Finally precompute the torsion bonds for torsion denosing using the following command:
+```bash
+python scripts/data_process/get_torsion_mask.py --data_file ./datasets/BioLiP/processed/train.pkl\
+    --output_file ./datasets/BioLiP/processed/train_torsion.pkl --fragmentation_method PS_300 --num_workers 16
+python scripts/data_process/get_torsion_mask.py --data_file ./datasets/BioLiP/processed/valid.pkl\
+    --output_file ./datasets/BioLiP/processed/valid_torsion.pkl --fragmentation_method PS_300 --num_workers 16
 ```
 
 ### 0.1 Data for Pretraining with CSD
@@ -88,7 +104,23 @@ python scripts/data_process/process_csd.py \
 python scripts/data_process/split_csd.py \
     --processed_data_dir ./datasets/csd/processed
 ```
-This will create a processed dataset in `./datasets/csd/processed` and split the dataset into train, val pickle files.
+This will create a processed dataset in `./datasets/csd/processed` and split the dataset into random train, val pickle files.
+
+After convert the data into fragments using the following command:
+```bash
+python scripts/data_process/tokenize_CSD.py --data_file ./datasets/csd/processed/train.pkl \
+  --output ./datasets/csd/processed/train_PS_300.pkl --num_workers 16 --fragmentation_method PS_300
+python scripts/data_process/tokenize_CSD.py --data_file ./datasets/csd/processed/valid.pkl \
+  --output ./datasets/csd/processed/valid_PS_300.pkl --num_workers 16 --fragmentation_method PS_300
+```
+
+Finally precompute the torsion bonds for torsion denosing using the following command:
+```bash
+python scripts/data_process/get_torsion_mask.py --data_file ./datasets/csd/processed/train_PS_300.pkl\
+    --output_file ./datasets/csd/processed/train_PS_300_torsion.pkl --fragmentation_method PS_300 --num_workers 16
+python scripts/data_process/get_torsion_mask.py --data_file ./datasets/csd/processed/valid_PS_300.pkl\
+    --output_file ./datasets/csd/processed/valid_PS_300_torsion.pkl --fragmentation_method PS_300 --num_workers 16
+```
 
 ### 1. Data for Protein-Protein Affinity (PPA)
 
@@ -209,13 +241,27 @@ tar zxvf ./datasets/NL/PDBbind_v2020_NL.tar.gz -C ./datasets
 rm ./datasets/NL/PDBbind_v2020_NL.tar.gz
 ```
 
+Download the SMILES/InChI data file from the PDB website http://ligand-expo.rcsb.org/ld-download.html
+You can use the SMILES (OpenEye with stereo) file from the website.
 Then process the data:
 
 ```bash
 python scripts/data_process/process_PDBbind_NL.py \
     --index_file ./datasets/NL/index/INDEX_general_NL.2020 \
+    --smiles_file ./data/converter/pdb_chemical_components_smiles.txt \
+    --fragment PS_300 \
     --pdb_dir ./datasets/NL \
-    --out_dir ./datasets/NL/processed
+    --out_dir ./datasets/NL/processed_PS_300
+```
+
+### 6. Data for mutation DDG prediction
+Downlaod single substitution core dataset from https://quantum.tencent.com/mdrdb/
+Then process the data: 
+```bash
+python scripts/data_process/process_mrbdb.py \
+  --data_dir ./datasets/MdrDB/Single_Substitution/ \
+  --index_path ./datasets/MdrDB/MdrDB_CoreSet_release_v1.0.2022.tsv \
+  --out_dir ./datasets//MdrDB/processed
 ```
 
 ## Pretraining
@@ -356,3 +402,11 @@ python scripts/exps/NL_zeroshot.py \
     --config scripts/exps/configs/NL/get.json \
     --gpu 1 2
 ```
+
+### Edge Importance Visualization
+
+First run the `explain_infer.py` to get the Shapley value. Then use shapley_visual.ipynb to visualize edge importance. 
+
+In `shapley_visual.ipynb`, please in the first code block specify binding complex of interest, number of edges to visualize, and path to raw data, processed data and Shapley value. 
+
+Hit `Run All`, the visualization will output at the end of notebook. If edges clustered together, run the last code block again to generate another plot. 

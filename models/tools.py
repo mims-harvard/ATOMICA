@@ -98,18 +98,15 @@ def _block_edge_dist(X, block_id, src_dst):
     Several units constitute a block.
     This function calculates the distance of edges between blocks
     The distance between two blocks are defined as the minimum distance of unit-pairs between them.
-    The distance between two units are defined as the minimum distance across different channels.
-        e.g. For number of channels c = 2, suppose their distance is c1 and c2, then the distance between the two units is min(c1, c2)
 
-    :param X: [N, c, 3], coordinates, each unit has c channels. Assume the units in the same block are aranged sequentially
+    :param X: [N, 3], coordinates.
     :param block_id [N], id of block of each unit. Assume X is sorted so that block_id starts from 0 to Nb - 1
     :param src_dst: [Eb, 2], all edges (block level) that needs distance calculation, represented in (src, dst)
     '''
     (unit_src, unit_dst), (edge_id, _, _) = _unit_edges_from_block_edges(block_id, src_dst)
     # calculate unit-pair distances
-    src_x, dst_x = X[unit_src], X[unit_dst]  # [Eu, k, 3]
-    dist = torch.norm(src_x - dst_x, dim=-1)  # [Eu, k]
-    dist = torch.min(dist, dim=-1).values  # [Eu]
+    src_x, dst_x = X[unit_src], X[unit_dst]  # [Eu, 3]
+    dist = torch.norm(src_x - dst_x, dim=-1)  # [Eu]
     dist = scatter_min(dist, edge_id)[0]  # [Eb]
 
     return dist

@@ -3,9 +3,10 @@
 from math import exp, pi, cos, log
 import torch
 from .abs_trainer import Trainer
+import wandb
 
 
-class AffinityTrainer(Trainer):
+class DDGTrainer(Trainer):
 
     ########## Override start ##########
 
@@ -42,18 +43,13 @@ class AffinityTrainer(Trainer):
 
     def _before_train_epoch_start(self):
         # reform batch, with new random batches
-        self.train_loader.dataset._form_batch()
+        # self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 
     ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
-        loss = self.model(
-            Z=batch['X'], B=batch['B'], A=batch['A'],
-            block_lengths=batch['block_lengths'],
-            lengths=batch['lengths'],
-            segment_ids=batch['segment_ids'],
-            label=batch['label'])
+        loss = self.model(*batch)
 
         log_type = 'Validation' if val else 'Train'
 

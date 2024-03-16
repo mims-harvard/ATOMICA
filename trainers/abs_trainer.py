@@ -17,8 +17,8 @@ import wandb
 
 class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch, warmup=0,
-                 metric_min_better=True, patience=3,
-                 grad_clip=None, save_topk=-1,  # -1 for save all
+                 metric_min_better=True, patience=3, cycle_steps=1,
+                 grad_clip=None, save_topk=-1, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr
@@ -28,6 +28,7 @@ class TrainConfig:
         self.patience = patience if patience > 0 else max_epoch
         self.grad_clip = grad_clip
         self.save_topk = save_topk
+        self.cycle_steps = cycle_steps # for cyclic learning rate
         self.__dict__.update(kwargs)
 
     def add_parameter(self, **kwargs):
@@ -133,6 +134,8 @@ class Trainer:
             except RuntimeError as e:
                 if "out of memory" in str(e) and torch.cuda.is_available():
                     print_log(e, level='ERROR')
+                    if not type(batch) is dict:
+                        batch = batch[0]
                     print_log(
                         f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0]}, 
                         num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}, 
