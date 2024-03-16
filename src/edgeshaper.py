@@ -583,9 +583,7 @@ def edgeshaper(model, x, E, M = 100, target_class = 0, P = None, deviation = Non
                 else:
                     E_j_minus_index[pi[k]] = E_z_mask[pi[k]]
 
-
             #we compute marginal contribs
-            
             # with edge j
             retained_indices_plus = torch.LongTensor(torch.nonzero(E_j_plus_index).tolist()).to(device).squeeze()
             E_j_plus = torch.index_select(E, dim = 1, index = retained_indices_plus)
