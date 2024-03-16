@@ -101,7 +101,9 @@ class PredictionModel(DenoisePretrainModel):
         return edges, edge_attr
 
     ########## overload ##########
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, altered_edges=None, altered_edge_attr=None) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, 
+                top_altered_edges=None, top_altered_edge_attr=None,
+                bottom_altered_edges=None, bottom_altered_edge_attr=None,) -> PredictionReturnValue:
         # batch_id and block_id
         with torch.no_grad():
 
@@ -126,15 +128,19 @@ class PredictionModel(DenoisePretrainModel):
         perturb_mask = None
         perturb_block_mask = None
         # bottom level message passing
-        edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
+        if bottom_altered_edges is not None:
+            edges = bottom_altered_edges
+            edge_attr = bottom_altered_edge_attr
+        else:
+            edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
         atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
         bottom_block_repr, graph_repr_bottom = self.encoder(bottom_H_0, Z, bottom_batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
-        #top level 
+        # top level 
         top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        if altered_edges is not None:
-            edges = altered_edges
-            edge_attr = altered_edge_attr
+        if top_altered_edges is not None:
+            edges = top_altered_edges
+            edge_attr = top_altered_edge_attr
         else:
             edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
         top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
@@ -163,15 +169,18 @@ class PredictionModel(DenoisePretrainModel):
         )
 
 
-    def infer(self, batch, extra_info=False, altered_edges=None, altered_edge_attr=None):
+    def infer(self, batch, extra_info=False, top_altered_edges=None, top_altered_edge_attr=None,
+                bottom_altered_edges=None, bottom_altered_edge_attr=None):
         self.eval()
         return_value = self.forward(
             Z=batch['X'], B=batch['B'], A=batch['A'],
             block_lengths=batch['block_lengths'],
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
-            altered_edges=altered_edges,
-            altered_edge_attr=altered_edge_attr,
+            top_altered_edges=top_altered_edges,
+            top_altered_edge_attr=top_altered_edge_attr,
+            bottom_altered_edges=bottom_altered_edges,
+            bottom_altered_edge_attr=bottom_altered_edge_attr,
         )
         if extra_info:
             return -return_value.graph_repr, return_value
