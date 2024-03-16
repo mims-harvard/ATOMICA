@@ -174,5 +174,5 @@ class PredictionModel(DenoisePretrainModel):
             altered_edge_attr=altered_edge_attr,
         )
         if extra_info:
-            return -return_value.energy, return_value
-        return -return_value.energy
+            return -return_value.graph_repr, return_value
+        return -return_value.graph_repr
