@@ -22,16 +22,16 @@ from numpy.random import default_rng
 def parse():
     parser = argparse.ArgumentParser(description='Run EdgeSHAPer on model outputs')
     parser.add_argument('--test_set', type=str, required=True, help='Path to the test set')
-    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS'],
+    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS', 'DDG', 'mdrdb'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ')
-    parser.add_argument('--max_n_vertex_per_batch', type=int, default=500, help='Max number of vertex per batch for running EdgeSHAPer inference')
+    parser.add_argument('--max_n_vertex_per_batch', type=int, default=5000, help='Max number of vertex per batch for running EdgeSHAPer inference')
     parser.add_argument('--num_monte_carlo_steps', type=int, default=10, help='Number of Monte Carlo steps for EdgeSHAPer inference')
     parser.add_argument('--fragment', type=str, default=None, help='fragmentation of small molecules')
     parser.add_argument('--ckpt', type=str, required=True, help='Path to the checkpoint')
     parser.add_argument('--save_path', type=str, default=None, help='Path to save the results')
-    parser.add_argument('--num_workers', type=int, default=4, help='Number of workers to use')
+    parser.add_argument('--num_workers', type=int, default=16, help='Number of workers to use')
     parser.add_argument('--bottom_level', default=False, action='store_true', help='Use bottom level edges')
 
     parser.add_argument('--gpu', type=int, default=-1, help='GPU to use, -1 for cpu')
@@ -64,7 +64,7 @@ def get_unique_edges(edges):
 
 
 def edgeshaper_batched(
-    model, data, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, top_level=True, P=None, monte_carlo_steps=100, seed = 42, device = "cpu", max_n_vertex_per_batch=500,
+    model, data, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, intermolecular_edge_mask, top_level=True, P=None, monte_carlo_steps=100, seed = 42, device = "cpu", max_n_vertex_per_batch=500,
 ):
     """ Compute Shapley values approximation for edge importance in GNNs
     For model outputs which are vectors it uses the L2 norm to compute the marginal contribution.
@@ -88,23 +88,29 @@ def edgeshaper_batched(
     phi_edges = []
 
     edges = top_edges if top_level else bottom_edges
-    unique_edges_mask, map_to_unique = get_unique_edges(edges) # edges without bidirectional edges
-    unique_edges_idx = unique_edges_mask.nonzero().squeeze().to(device)
-    unique_edges = edges[:, unique_edges_idx]
-    num_edges = unique_edges.shape[1]
     num_nodes = data['B'].shape[0] if top_level else data['X'].shape[0]
     edge_attr = top_edge_attr if top_level else bottom_edge_attr
+    
+    # edges without bidirectional edges
+    unique_edges_mask, map_to_unique = get_unique_edges(edges)
+    unique_edges_idx = unique_edges_mask.nonzero().squeeze().to(device)
+    unique_intermolecular_edge_mask = intermolecular_edge_mask.to(device)[unique_edges_idx]
+    unique_edges = edges[:, unique_edges_idx]
+    num_edges = unique_edges.shape[1]
+
     
     if P is None:
         max_num_edges = num_nodes*(num_nodes-1)
         graph_density = num_edges/max_num_edges
         P = graph_density
     
-    # TODO: to save time consider deleting only intermolecular edges?
     for j in tqdm(range(num_edges), desc="Edge Shapley"):
         marginal_contrib = 0
         minus_edges, minus_edge_feat = [], []
         plus_edges, plus_edge_feat = [], []
+        if unique_intermolecular_edge_mask[j] == 0: # filter out intramolecular_edges
+            phi_edges.append(0)
+            continue
 
         if top_level:
             bottom_plus_edges, bottom_plus_edge_feat = [], []
@@ -259,9 +265,10 @@ def main(args):
             assert np.isclose(batch['label'].item(), items[idx]['label']), f"Mismatch between GT: {items[idx]['label']}, and label: {batch['label'].item()}"
             
             batch = Trainer.to_device(batch, device)
-            bottom_edges, bottom_edge_attr, top_edges, top_edge_attr = model.precalculate_edges(batch)
+            bottom_edges, bottom_edge_attr, bottom_edge_mask, top_edges, top_edge_attr, top_edge_mask = model.precalculate_edges(batch)
+            edge_mask = bottom_edge_mask if args.bottom_level else top_edge_mask
             edges_explanations, unique_edges = edgeshaper_batched(
-                model, batch, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, 
+                model, batch, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, edge_mask,
                 top_level=not args.bottom_level, 
                 monte_carlo_steps=args.num_monte_carlo_steps, 
                 max_n_vertex_per_batch=args.max_n_vertex_per_batch,

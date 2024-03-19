@@ -360,6 +360,61 @@ class MutationDataset(torch.utils.data.Dataset):
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
     
+
+class MdrdbDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data_file):
+        super().__init__()
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ {'id': item['id'], 'label': item['ddG'] } for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        [
+            # wild type
+            {
+                'X': [Natom, 3],
+                'B': [Nblock],
+                'A': [Natom],
+                'atom_positions': [Natom],
+                'block_lengths': [Natom]
+                'segment_ids': [Nblock]
+                'label': [1]
+            },
+
+        '''
+        item = self.data[idx]['data']
+        item['label'] = self.data[idx]['ddG']
+        return item
+
+    # @classmethod
+    # def collate_fn(cls, batch):
+    #     wt = [item[0] for item in batch]
+    #     mt = [item[1] for item in batch]
+    #     label = [item[2] for item in batch]
+    #     wt_batch = cls.collate_fn_(wt)
+    #     mt_batch = cls.collate_fn_(mt)
+    #     return wt_batch, mt_batch, torch.tensor(label, dtype=torch.float)
+
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
+    
     
 class PDBBindBenchmark(torch.utils.data.Dataset):
 

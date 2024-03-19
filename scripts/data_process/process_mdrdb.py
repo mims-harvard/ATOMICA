@@ -105,6 +105,8 @@ def process_one_complex(complex_file_name, mut_site, smiles, interface_dist_th, 
     blocks1, _, chosen_indexes1, _ = blocks_interface(blocks1, blocks2, interface_dist_th, return_indexes=True)
     indexes1 = [indexes1[i] for i in chosen_indexes1]
     mutation_site_on_interface = False
+    #print(indexes1)
+    #print(mut_site)
     for idx in indexes1:
         idx = int(idx.split('_')[-1])
         if idx == mut_site:
@@ -113,6 +115,8 @@ def process_one_complex(complex_file_name, mut_site, smiles, interface_dist_th, 
     if not mutation_site_on_interface:
         print_log(f'{complex_file_name} mutation site is not on interface', level='ERROR')
         return None
+    else:
+        print_log(f'{complex_file_name} mutation site is on interface', level='INFO')
     if len(blocks1) == 0:  # no interface (if len(interface1) == 0 then we must have len(interface2) == 0)
         print_log(f'{complex_file_name} has no interface', level='ERROR')
         return None
@@ -128,6 +132,7 @@ def process_wt_mt_pair(dirname, mut_site, smiles, ddG, interface_dist_th, fragme
     item = {}
     item['id'] = os.path.basename(dirname)
     item['ddG'] = ddG
+    item['mut_site'] = mut_site
     wt_file = None
     mt_file = None
     for f in os.listdir(dirname):
@@ -142,11 +147,11 @@ def process_wt_mt_pair(dirname, mut_site, smiles, ddG, interface_dist_th, fragme
     wt_data = process_one_complex(wt_file, mut_site, smiles, interface_dist_th, fragmentation_method)
     if wt_data is None:
         return None
-    mt_data = process_one_complex(mt_file, mut_site, smiles, interface_dist_th, fragmentation_method)
-    if mt_data is None:
-        return None
-    item['wt'] = wt_data
-    item['mt'] = mt_data
+    # mt_data = process_one_complex(mt_file, mut_site, smiles, interface_dist_th, fragmentation_method)
+    # if mt_data is None:
+    #     return None
+    item['data'] = wt_data
+    #item['mt'] = mt_data
     return item
 
 
@@ -169,7 +174,7 @@ def main(args):
             ddG_list.append(ddG)
             mut_site_list.append(mut_site)
 
-    print_log(f'Preprocessing {len(complex_file_names)} protein files...')
+    print(f'Preprocessing {len(complex_file_names)} protein files...')
     processed_data = []
 
     result_list = pmap_multi(process_wt_mt_pair, zip(complex_file_names, mut_site_list, smiles, ddG_list), 
@@ -195,21 +200,26 @@ def main(args):
     valid_dataset = processed_data[-num_valid:]
     test_dataset = processed_data[-2*num_valid:-num_valid]
 
-    database_out_train = os.path.join(args.out_dir, f'random_split_train.pkl')
-    print_log(f'Obtained {len(processed_data)} data after filtering')
-    print_log(f'Saving {len(train_dataset)} to {database_out_train} ...')
-    with open(database_out_train, 'wb') as f:
-        pickle.dump(train_dataset, f)
+    # database_out_train = os.path.join(args.out_dir, f'random_split_train.pkl')
+    # print_log(f'Obtained {len(processed_data)} data after filtering')
+    # print_log(f'Saving {len(train_dataset)} to {database_out_train} ...')
+    # with open(database_out_train, 'wb') as f:
+    #     pickle.dump(train_dataset, f)
 
-    database_out_valid = os.path.join(args.out_dir, f'random_split_valid.pkl')
-    print_log(f'Saving {len(valid_dataset)} to {database_out_valid} ...')
-    with open(database_out_valid, 'wb') as f:
-        pickle.dump(valid_dataset, f)
+    # database_out_valid = os.path.join(args.out_dir, f'random_split_valid.pkl')
+    # print_log(f'Saving {len(valid_dataset)} to {database_out_valid} ...')
+    # with open(database_out_valid, 'wb') as f:
+    #     pickle.dump(valid_dataset, f)
     
-    database_out_test = os.path.join(args.out_dir, f'random_split_test.pkl')
-    print_log(f'Saving {len(test_dataset)} to {database_out_test} ...')
-    with open(database_out_test, 'wb') as f:
-        pickle.dump(test_dataset, f)
+    # database_out_test = os.path.join(args.out_dir, f'random_split_test.pkl')
+    # print_log(f'Saving {len(test_dataset)} to {database_out_test} ...')
+    # with open(database_out_test, 'wb') as f:
+    #     pickle.dump(test_dataset, f)
+    
+    database_out = os.path.join(args.out_dir, f'processed.pkl')
+    print_log(f'Saving {len(processed_data)} to {database_out} ...')
+    with open(database_out, 'wb') as f:
+        pickle.dump(processed_data, f)
 
     print_log('Finished!')
 
@@ -223,7 +233,7 @@ def parse():
                         help='Output directory')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')
-    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'])
+    parser.add_argument('--fragmentation_method', type=str, default='PS_300', choices=['PS_300', 'PS_500'])
     parser.add_argument('--num_workers', type=int, default=16)
     return parser.parse_args()
 
