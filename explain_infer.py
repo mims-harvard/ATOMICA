@@ -26,7 +26,7 @@ def parse():
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ')
-    parser.add_argument('--max_n_vertex_per_batch', type=int, default=5000, help='Max number of vertex per batch for running EdgeSHAPer inference')
+    parser.add_argument('--max_n_vertex_per_batch', type=int, default=50000, help='Max number of vertex per batch for running EdgeSHAPer inference')
     parser.add_argument('--num_monte_carlo_steps', type=int, default=10, help='Number of Monte Carlo steps for EdgeSHAPer inference')
     parser.add_argument('--fragment', type=str, default=None, help='fragmentation of small molecules')
     parser.add_argument('--ckpt', type=str, required=True, help='Path to the checkpoint')
@@ -238,6 +238,7 @@ def main(args):
     model_ = torch.load(args.ckpt, map_location='cpu')
     if isinstance(model_, DenoisePretrainModel):
         model = PredictionModel.load_from_pretrained(args.ckpt)
+    k_neighbors = 3
     print(f"MODEL SIZE: {sum(p.numel() for p in model.parameters())}")
     device = torch.device('cpu' if args.gpu == -1 else f'cuda:{args.gpu}')
     model.to(device)
@@ -265,7 +266,7 @@ def main(args):
             assert np.isclose(batch['label'].item(), items[idx]['label']), f"Mismatch between GT: {items[idx]['label']}, and label: {batch['label'].item()}"
             
             batch = Trainer.to_device(batch, device)
-            bottom_edges, bottom_edge_attr, bottom_edge_mask, top_edges, top_edge_attr, top_edge_mask = model.precalculate_edges(batch)
+            bottom_edges, bottom_edge_attr, bottom_edge_mask, top_edges, top_edge_attr, top_edge_mask = model.precalculate_edges(batch, k_neighbors)
             edge_mask = bottom_edge_mask if args.bottom_level else top_edge_mask
             edges_explanations, unique_edges = edgeshaper_batched(
                 model, batch, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, edge_mask,
