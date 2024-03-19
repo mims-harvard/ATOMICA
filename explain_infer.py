@@ -38,8 +38,33 @@ def parse():
     return parser.parse_args()
 
 
+
+def get_unique_edges(edges):
+    """
+    Keeps only unidirectional edges
+    """
+    unique_edges = torch.zeros(edges.shape[1])
+    map_to_unique = torch.zeros(edges.shape[1], dtype=torch.long)
+    edgesl = edges.T.tolist()
+    for i, edge in enumerate(edgesl):
+        if edge[::-1] not in edgesl[:i]:
+            unique_edges[i] = 1
+            map_to_unique[i] = i
+        else:
+            map_to_unique[i] = edgesl[:i].index(edge[::-1])
+
+    num_bidirectional = 0
+    for edge in edgesl:
+        if edge[::-1] in edgesl:
+            num_bidirectional += 1
+    num_unidirectional = edges.shape[1] - num_bidirectional
+    num_bidirectional = num_bidirectional // 2
+    assert num_bidirectional + num_unidirectional == sum(unique_edges), f"Number of bidirectional edges: {num_bidirectional}, number of unique edges: {sum(unique_edges)}"
+    return unique_edges, map_to_unique
+
+
 def edgeshaper_batched(
-    model, data, edges, edge_features, top_level=True, P=None, monte_carlo_steps=100, seed = 42, device = "cpu", max_n_vertex_per_batch=500,
+    model, data, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, top_level=True, P=None, monte_carlo_steps=100, seed = 42, device = "cpu", max_n_vertex_per_batch=500,
 ):
     """ Compute Shapley values approximation for edge importance in GNNs
     For model outputs which are vectors it uses the L2 norm to compute the marginal contribution.
@@ -57,24 +82,33 @@ def edgeshaper_batched(
         list: list of Shapley values for the edges computed by EdgeSHAPer. The order of the edges is the same as in ```edges```.
     """
     
-    edge_weight = edge_features
 
     rng = default_rng(seed = seed)
     model.eval()
     phi_edges = []
 
+    edges = top_edges if top_level else bottom_edges
+    unique_edges_mask, map_to_unique = get_unique_edges(edges) # edges without bidirectional edges
+    unique_edges_idx = unique_edges_mask.nonzero().squeeze().to(device)
+    unique_edges = edges[:, unique_edges_idx]
+    num_edges = unique_edges.shape[1]
     num_nodes = data['B'].shape[0] if top_level else data['X'].shape[0]
-    num_edges = edges.shape[1]
+    edge_attr = top_edge_attr if top_level else bottom_edge_attr
     
     if P is None:
         max_num_edges = num_nodes*(num_nodes-1)
         graph_density = num_edges/max_num_edges
         P = graph_density
-
+    
+    # TODO: to save time consider deleting only intermolecular edges?
     for j in tqdm(range(num_edges), desc="Edge Shapley"):
         marginal_contrib = 0
         minus_edges, minus_edge_feat = [], []
         plus_edges, plus_edge_feat = [], []
+
+        if top_level:
+            bottom_plus_edges, bottom_plus_edge_feat = [], []
+            bottom_minus_edges, bottom_minus_edge_feat = [], []
 
         # Sample random graphs
         for _ in range(monte_carlo_steps):
@@ -98,21 +132,51 @@ def edgeshaper_batched(
                     E_j_minus_index[pi[k]] = E_z_mask[pi[k]]
             
             # with edge j
-            retained_indices_plus = torch.LongTensor(torch.nonzero(E_j_plus_index).tolist()).to(device).squeeze()
-            E_j_plus = torch.index_select(edges, dim = 1, index = retained_indices_plus)
-            edge_weight_j_plus = torch.index_select(edge_weight, dim = 0, index = retained_indices_plus)
-            plus_edges.append(E_j_plus)
-            plus_edge_feat.append(edge_weight_j_plus)
+            retained_indices_plus = set(torch.nonzero(E_j_plus_index).squeeze().tolist())
+            retained_original_indices_plus = []
+            for original_idx, unique_idx in enumerate(map_to_unique.tolist()):
+                if unique_idx in retained_indices_plus:
+                    retained_original_indices_plus.append(original_idx)
+            retained_original_indices_plus = torch.LongTensor(retained_original_indices_plus).to(device)
+            edge_j_plus = torch.index_select(edges, dim = 1, index = retained_original_indices_plus)
+            edge_attr_j_plus = torch.index_select(edge_attr, dim = 0, index = retained_original_indices_plus)
+            plus_edges.append(edge_j_plus)
+            plus_edge_feat.append(edge_attr_j_plus)
 
             # without edge j
-            retained_indices_minus = torch.LongTensor(torch.nonzero(E_j_minus_index).tolist()).to(device).squeeze()
-            E_j_minus = torch.index_select(edges, dim = 1, index = retained_indices_minus)
-            edge_weight_j_minus = torch.index_select(edge_weight, dim = 0, index = retained_indices_minus)
-            minus_edges.append(E_j_minus)
-            minus_edge_feat.append(edge_weight_j_minus)
+            retained_indices_minus = set(torch.nonzero(E_j_minus_index).squeeze().tolist())
+            retained_original_indices_minus = []
+            for original_idx, unique_idx in enumerate(map_to_unique.tolist()):
+                if unique_idx in retained_indices_minus:
+                    retained_original_indices_minus.append(original_idx)
+            retained_original_indices_minus = torch.LongTensor(retained_original_indices_minus).to(device)
+            edge_j_minus = torch.index_select(edges, dim = 1, index = retained_original_indices_minus)
+            edge_attr_j_minus = torch.index_select(edge_attr, dim = 0, index = retained_original_indices_minus)
+            minus_edges.append(edge_j_minus)
+            minus_edge_feat.append(edge_attr_j_minus)
 
-            # TODO: filter out corresponding edges in the bottom level if top level
-            # TODO: to save time consider deleting only intermolecular edges?
+            # filter out corresponding edges in the bottom level if deleting a top level edge
+            edge_j_plus_set = set([tuple(x) for x in edge_j_plus.T.tolist()])
+            edge_j_minus_set = set([tuple(x) for x in edge_j_minus.T.tolist()])
+            if top_level:
+                block_id = torch.zeros_like(data['A']) # [Nu]
+                block_id[torch.cumsum(data['block_lengths'], dim=0)[:-1]] = 1
+                block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+                edge_j_plus_, edge_attr_j_plus_ = [], []
+                edge_j_minus_, edge_attr_j_minus_ = [], []
+                bottom_edges_block = block_id[bottom_edges].T.tolist()
+                for i, edge in enumerate(bottom_edges_block):
+                    edge = tuple(edge)
+                    if edge in edge_j_plus_set or edge[::-1] in edge_j_plus_set:
+                        edge_j_plus_.append(bottom_edges[:, i])
+                        edge_attr_j_plus_.append(bottom_edge_attr[i])
+                    if edge in edge_j_minus_set or edge[::-1] in edge_j_minus_set:
+                        edge_j_minus_.append(bottom_edges[:, i])
+                        edge_attr_j_minus_.append(bottom_edge_attr[i])
+                bottom_plus_edges.append(torch.stack(edge_j_plus_).T)
+                bottom_plus_edge_feat.append(torch.stack(edge_attr_j_plus_))
+                bottom_minus_edges.append(torch.stack(edge_j_minus_).T)
+                bottom_minus_edge_feat.append(torch.stack(edge_attr_j_minus_))
 
         # Compute marginal contributions
         batch_size = max_n_vertex_per_batch//data['B'].shape[0]
@@ -122,21 +186,26 @@ def edgeshaper_batched(
             batch = Trainer.to_device(batch, device)
             if top_level:
                 V_j_plus = model.infer(
-                    batch, top_altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]), 
-                    top_altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                    batch, 
+                    top_altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]).to(device), 
+                    top_altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0).to(device),
+                    bottom_altered_edges=collate_altered_edges(data['X'].shape[0], [bottom_plus_edges[i] for i in range(start_idx, end_idx)]).to(device),
+                    bottom_altered_edge_attr=torch.cat([bottom_plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0).to(device)
                 )
                 V_j_minus = model.infer(
-                    batch, top_altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]), 
-                    top_altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                    batch, top_altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]).to(device), 
+                    top_altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0).to(device),
+                    bottom_altered_edges=collate_altered_edges(data['X'].shape[0], [bottom_minus_edges[i] for i in range(start_idx, end_idx)]).to(device),
+                    bottom_altered_edge_attr=torch.cat([bottom_minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0).to(device)
                 )
             else:
                 V_j_plus = model.infer(
-                    batch, bottom_altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]), 
-                    bottom_altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                    batch, bottom_altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]).to(device), 
+                    bottom_altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0).to(device)
                 )
                 V_j_minus = model.infer(
-                    batch, bottom_altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]), 
-                    bottom_altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                    batch, bottom_altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]).to(device), 
+                    bottom_altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0).to(device)
                 )
             if V_j_plus.dim() == 1: # scalar outputs
                 marginal_contrib += (V_j_plus - V_j_minus).sum().item()
@@ -145,7 +214,7 @@ def edgeshaper_batched(
 
         phi_edges.append(marginal_contrib/monte_carlo_steps)
         
-    return phi_edges
+    return phi_edges, unique_edges
 
 
 def collate_altered_edges(num_nodes, list_of_altered_edges):
@@ -190,9 +259,10 @@ def main(args):
             assert np.isclose(batch['label'].item(), items[idx]['label']), f"Mismatch between GT: {items[idx]['label']}, and label: {batch['label'].item()}"
             
             batch = Trainer.to_device(batch, device)
-            edges, edge_attr = model.precalculate_edges(batch, top_level=not args.bottom_level)
-            edges_explanations = edgeshaper_batched(
-                model, batch, edges, edge_attr, top_level=not args.bottom_level, 
+            bottom_edges, bottom_edge_attr, top_edges, top_edge_attr = model.precalculate_edges(batch)
+            edges_explanations, unique_edges = edgeshaper_batched(
+                model, batch, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, 
+                top_level=not args.bottom_level, 
                 monte_carlo_steps=args.num_monte_carlo_steps, 
                 max_n_vertex_per_batch=args.max_n_vertex_per_batch,
                 device="cuda:0")
@@ -220,7 +290,7 @@ def main(args):
                 f.write("Predicted value: " + str(pred_label) + "\n\n")
                 f.write("Shapley values for edges: \n\n")
                 for e in range(len(edges_explanations)):
-                    f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
+                    f.write("(" + str(unique_edges[0][e].item()) + "," + str(unique_edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
             print("Edgeshaper esults saved to: " + SAVE_PATH)
     fout.close()
 

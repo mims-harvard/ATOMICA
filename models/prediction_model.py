@@ -65,7 +65,7 @@ class PredictionModel(DenoisePretrainModel):
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
-    def precalculate_edges(self, batch, top_level=True):
+    def precalculate_edges(self, batch):
         """
         Returns block level edges and edge_attr if top_level = True
         Returns atom level edges and edge_attr if top_level = False
@@ -91,14 +91,12 @@ class PredictionModel(DenoisePretrainModel):
             bottom_segment_ids = segment_ids[block_id]  # [Nu]
             bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
             
-            if top_level:
-                top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
-                top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+            top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
+            top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
 
-                edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-            else:
-                edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
-        return edges, edge_attr
+            top_edges, top_edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+            bottom_edges, bottom_edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
+        return bottom_edges, bottom_edge_attr, top_edges, top_edge_attr
 
     ########## overload ##########
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, 
