@@ -115,20 +115,33 @@ def edgeshaper_batched(
             minus_edges.append(E_j_minus)
             minus_edge_feat.append(edge_weight_j_minus)
 
+            # TODO: filter out corresponding edges in the bottom level if top level
+            # TODO: to save time consider deleting only intermolecular edges?
+
         # Compute marginal contributions
         batch_size = max_n_vertex_per_batch//data['B'].shape[0]
         for start_idx in range(0, monte_carlo_steps, batch_size):
             end_idx = min(start_idx + batch_size, monte_carlo_steps)
             batch = PDBDataset.collate_fn([data for _ in range(start_idx, end_idx)])
             batch = Trainer.to_device(batch, device)
-            V_j_plus = model.infer(
-                batch, altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]), 
-                altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
-            )
-            V_j_minus = model.infer(
-                batch, altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]), 
-                altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
-            )
+            if top_level:
+                V_j_plus = model.infer(
+                    batch, top_altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]), 
+                    top_altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                )
+                V_j_minus = model.infer(
+                    batch, top_altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]), 
+                    top_altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                )
+            else:
+                V_j_plus = model.infer(
+                    batch, bottom_altered_edges=collate_altered_edges(num_nodes, [plus_edges[i] for i in range(start_idx, end_idx)]), 
+                    bottom_altered_edge_attr=torch.cat([plus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                )
+                V_j_minus = model.infer(
+                    batch, bottom_altered_edges=collate_altered_edges(num_nodes, [minus_edges[i] for i in range(start_idx, end_idx)]), 
+                    bottom_altered_edge_attr=torch.cat([minus_edge_feat[i] for i in range(start_idx, end_idx)], dim=0)
+                )
             if V_j_plus.dim() == 1: # scalar outputs
                 marginal_contrib += (V_j_plus - V_j_minus).sum().item()
             else: # vector outputs, e.g. for graph embeddings, use L2 norm
@@ -210,10 +223,9 @@ def main(args):
                 f.write("GT Affinity: " + str(gt) + "\n")
                 f.write("Predicted value: " + str(pred_label) + "\n\n")
                 f.write("Shapley values for edges: \n\n")
-                if edges_explanations is not None:
-                    for e in range(len(edges_explanations)):
-                        f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
-    
+                for e in range(len(edges_explanations)):
+                    f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
+            print("Edgeshaper esults saved to: " + SAVE_PATH)
     fout.close()
 
 if __name__ == '__main__':
