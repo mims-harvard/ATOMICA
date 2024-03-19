@@ -178,7 +178,7 @@ class DenoisePretrainModel(nn.Module):
                 nn.Linear(hidden_size, 1, bias=False)
             )
 
-    def get_edges(self, B, batch_id, segment_ids, Z, block_id):
+    def get_edges(self, B, batch_id, segment_ids, Z, block_id, return_mask = False):
         intra_edges, inter_edges, global_global_edges, global_normal_edges = construct_edges(
                     self.edge_constructor, B, batch_id, segment_ids, Z, block_id, complexity=2000**2)
         if self.global_message_passing:
@@ -188,11 +188,21 @@ class DenoisePretrainModel(nn.Module):
                 torch.ones_like(inter_edges[0]),
                 torch.ones_like(global_global_edges[0]) * 2,
                 torch.ones_like(global_normal_edges[0]) * 3])
+            if return_mask:
+                edge_mask = torch.cat([torch.zeros(intra_edges.shape[1], dtype=torch.bool),
+                                       torch.ones(inter_edges.shape[1], dtype=torch.bool),
+                                       torch.zeros(global_global_edges.shape[1], dtype=torch.bool),
+                                       torch.zeros(global_normal_edges.shape[1], dtype=torch.bool)])
+                return edges, edge_attr, edge_mask
         else:
             edges = torch.cat([intra_edges, inter_edges], dim=1)
             edge_attr = torch.cat([torch.zeros_like(intra_edges[0]), torch.ones_like(inter_edges[0])])
+            if return_mask:
+                edge_mask = torch.cat([torch.zeros(intra_edges.shape[1], dtype=torch.bool),
+                                       torch.ones(inter_edges.shape[1], dtype=torch.bool)])
         edge_attr = self.edge_embedding(edge_attr)
-
+        if return_mask:
+            return edges, edge_attr, edge_mask
         return edges, edge_attr
     
     

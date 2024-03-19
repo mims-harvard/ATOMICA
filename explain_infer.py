@@ -22,16 +22,16 @@ from numpy.random import default_rng
 def parse():
     parser = argparse.ArgumentParser(description='Run EdgeSHAPer on model outputs')
     parser.add_argument('--test_set', type=str, required=True, help='Path to the test set')
-    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS'],
+    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS', 'DDG', 'mdrdb'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ')
-    parser.add_argument('--max_n_vertex_per_batch', type=int, default=500, help='Max number of vertex per batch for running EdgeSHAPer inference')
+    parser.add_argument('--max_n_vertex_per_batch', type=int, default=5000, help='Max number of vertex per batch for running EdgeSHAPer inference')
     parser.add_argument('--num_monte_carlo_steps', type=int, default=10, help='Number of Monte Carlo steps for EdgeSHAPer inference')
     parser.add_argument('--fragment', type=str, default=None, help='fragmentation of small molecules')
     parser.add_argument('--ckpt', type=str, required=True, help='Path to the checkpoint')
     parser.add_argument('--save_path', type=str, default=None, help='Path to save the results')
-    parser.add_argument('--num_workers', type=int, default=4, help='Number of workers to use')
+    parser.add_argument('--num_workers', type=int, default=16, help='Number of workers to use')
     parser.add_argument('--bottom_level', default=False, action='store_true', help='Use bottom level edges')
 
     parser.add_argument('--gpu', type=int, default=-1, help='GPU to use, -1 for cpu')
@@ -39,7 +39,7 @@ def parse():
 
 
 def edgeshaper_batched(
-    model, data, edges, edge_features, top_level=True, P=None, monte_carlo_steps=100, seed = 42, device = "cpu", max_n_vertex_per_batch=500,
+    model, data, edges, edge_features, edge_mask, top_level=True, P=None, monte_carlo_steps=100, seed = 42, device = "cpu", max_n_vertex_per_batch=500,
 ):
     """ Compute Shapley values approximation for edge importance in GNNs
     For model outputs which are vectors it uses the L2 norm to compute the marginal contribution.
@@ -65,6 +65,7 @@ def edgeshaper_batched(
 
     num_nodes = data['B'].shape[0] if top_level else data['X'].shape[0]
     num_edges = edges.shape[1]
+    print(edge_mask.sum())
     
     if P is None:
         max_num_edges = num_nodes*(num_nodes-1)
@@ -75,6 +76,9 @@ def edgeshaper_batched(
         marginal_contrib = 0
         minus_edges, minus_edge_feat = [], []
         plus_edges, plus_edge_feat = [], []
+        if edge_mask[j] == 0:
+            phi_edges.append(0)
+            continue
 
         # Sample random graphs
         for _ in range(monte_carlo_steps):
@@ -177,9 +181,9 @@ def main(args):
             assert np.isclose(batch['label'].item(), items[idx]['label']), f"Mismatch between GT: {items[idx]['label']}, and label: {batch['label'].item()}"
             
             batch = Trainer.to_device(batch, device)
-            edges, edge_attr = model.precalculate_edges(batch, top_level=not args.bottom_level)
+            edges, edge_attr, edge_mask = model.precalculate_edges(batch, top_level=not args.bottom_level)
             edges_explanations = edgeshaper_batched(
-                model, batch, edges, edge_attr, top_level=not args.bottom_level, 
+                model, batch, edges, edge_attr, edge_mask, top_level=not args.bottom_level, 
                 monte_carlo_steps=args.num_monte_carlo_steps, 
                 max_n_vertex_per_batch=args.max_n_vertex_per_batch,
                 device="cuda:0")
@@ -206,8 +210,9 @@ def main(args):
                 f.write("GT Affinity: " + str(gt) + "\n")
                 f.write("Predicted value: " + str(pred_label) + "\n\n")
                 f.write("Shapley values for edges: \n\n")
-                for e in range(len(edges_explanations)):
-                    f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
+                if edges_explanations is not None:
+                    for e in range(len(edges_explanations)):
+                        f.write("(" + str(edges[0][e].item()) + "," + str(edges[1][e].item()) + "): " + str(edges_explanations[e]) + "\n")
     
     fout.close()
 

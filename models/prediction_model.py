@@ -95,10 +95,10 @@ class PredictionModel(DenoisePretrainModel):
                 top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
                 top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
 
-                edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
+                edges, edge_attr, edge_mask = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, return_mask=True)
             else:
-                edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
-        return edges, edge_attr
+                edges, edge_attr, edge_mask = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id, return_mask=True)
+        return edges, edge_attr, edge_mask
 
     ########## overload ##########
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, altered_edges=None, altered_edge_attr=None) -> PredictionReturnValue:
