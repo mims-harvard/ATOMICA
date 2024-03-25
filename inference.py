@@ -34,7 +34,6 @@ def main(args):
     VOCAB.load_tokenizer(args.fragment)
     # load model
     model = torch.load(args.ckpt, map_location='cpu')
-    print(f"MODEL TYPE: {model.model_type}, hierarchical: {model.hierarchical}, atom_level: {model.atom_level}, no_block_embedding: {model.no_block_embedding}, n_layers: {model.n_layers}, hidden_size: {model.hidden_size}")
     print(f"MODEL SIZE: {sum(p.numel() for p in model.parameters())}")
     device = torch.device('cpu' if args.gpu == -1 else f'cuda:{args.gpu}')
     model.to(device)
