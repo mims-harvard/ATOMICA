@@ -65,7 +65,7 @@ class PredictionModel(DenoisePretrainModel):
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
-    def precalculate_edges(self, batch, k_neighbors=3):
+    def precalculate_edges(self, batch):
         """
         Returns block level edges and edge_attr if top_level = True
         Returns atom level edges and edge_attr if top_level = False
@@ -76,7 +76,6 @@ class PredictionModel(DenoisePretrainModel):
         block_lengths=batch['block_lengths']
         lengths=batch['lengths']
         segment_ids=batch['segment_ids']
-        self.edge_constructor.k_neighbors = k_neighbors
         with torch.no_grad():
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
             batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1

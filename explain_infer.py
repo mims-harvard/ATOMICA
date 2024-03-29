@@ -32,6 +32,7 @@ def parse():
     parser.add_argument('--ckpt', type=str, required=True, help='Path to the checkpoint')
     parser.add_argument('--save_path', type=str, default=None, help='Path to save the results')
     parser.add_argument('--num_workers', type=int, default=16, help='Number of workers to use')
+    parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
     parser.add_argument('--bottom_level', default=False, action='store_true', help='Use bottom level edges')
 
     parser.add_argument('--gpu', type=int, default=-1, help='GPU to use, -1 for cpu')
@@ -238,7 +239,10 @@ def main(args):
     model_ = torch.load(args.ckpt, map_location='cpu')
     if isinstance(model_, DenoisePretrainModel):
         model = PredictionModel.load_from_pretrained(args.ckpt)
-    k_neighbors = 3
+    old_k_neighbors = model.k_neighbors
+    if args.k_neighbors != old_k_neighbors:
+        print(f"WARNING: for explanations changing k_neighbors from {old_k_neighbors} to {args.k_neighbors}. This will effect prediction quality.")
+    model.k_neighbors = args.k_neighbors
     print(f"MODEL SIZE: {sum(p.numel() for p in model.parameters())}")
     device = torch.device('cpu' if args.gpu == -1 else f'cuda:{args.gpu}')
     model.to(device)
@@ -266,7 +270,7 @@ def main(args):
             assert np.isclose(batch['label'].item(), items[idx]['label']), f"Mismatch between GT: {items[idx]['label']}, and label: {batch['label'].item()}"
             
             batch = Trainer.to_device(batch, device)
-            bottom_edges, bottom_edge_attr, bottom_edge_mask, top_edges, top_edge_attr, top_edge_mask = model.precalculate_edges(batch, k_neighbors)
+            bottom_edges, bottom_edge_attr, bottom_edge_mask, top_edges, top_edge_attr, top_edge_mask = model.precalculate_edges(batch)
             edge_mask = bottom_edge_mask if args.bottom_level else top_edge_mask
             edges_explanations, unique_edges = edgeshaper_batched(
                 model, batch, bottom_edges, bottom_edge_attr, top_edges, top_edge_attr, edge_mask,
