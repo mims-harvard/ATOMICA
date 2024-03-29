@@ -497,7 +497,10 @@ class PDBDataset(torch.utils.data.Dataset):
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
-                val.append(torch.tensor(item[key], dtype=_type))
+                if type(item[key]) is list:
+                    val.append(torch.tensor(item[key], dtype=_type))
+                else:
+                    val.append(item[key])
             res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)

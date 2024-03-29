@@ -187,6 +187,7 @@ class DenoisePretrainModel(nn.Module):
                 torch.ones_like(inter_edges[0]),
                 torch.ones_like(global_global_edges[0]) * 2,
                 torch.ones_like(global_normal_edges[0]) * 3])
+            edge_attr = self.edge_embedding(edge_attr)
             if return_mask:
                 edge_mask = torch.cat([torch.zeros(intra_edges.shape[1], dtype=torch.bool),
                                        torch.ones(inter_edges.shape[1], dtype=torch.bool),
@@ -196,13 +197,12 @@ class DenoisePretrainModel(nn.Module):
         else:
             edges = torch.cat([intra_edges, inter_edges], dim=1)
             edge_attr = torch.cat([torch.zeros_like(intra_edges[0]), torch.ones_like(inter_edges[0])])
+            edge_attr = self.edge_embedding(edge_attr)
             if return_mask:
                 # Edge mask: 0 for intra, 1 for inter
                 edge_mask = torch.cat([torch.zeros(intra_edges.shape[1], dtype=torch.bool),
                                        torch.ones(inter_edges.shape[1], dtype=torch.bool)])
-        edge_attr = self.edge_embedding(edge_attr)
-        if return_mask:
-            return edges, edge_attr, edge_mask
+                return edges, edge_attr, edge_mask
         return edges, edge_attr
     
     
