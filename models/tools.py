@@ -155,22 +155,21 @@ class BlockEmbedding(nn.Module):
     '''
     [atom embedding + block embedding + atom position embedding]
     '''
-    def __init__(self, num_block_type, num_atom_type, num_atom_position, embed_size, no_block_embedding=False):
+    def __init__(self, num_block_type, num_atom_type, embed_size, no_block_embedding=False):
         super().__init__()
         if not no_block_embedding:
             self.block_embedding = nn.Embedding(num_block_type, embed_size)
         self.no_block_embedding = no_block_embedding
         self.atom_embedding = nn.Embedding(num_atom_type, embed_size)
-        # self.position_embedding = nn.Embedding(num_atom_position, embed_size)
     
-    def forward(self, B, A, atom_positions, block_id):
+    def forward(self, B, A, block_id):
         '''
         :param B: [Nb], block (residue) types
         :param A: [Nu], unit (atom) types
         :param atom_positions: [Nu], unit (atom) position encoding
         :param block_id: [Nu], block id of each unit
         '''
-        atom_embed = self.atom_embedding(A) # + self.position_embedding(atom_positions) # FIXME: ablation
+        atom_embed = self.atom_embedding(A)
         if self.no_block_embedding:
             return atom_embed
         block_embed = self.block_embedding(B[block_id])

@@ -97,7 +97,7 @@ def main(args):
         # 4. add data path / save directory to config
         for split_name in ['valid', 'train']:
             config[f'{split_name}_set'] = os.path.join(split_dir, split_name + suffix)
-        config['save_dir'] = f'{split_dir}/models/{config["model_type"]}'
+        config['save_dir'] = f'{split_dir}/models/'
         config['seed'] = seeds[i]
 
         # training

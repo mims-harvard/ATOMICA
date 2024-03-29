@@ -115,7 +115,6 @@ class DenoisePretrainModel(nn.Module):
         self.block_embedding = BlockEmbedding(
             num_block_type=len(VOCAB),
             num_atom_type=VOCAB.get_num_atom_type(),
-            num_atom_position=VOCAB.get_num_atom_pos(),
             embed_size=hidden_size,
             no_block_embedding=False,
         )
