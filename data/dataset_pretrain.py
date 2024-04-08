@@ -14,11 +14,14 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         self.atom_noise, self.global_tr, self.global_rot = None, None, None
         # remove items with no torsion angles in either segment
         cleaned_data = []
-        for item in self.data:
+        cleaned_indexes = []
+        for item, index in zip(self.data, self.indexes):
             if self._can_apply_torsion_noise(item["data"], 0) or self._can_apply_torsion_noise(item["data"], 1):
                 cleaned_data.append(item)
+                cleaned_indexes.append(index)
         print(f"Removed {len(self.data) - len(cleaned_data)} items with no torsion angles. Original={len(self.data)} Cleaned={len(cleaned_data)}")
         self.data = cleaned_data
+        self.indexes = cleaned_indexes
     
     @classmethod
     def _can_apply_torsion_noise(cls, data, chosen_segment):
@@ -35,7 +38,11 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.data)
-    
+
+    def _get_raw_item(self, idx):
+        # apply no noise
+        return self.data[idx]
+
     def __getitem__(self, idx):
         '''
         an example of the returned data
@@ -179,6 +186,10 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.data)
+    
+    def _get_raw_item(self, idx):
+        # apply no noise
+        return self.data[idx]
     
     def __getitem__(self, idx):
         '''

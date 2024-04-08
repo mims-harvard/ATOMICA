@@ -3,6 +3,7 @@
 from .pretrain_model import DenoisePretrainModel
 from .affinity_predictor import AffinityPredictor
 from .ddG_predictor import DDGPredictor
+from .prediction_model import PredictionModel
 import torch
 
 def create_model(args):

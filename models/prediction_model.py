@@ -122,3 +122,13 @@ class PredictionModel(DenoisePretrainModel):
             batch_id=batch_id,
             block_id=block_id,
         )
+    
+    def infer(self, batch):
+        self.eval()
+        return_value = self.forward(
+            Z=batch['X'], B=batch['B'], A=batch['A'],
+            block_lengths=batch['block_lengths'],
+            lengths=batch['lengths'],
+            segment_ids=batch['segment_ids'],
+        )
+        return return_value
