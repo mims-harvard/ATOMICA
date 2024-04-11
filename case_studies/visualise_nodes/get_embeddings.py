@@ -1,5 +1,9 @@
 import os
 import sys
+import json
+from tqdm import tqdm
+import numpy as np
+import torch
 
 PROJ_DIR = os.path.abspath(os.path.join(
     os.path.split(os.path.abspath(__file__))[0],
@@ -8,22 +12,10 @@ PROJ_DIR = os.path.abspath(os.path.join(
 # print(f'Project directory: {PROJ_DIR}')
 sys.path.append(PROJ_DIR)
 
-from data.converter.pdb_to_list_blocks import pdb_to_list_blocks
-from data.converter.sm_pdb_to_blocks import sm_pdb_to_blocks
-from data.dataset import VOCAB
-from data.dataset import blocks_interface, blocks_to_data
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, DynamicBatchWrapper, PDBDataset
-from data.atom3d_dataset import LBADataset
-import models
-import torch
+from data.dataset import DynamicBatchWrapper, PDBDataset
 from trainers.abs_trainer import Trainer
-import importlib
-import matplotlib.pyplot as plt
 from torch.utils.data import DataLoader
-from tqdm import tqdm
-import numpy as np
-from models import DenoisePretrainModel, AffinityPredictor
-from torch_scatter import scatter_sum
+from models import PredictionModel
 
 
 def get_embeddings(dataset, model, out_dir):
@@ -39,12 +31,12 @@ def get_embeddings(dataset, model, out_dir):
     graph_embeddings = []
     graph_unit_embeddings = []
 
-    for idx, batch in tqdm(enumerate(train_loader)):
+    for idx, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc="Get embeddings"):
         try:
             model.eval()
             with torch.no_grad():
                 batch = Trainer.to_device(batch, "cuda")
-                pred_binding_affinity, output = model.infer(batch, extra_info=True)
+                output = model.infer(batch)
                 block_embedding = output.block_repr.detach().clone().cpu()
                 atom_embedding = output.unit_repr.detach().clone().cpu()
                 graph_embedding = output.graph_repr.detach().clone().cpu()
@@ -100,14 +92,14 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
     graph_unit_embeddings = []
     graph_id = []
 
-    for idx in tqdm(range(0, len(dataset), batch_size)):
+    for idx in tqdm(range(0, len(dataset), batch_size), total=len(dataset)//batch_size, desc="Get embeddings"):
         batch = dataset.collate_fn([dataset[i] for i in range(idx, min(idx+batch_size, len(dataset)))])
         graph_id.extend(dataset.indexes[idx:min(idx+batch_size, len(dataset))])
         try:
             model.eval()
             with torch.no_grad():
                 batch = Trainer.to_device(batch, "cuda")
-                pred_binding_affinity, output = model.infer(batch, extra_info=True)
+                output = model.infer(batch)
                 block_embedding = output.block_repr.detach().clone().cpu()
                 atom_embedding = output.unit_repr.detach().clone().cpu()
                 graph_embedding = output.graph_repr.detach().clone().cpu()
@@ -156,47 +148,31 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
         for gid in graph_id:
             f.write(f"{gid}\n")
 
+def parse_args():
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--pretrain_ckpt", type=str, required=True)
+    parser.add_argument("--out_dir", type=str, required=True)
+    parser.add_argument("--dataset", type=str, required=True, nargs="+")
+    parser.add_argument("--with_graph_id", action="store_true", default=False)
+    return parser.parse_args()
+
 
 if __name__ == "__main__":
-    pretrain_ckpt = "/n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN-torsion/version_1/checkpoint/epoch11_step188074.ckpt"
-    # pretrain_ckpt = "/n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN-gaussian/version_0/checkpoint/epoch1_step26644.ckpt"
-    model = AffinityPredictor.load_from_pretrained(pretrain_ckpt)
-    out_type = "pretrained"
+    args = parse_args()
 
-    # finetune_ckpt = "/n/holyscratch01/mzitnik_lab/afang/GET/datasets/LBA/split-by-sequence-identity-30/models/InteractNN/version_112/checkpoint/epoch144_step61190.ckpt"
-    # model = torch.load(finetune_ckpt, map_location="cpu")
-    # out_type = "finetuned"
-    
-    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings1/PLA30"
-    # dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/PDBBind/processed_PS_300/identity30/valid.pkl")
-    # dataset = DynamicBatchWrapper(dataset, 500)
-    # get_embeddings(dataset, model, out_dir)
-    # print("Finished PLA30")
+    model = PredictionModel.load_from_pretrained(args.pretrain_ckpt)
 
-    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings_all/CSD_valid_PS_300"
-    # dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/CSD/valid_PS_300.pkl")
-    # dataset = DynamicBatchWrapper(dataset, 500)
-    # get_embeddings(dataset, model, out_dir)
-    # print("Finished CSD")
-
-    # out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings1/BioLiP"
-    # dataset = PDBBindBenchmark("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/datasets/BioLiP/processed-QBioLiP/train_subsampled_2000.pkl")
-    # dataset = DynamicBatchWrapper(dataset, 500)
-    # get_embeddings(dataset, model, out_dir)
-
-    # datasets = os.listdir("./datasets/BioLiP/processed-QBioLiP/")
-    # for dataset_name in datasets:
-    #     if not dataset_name.startswith("QBioLiP") or not dataset_name.endswith(".pkl") or "train" in dataset_name:
-    #         continue
-    #     datatype = dataset_name.split("_")[1]
-    #     dataset = PDBBindBenchmark(f"datasets/BioLiP/processed-QBioLiP/{dataset_name}")
-    #     out_dir = f"case_studies/visualise_nodes/{out_type}_embeddings_all/{dataset_name[:-len('.pkl')]}"
-    #     os.makedirs(out_dir, exist_ok=True)
-    #     dataset = DynamicBatchWrapper(dataset, 500)
-    #     get_embeddings(dataset, model, out_dir)
-    #     print(f"Finished {datatype}. Saved to {out_dir}")
-
-    out_dir = "/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/case_studies/wdr_proteins/embeddings2"
-    dataset = PDBDataset("/n/holylabs/LABS/mzitnik_lab/Users/afang/GET/case_studies/wdr_proteins/wdr_interfaces2.pkl")
-    get_embeddings_with_graph_id(dataset, model, out_dir)
-    
+    for datasetf in args.dataset:
+        dataset = PDBDataset(datasetf)
+        data_name = os.path.basename(datasetf)[:-len(".pkl")]
+        out_path = f"{args.out_dir}/{data_name}"
+        os.makedirs(out_path, exist_ok=True)
+        with open(f"{out_path}/config.json", "w") as f:
+            json.dump(vars(args), f)
+        if args.with_graph_id:
+            get_embeddings_with_graph_id(dataset, model, out_path)
+        else:
+            dataset = DynamicBatchWrapper(dataset, 500)
+            get_embeddings(dataset, model, out_path)
+        print(f"Finished {datasetf}. Saved to {out_path}")

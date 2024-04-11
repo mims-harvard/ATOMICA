@@ -1,13 +1,17 @@
 from openbabel import pybel
+import openbabel
 from collections import namedtuple
-from plip.basic import config
 from enum import Enum
 from typing import Tuple
 import numpy as np
+import itertools
 
+from plip.basic import config
 from plip.basic.supplemental import normalize_vector, vector, ring_is_planar
 from plip.basic.supplemental import centroid, whichrestype
-from plip.structure.detection import halogen, pication, hydrophobic_interactions, pistacking, hbonds, saltbridge, metal_complexation
+from plip.structure.detection import halogen, pication, hydrophobic_interactions, pistacking, hbonds, metal_complexation, filter_contacts
+from plip.basic.supplemental import vector, euclidean3d
+from plip.basic.supplemental import whichresnumber, whichrestype, whichchain
 from plip.structure.preparation import PLInteraction
 from data.pdb_utils import VOCAB
 
@@ -315,8 +319,12 @@ class Ligand(Mol):
         This can be any water oxygen, as well as oxygen from carboxylate, phophoryl, phenolate, alcohol;
         nitrogen from imidazole; sulfur from thiolate.
         """
+        hetid = 'hetid'
+        position = -1
+        chain = 'chain'
+
         a_set = []
-        data = namedtuple('metal_binding', 'atom orig_atom atom_orig_idx type fgroup location')
+        data = namedtuple('metal_binding', 'atom orig_atom atom_orig_idx type fgroup restype resnr reschain location')
         # for oxygen in water_oxygens:
         #     a_set.append(data(atom=oxygen.oxy, atom_orig_idx=oxygen.oxy_orig_idx, type='O', fgroup='water',
         #                       restype=whichrestype(oxygen.oxy), resnr=whichresnumber(oxygen.oxy),
@@ -333,41 +341,46 @@ class Ligand(Mol):
             if a.atomicnum == 8:  # Oxygen
                 if n_atoms_atomicnum.count('1') == 1 and len(n_atoms_atomicnum) == 2:  # Oxygen in alcohol (R-[O]-H)
                     a_set.append(data(atom=a, atom_orig_idx=a_orig_idx, type='O', fgroup='alcohol',
-                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
+                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx),
+                                      restype=hetid, resnr=position, reschain=chain))
                 if True in [n.IsAromatic() for n in n_atoms] and not a.OBAtom.IsAromatic():  # Phenolate oxygen
                     a_set.append(data(atom=a, atom_orig_idx=a_orig_idx, type='O', fgroup='phenolate',
-                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
+                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx),
+                                      restype=hetid, resnr=position, reschain=chain))
             if a.atomicnum == 6:  # It's a carbon atom
                 if n_atoms_atomicnum.count(8) == 2 and n_atoms_atomicnum.count(6) == 1:  # It's a carboxylate group
                     for neighbor in [n for n in n_atoms if n.GetAtomicNum() == 8]:
                         neighbor_orig_idx = self.Mapper.mapid(self.segment_id, neighbor.GetIdx())
                         a_set.append(data(atom=pybel.Atom(neighbor), atom_orig_idx=neighbor_orig_idx, type='O',
-                                          fgroup='carboxylate',
+                                          fgroup='carboxylate', restype=hetid, resnr=position, reschain=chain,
                                           location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
             if a.atomicnum == 15:  # It's a phosphor atom
                 if n_atoms_atomicnum.count(8) >= 3:  # It's a phosphoryl
                     for neighbor in [n for n in n_atoms if n.GetAtomicNum() == 8]:
                         neighbor_orig_idx = self.Mapper.mapid(self.segment_id, neighbor.GetIdx())
                         a_set.append(data(atom=pybel.Atom(neighbor), atom_orig_idx=neighbor_orig_idx, type='O',
-                                          fgroup='phosphoryl',
+                                          fgroup='phosphoryl', restype=hetid, resnr=position, reschain=chain,
                                           location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
                 if n_atoms_atomicnum.count(8) == 2:  # It's another phosphor-containing group #@todo (correct name?)
                     for neighbor in [n for n in n_atoms if n.GetAtomicNum() == 8]:
                         neighbor_orig_idx = self.Mapper.mapid(self.segment_id, neighbor.GetIdx())
                         a_set.append(data(atom=pybel.Atom(neighbor), atom_orig_idx=neighbor_orig_idx, type='O',
-                                          fgroup='phosphor.other', location=self.segment_id,
-                                          orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
+                                          fgroup='phosphor.other', restype=hetid, resnr=position, reschain=chain,
+                                          location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
             if a.atomicnum == 7:  # It's a nitrogen atom
                 if n_atoms_atomicnum.count(6) == 2:  # It's imidazole/pyrrole or similar
                     a_set.append(data(atom=a, atom_orig_idx=a_orig_idx, type='N', fgroup='imidazole/pyrrole',
-                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
+                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx),
+                                      restype=hetid, resnr=position, reschain=chain))
             if a.atomicnum == 16:  # It's a sulfur atom
                 if True in [n.IsAromatic() for n in n_atoms] and not a.OBAtom.IsAromatic():  # Thiolate
                     a_set.append(data(atom=a, atom_orig_idx=a_orig_idx, type='S', fgroup='thiolate',
-                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
+                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx),
+                                      restype=hetid, resnr=position, reschain=chain))
                 if set(n_atoms_atomicnum) == {26}:  # Sulfur in Iron sulfur cluster
                     a_set.append(data(atom=a, atom_orig_idx=a_orig_idx, type='S', fgroup='iron-sulfur.cluster',
-                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx)))
+                                      location=self.segment_id, orig_atom=self.Mapper.id_to_atom(a_orig_idx),
+                                      restype=hetid, resnr=position, reschain=chain))
 
         return a_set
 
@@ -514,7 +527,7 @@ class DataMapper:
             self.idx_map[segment_id] = idx_map
             segment_start = segment_end
     
-    def mapid(self, segment_id, pybabel_idx):  # Mapping to original IDs is standard for ligands
+    def mapid(self, segment_id, pybabel_idx):  # Mapping to original IDs
         return self.idx_map[segment_id][pybabel_idx]
 
     def id_to_atom(self, original_idx):
@@ -532,12 +545,38 @@ class DataMapper:
         return self.block_ids[original_idx]
 
 
+def saltbridge(poscenter, negcenter, protispos, noprot):
+    """Detect all salt bridges (pliprofiler between centers of positive and negative charge)"""
+    data = namedtuple(
+        'saltbridge', 'positive negative distance protispos resnr restype reschain resnr_l restype_l reschain_l')
+    pairings = []
+    for pc, nc in itertools.product(poscenter, negcenter):
+        if not config.MIN_DIST < euclidean3d(pc.center, nc.center) < config.SALTBRIDGE_DIST_MAX:
+            continue
+        if noprot:
+            resnr = whichresnumber(pc.orig_atoms[0]) if protispos else whichresnumber(nc.orig_atoms[0])
+            restype = whichrestype(pc.orig_atoms[0]) if protispos else whichrestype(nc.orig_atoms[0])
+            reschain = whichchain(pc.orig_atoms[0]) if protispos else whichchain(nc.orig_atoms[0])
+        else:
+            resnr = pc.resnr if protispos else nc.resnr
+            restype = pc.restype if protispos else nc.restype
+            reschain = pc.reschain if protispos else nc.reschain
+        resnr_l = whichresnumber(nc.orig_atoms[0]) if protispos else whichresnumber(pc.orig_atoms[0])
+        restype_l = whichrestype(nc.orig_atoms[0]) if protispos else whichrestype(pc.orig_atoms[0])
+        reschain_l = whichchain(nc.orig_atoms[0]) if protispos else whichchain(pc.orig_atoms[0])
+        contact = data(positive=pc, negative=nc, distance=euclidean3d(pc.center, nc.center), protispos=protispos,
+                       resnr=resnr, restype=restype, reschain=reschain, resnr_l=resnr_l, restype_l=restype_l,
+                       reschain_l=reschain_l)
+        pairings.append(contact)
+    return filter_contacts(pairings)
+
 class InteractionProfile:
-    def __init__(self, data, pybel_mols, *segment_types: Tuple[SegmentType]):
-        self.data = data
+    def __init__(self, item, pybel_mols, *segment_types: Tuple[SegmentType]):
+        self.item = item
+        self.data = data = item['data']
         self.pybel_mols = pybel_mols
         self.segment_types = segment_types
-        assert len(segment_types) == len(pybel_mols) == len(set(data["segment_ids"]))
+        assert len(segment_types) == len(pybel_mols) == len(set(data["segment_ids"])), f"{len(segment_types)}, {len(pybel_mols)}, {len(set(data['segment_ids']))}"
 
         self.mapper = DataMapper(data, pybel_mols)
 
@@ -556,8 +595,9 @@ class InteractionProfile:
         self.mol0 = self.molecules[0]
         self.mol1 = self.molecules[1]
 
-        self.saltbridge_lneg = saltbridge(self.mol0.get_pos_charged(), self.mol1.get_neg_charged(), True)
-        self.saltbridge_pneg = saltbridge(self.mol1.get_pos_charged(), self.mol0.get_neg_charged(), False)
+        noprot = all([segment_type == SegmentType.LIGAND for segment_type in segment_types])
+        self.saltbridge_lneg = saltbridge(self.mol0.get_pos_charged(), self.mol1.get_neg_charged(), True, noprot)
+        self.saltbridge_pneg = saltbridge(self.mol1.get_pos_charged(), self.mol0.get_neg_charged(), False, noprot)
 
         self.all_hbonds_ldon = hbonds(self.mol0.get_hba(), self.mol1.get_hbd(), False, 'strong')
         self.all_hbonds_pdon = hbonds(self.mol1.get_hba(), self.mol0.get_hbd(), True, 'strong')
@@ -583,7 +623,7 @@ class InteractionProfile:
             self.halogen_bonds_ldon = []
 
         if type(self.mol0) == Ligand:
-            self.halogen_bonds_pdon = halogen(self.mol0.halogenbond_don, self.mol1.halogenbond_acc)
+            self.halogen_bonds_pdon = halogen(self.mol1.halogenbond_acc, self.mol0.halogenbond_don)
         else:
             self.halogen_bonds_pdon = []
         
@@ -599,3 +639,56 @@ class InteractionProfile:
         Num Pi-stacking: {len(self.pistacking)}, Num Hydrophobic contacts: {len(self.hydrophobic_contacts)}, Num Pication Laro: {len(self.pication_laro)}, Num Pication Paro: {len(self.pication_paro)}, 
         Num Halogen bonds Ldon: {len(self.halogen_bonds_ldon)}, Num Halogen bonds Pdon: {len(self.halogen_bonds_pdon)}, Num Metal Complexes: {len(self.metal_complexes)}
         """
+    
+    @staticmethod
+    def _convert_data(out_dict):
+        # Convert Pybel Atoms to their indexes
+        for key, value in out_dict.items():
+            if type(value) == openbabel.openbabel.OBRing:
+                out_dict[key] = value.ring_id
+            if type(value) == np.ndarray:
+                value = value.tolist()
+            if isinstance(value, tuple) and hasattr(value, '_asdict'):
+                out_dict[key] = InteractionProfile._convert_data(value._asdict())
+            if isinstance(value, dict):
+                out_dict[key] = InteractionProfile._convert_data(value)
+            if isinstance(value, list):
+                new_value = []
+                for v in value:
+                    if isinstance(v, pybel.Atom):
+                        new_value.append({
+                            "atom_idx": v.idx,
+                            "atomicnum": v.atomicnum, 
+                            "coords": v.coords})
+                    else:
+                        new_value.append(v)
+                out_dict[key] = new_value
+            if isinstance(value, pybel.Atom):
+                out_dict[key] = {
+                    "atom_idx": value.idx,
+                    "atomicnum": value.atomicnum, 
+                    "coords": value.coords
+                }
+        return out_dict
+    
+    @property
+    def summary(self):
+        output = {
+            "id": self.item["id"],
+            "saltbridge_lneg": self.saltbridge_lneg,
+            "saltbridge_pneg": self.saltbridge_pneg,
+            "hbonds_ldon": self.hbonds_ldon,
+            "hbonds_pdon": self.hbonds_pdon,
+            "pistacking": self.pistacking,
+            "hydrophobic_contacts": self.hydrophobic_contacts,
+            "pication_laro": self.pication_laro,
+            "pication_paro": self.pication_paro,
+            "halogen_bonds_ldon": self.halogen_bonds_ldon,
+            "halogen_bonds_pdon": self.halogen_bonds_pdon,
+            "metal_complexes": self.metal_complexes
+        }
+        for key, value in output.items():
+            if key == "id":
+                continue
+            output[key] = [self._convert_data(contact._asdict()) for contact in value]
+        return output

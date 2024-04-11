@@ -4,7 +4,7 @@ import os
 import torch
 import numpy as np
 from openeye import oechem
-import shutil
+import tempfile
 
 from data.pdb_utils import VOCAB
 
@@ -34,13 +34,14 @@ def visualize_mol_sdf(node_type, coords, save_sdf_path=None):
     data = (num_atoms, node_type, coords)
     sdf_string, ob_mol = generated_to_sdf(data)
     if save_sdf_path is None:
-        return ob_mol
+        return ob_mol, sdf_string
     with open(save_sdf_path, 'w') as f:
         f.write(sdf_string)
-    return ob_mol
+    return ob_mol, sdf_string
 
 def visualize_data_sdf(data, save_dir=None):
     ob_mols = {}
+    sdf_strings = {}
 
     if save_dir is not None and not os.path.exists(save_dir):
         os.makedirs(save_dir)
@@ -54,10 +55,11 @@ def visualize_data_sdf(data, save_dir=None):
             segment_start += 1
         atom_types = [VOCAB.idx_to_atom(x) for x in data['A'][segment_start:segment_end]]
         coords = data["X"][segment_start:segment_end]
-        ob_mol = visualize_mol_sdf(atom_types, coords, f"{save_dir}/segment_{segment_id}.sdf" if save_dir is not None else None)
+        ob_mol, sdf_string = visualize_mol_sdf(atom_types, coords, f"{save_dir}/segment_{segment_id}.sdf" if save_dir is not None else None)
         segment_start = segment_end
         ob_mols[segment_id] = ob_mol
-    return ob_mols
+        sdf_strings[segment_id] = sdf_string
+    return ob_mols, sdf_strings
 
 
 def addh_to_mol(input_sdf_path, output_sdf_path):
@@ -80,37 +82,45 @@ def addh_to_mol(input_sdf_path, output_sdf_path):
 
     # Loop through the molecules in the SDF file
     while oechem.OEReadMolecule(ifs, mol):
+        initial_formula = oechem.OEMolecularFormula(mol)
         # Add hydrogens to the molecule
         oechem.OEAssignImplicitHydrogens(mol)
         oechem.OEAddExplicitHydrogens(mol)
-        
+        final_formula = oechem.OEMolecularFormula(mol)
         # Write the molecule with added hydrogens to the output file
         oechem.OEWriteMolecule(ofs, mol)
+        print("Hydrogens have been added with OpenEye. Initial={}, Final={}".format(initial_formula, final_formula))
 
     # Close the input and output streams
     ifs.close()
     ofs.close()
 
-    print("Hydrogens have been added with OpenEye.")
 
 
-def build_pybel_mols(data, with_hydrogens=True):
-    if os.path.exists("./tmp_sdf"):
-        raise Exception("./tmp_sdf directory already exists")
-    
-    ob_mols = visualize_data_sdf(data, "./tmp_sdf")
+def build_pybel_mols(data, with_hydrogens=True, tmpfile_dir='./'):
+    ob_mols, sdf_strings = visualize_data_sdf(data)
     pybel_mols = {}
     if not with_hydrogens:
         for k, v in ob_mols.items():
             pybel_mols[k] = pybel.Molecule(v)
     else:
         for segment_id in ob_mols:
-            input_sdf_path = f"./tmp_sdf/segment_{segment_id}.sdf"
-            output_sdf_path = f"./tmp_sdf/segment_{segment_id}h.sdf"
-            addh_to_mol(input_sdf_path, output_sdf_path)
-            for molecule in pybel.readfile("sdf",output_sdf_path):
+            # Create a temporary file with the .sdf suffix
+            fd, tmpfile_name = tempfile.mkstemp(suffix='.sdf', dir=tmpfile_dir)
+            os.close(fd)
+            with open(tmpfile_name, 'w') as f:
+                f.write(sdf_strings[segment_id])
+
+            fd, tmpfile_with_hydrogens_name = tempfile.mkstemp(suffix='.sdf', dir=tmpfile_dir)
+            os.close(fd)
+            print(f"Created tmpfiles: {tmpfile_name}, {tmpfile_with_hydrogens_name}")
+
+            addh_to_mol(tmpfile_name, tmpfile_with_hydrogens_name)
+            for molecule in pybel.readfile("sdf",tmpfile_with_hydrogens_name):
                 molecule.OBMol.AddNewHydrogens(0, True, 7.4)
                 pybel_mols[segment_id] = molecule
-    shutil.rmtree("./tmp_sdf")
+            os.remove(tmpfile_name)
+            os.remove(tmpfile_with_hydrogens_name)
+            print(f"Removed tmpfiles: {tmpfile_name}, {tmpfile_with_hydrogens_name}")
     return pybel_mols
 
