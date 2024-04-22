@@ -4,6 +4,7 @@ import sys
 import argparse
 import pickle
 import tempfile
+import json
 
 PROJ_DIR = os.path.join(
     os.path.split(os.path.abspath(__file__))[0],
@@ -25,6 +26,7 @@ args = parser.parse_args()
 #     raise ValueError(f"Output file {args.output_path} already exists!")
 
 start_idx = 0
+prev_done = 0
 while True:
     # Run the script and wait for it to complete
     process = subprocess.Popen(['python', 'interaction_profiler/profile_interactions.py', f"--data_path={args.data_path}", 
@@ -33,6 +35,15 @@ while True:
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = process.communicate()
 
+    if os.path.exists(args.output_path):
+        with open(args.output_path, 'r') as f:
+            curr_done = len(f.readlines())
+    else:
+        curr_done = 0
+    
+    start_idx += curr_done - prev_done
+    prev_done = curr_done
+    
     # Check if the script exited due to an error (non-zero exit code)
     if process.returncode != 0:
         start_idx += 1
