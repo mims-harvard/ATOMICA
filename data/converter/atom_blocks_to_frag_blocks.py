@@ -11,13 +11,21 @@ def atom_blocks_to_frag_blocks(
         blocks: List[Block],
         smiles: Optional[str]=None,
         bonds: Optional[List[Tuple[int, int, int]]]=None,
-        fragmentation_method: Optional[str]=None
+        fragmentation_method: Optional[str]=None,
+        get_mol: bool=False
     ) -> List[Block]:
 
-    smis, idxs = tokenize_3d(
-        [block.units[0].element for block in blocks],
-        [block.units[0].coordinate for block in blocks],
-        smiles=smiles, bonds=bonds, fragmentation_method=fragmentation_method)
+    if get_mol:
+        smis, idxs, new_mol, frag_mol = tokenize_3d(
+            [block.units[0].element for block in blocks],
+            [block.units[0].coordinate for block in blocks],
+            smiles=smiles, bonds=bonds, fragmentation_method=fragmentation_method,
+            return_mol=True, return_frag_mol=True)
+    else:
+        smis, idxs = tokenize_3d(
+            [block.units[0].element for block in blocks],
+            [block.units[0].coordinate for block in blocks],
+            smiles=smiles, bonds=bonds, fragmentation_method=fragmentation_method)
 
     new_blocks = []
     VOCAB.load_tokenizer(fragmentation_method)
@@ -28,4 +36,8 @@ def atom_blocks_to_frag_blocks(
             units=atoms)
         assert block.symbol != VOCAB.UNK
         new_blocks.append(block)
-    return new_blocks
+        
+    if get_mol:
+        return new_blocks, new_mol, frag_mol
+    else:
+        return new_blocks

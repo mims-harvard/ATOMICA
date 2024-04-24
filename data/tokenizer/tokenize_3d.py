@@ -128,7 +128,9 @@ def tokenize_3d(
         coords: Optional[List[Tuple[float, float, float]]]=None,
         smiles: Optional[str]=None,
         bonds: Optional[List[Tuple[int, int, int]]]=None,
-        fragmentation_method: Optional[str]=None
+        fragmentation_method: Optional[str]=None,
+        return_mol: bool=False,
+        return_frag_mol: bool=False
     ):
     
     tokenizer = TOKENIZER
@@ -172,4 +174,7 @@ def tokenize_3d(
         frags.append(node.smiles)
         atom_idxs.append(list(node.atom_mapping.keys()))
 
-    return frags, atom_idxs
+    if return_mol and return_frag_mol:
+        return frags, atom_idxs, new_mol, frag_mol
+    else:
+        return frags, atom_idxs

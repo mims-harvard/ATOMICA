@@ -90,7 +90,7 @@ class LEPDataset(BlockGeoAffDataset):
 
 class LBADataset(BlockGeoAffDataset):
 
-    def __init__(self, data_file, database=None, dist_th=6, n_cpu=4, fragment=False):
+    def __init__(self, data_file, database=None, dist_th=8, n_cpu=4, fragment=False):
         self.fragment = fragment
         suffix = fragment if fragment else ''
         print(f'fragmentation {self.fragment}')

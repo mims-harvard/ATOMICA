@@ -8,7 +8,7 @@ from data.dataset import Block, Atom, VOCAB
 from .atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 
 
-def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: Optional[str] = None, fragment: str=None) -> List[Block]:
+def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: Optional[str] = None, fragment: str=None, get_mol: bool = False) -> List[Block]:
     '''
         Convert an Mol2 file to a list of lists of blocks for each molecule / residue.
         
@@ -92,7 +92,10 @@ def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: 
                 if src not in remap or dst not in remap:
                     continue
                 bonds.append((remap[src], remap[dst], _type))
-            blocks = atom_blocks_to_frag_blocks(blocks, bonds=bonds, fragmentation_method=fragment)
+            if get_mol:
+                blocks, new_mol, frag_mol = atom_blocks_to_frag_blocks(blocks, bonds=bonds, fragmentation_method=fragment, get_mol=get_mol)
+            else:
+                blocks = atom_blocks_to_frag_blocks(blocks, bonds=bonds, fragmentation_method=fragment)
     elif molecule_type == 'protein':
         residues = {}
         for line in atom_infos:
@@ -119,7 +122,10 @@ def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: 
         
 
     # Return the final list of lists of blocks
-    return blocks
+    if get_mol:
+        return blocks, new_mol, frag_mol
+    else:
+        return blocks
 
 if __name__ == '__main__':
     import sys

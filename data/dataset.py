@@ -181,7 +181,7 @@ def blocks_interface(blocks1, blocks2, dist_th, return_indexes=False):
 
 class BlockGeoAffDataset(torch.utils.data.Dataset):
 
-    def __init__(self, data_file, database=None, dist_th=6, n_cpu=4, suffix=''):
+    def __init__(self, data_file, database=None, dist_th=8, n_cpu=4, suffix=''):
         '''
         data_file: path to the dataset file, can be index file in some occasions
         database: path/directory containing the complete data
@@ -192,16 +192,18 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         self.dist_th = dist_th
         self.data_file = os.path.abspath(data_file)
         self.database = database
-        proc_file = os.path.join(
+        proc_file = os.path.abspath(os.path.join(
             os.path.split(data_file)[0],
             basename(splitext(data_file)[0]) + f'.{type(self).__name__}{suffix}_processed.pkl'
-        )
+        ))
         self.proc_file = proc_file
+        print('proc file: ', proc_file)
         need_process = True
         if os.path.exists(proc_file):
             print_log(f'Loading preprocessed data from {proc_file}...')
             with open(proc_file, 'rb') as fin:
                 th, indexes, data = pickle.load(fin)
+            print(f'th {th}, dist_th {dist_th}')
             if th == dist_th:
                 self.indexes = indexes
                 self.data = data
