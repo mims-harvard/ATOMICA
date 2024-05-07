@@ -46,6 +46,7 @@ def parse():
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--final_lr', type=float, default=1e-4, help='final learning rate')
     parser.add_argument('--warmup', type=int, default=0, help='linear learning rate warmup')
+    parser.add_argument('--dropout', type=float, default=0.0, help='dropout rate')
     parser.add_argument('--max_epoch', type=int, default=10, help='max training epoch')
     parser.add_argument('--grad_clip', type=float, default=None, help='clip gradients with too big norm')
     parser.add_argument('--save_dir', type=str, required=True, help='directory to save model and logs')
@@ -296,11 +297,10 @@ def main(args):
                 entity="ada-f",
                 dir=config.save_dir,
                 settings=wandb.Settings(start_method="fork"),
-                project="GET",
+                project="InteractNN",
                 name=args.run_name,
                 config=vars(args),
             )
-    trainer.set_valid_requires_grad('pretrain' in args.task.lower())
     trainer.train(args.gpus, args.local_rank, args.use_wandb)
     
     return trainer.topk_ckpt_map

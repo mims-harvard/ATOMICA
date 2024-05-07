@@ -8,11 +8,11 @@ from .interactnn import InteractionModule
 
 class InteractNNEncoder(nn.Module):
     def __init__(self, hidden_size, edge_size, n_layers=3, return_atom_noise=False, return_global_noise=False, 
-                 return_torsion_noise=False, global_message_passing=False) -> None:
+                 return_torsion_noise=False, global_message_passing=False, dropout=0.0) -> None:
         super().__init__()
         self.encoder = InteractionModule(ns=hidden_size, nv=hidden_size//2, num_conv_layers=n_layers, sh_lmax=2, edge_size=edge_size, 
                                          return_atom_noise=return_atom_noise, return_global_noise=return_global_noise, 
-                                         return_torsion_noise=return_torsion_noise)
+                                         return_torsion_noise=return_torsion_noise, dropout=dropout)
         self.return_noise = any([return_atom_noise, return_global_noise, return_torsion_noise])
         self.global_message_passing = global_message_passing
 

@@ -26,6 +26,7 @@ def create_model(args):
                 translation_weight=args.tr_weight,
                 rotation_weight=args.rot_weight,
                 torsion_weight=args.tor_weight,
+                dropout=args.dropout,
             )
         return model
     else:
@@ -56,5 +57,6 @@ def create_model(args):
                 n_layers=args.n_layers,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
+                dropout=args.dropout,
                 **add_params
             )

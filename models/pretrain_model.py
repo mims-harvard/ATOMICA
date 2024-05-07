@@ -78,7 +78,7 @@ def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, com
 class DenoisePretrainModel(nn.Module):
 
     def __init__(self, hidden_size, edge_size=16, k_neighbors=9, n_layers=3,
-                 dropout=0.1, global_message_passing=False, fragmentation_method=None,
+                 dropout=0.0, global_message_passing=False, fragmentation_method=None,
                  atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, 
                  atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1) -> None:
         super().__init__()
@@ -127,7 +127,7 @@ class DenoisePretrainModel(nn.Module):
         self.edge_embedding = nn.Embedding(4, edge_size)  # [intra / inter / global_global / global_normal]
         
         self.encoder = InteractNNEncoder(
-            hidden_size, edge_size, n_layers=n_layers, 
+            hidden_size, edge_size, n_layers=n_layers, dropout=dropout,
             return_atom_noise=atom_noise, return_global_noise=translation_noise or rotation_noise,
             return_torsion_noise=torsion_noise, global_message_passing=global_message_passing)
         self.top_encoder = deepcopy(self.encoder)
@@ -139,41 +139,53 @@ class DenoisePretrainModel(nn.Module):
         
         if self.atom_noise:
             self.bottom_scale_noise_ffn = nn.Sequential(
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(2*hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
             self.top_scale_noise_ffn = nn.Sequential(
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
         if self.translation_noise:
             self.bottom_translation_scale_ffn = nn.Sequential(
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
             self.top_translation_scale_ffn = nn.Sequential(
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
         if self.rotation_noise:
             self.bottom_rotation_scale_ffn = nn.Sequential(
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
             self.top_rotation_scale_ffn = nn.Sequential(
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
 

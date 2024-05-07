@@ -12,9 +12,11 @@ class DDGPredictor(PredictionModel):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.ddg_ffn = nn.Sequential(
-            nn.SiLU(),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, self.hidden_size),
-            nn.SiLU(),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, 1, bias=False),
             nn.Sigmoid()
         )

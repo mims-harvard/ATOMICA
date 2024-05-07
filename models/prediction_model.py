@@ -21,7 +21,7 @@ PredictionReturnValue = namedtuple(
 
 class PredictionModel(DenoisePretrainModel):
     def __init__(self, hidden_size, edge_size, k_neighbors,
-                 n_layers, dropout=0.1, global_message_passing=False, fragmentation_method=None) -> None:
+                 n_layers, dropout=0.0, global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
             hidden_size=hidden_size, edge_size=edge_size, 
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
@@ -29,9 +29,11 @@ class PredictionModel(DenoisePretrainModel):
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
         self.energy_ffn = nn.Sequential(
-            nn.SiLU(),
+            nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_size, hidden_size),
-            nn.SiLU(),
+            nn.ReLU(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_size, 1, bias=False)
         )
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'

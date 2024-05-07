@@ -5,6 +5,7 @@ import re
 import json
 from tqdm import tqdm
 
+from ray import train
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -66,7 +67,6 @@ class Trainer:
         self.use_wandb = False
 
         # training process recording
-        self.valid_requires_grad = False
         self.global_step = 0
         self.valid_global_step = 0
         self.epoch = 0
@@ -85,9 +85,6 @@ class Trainer:
         elif hasattr(data, 'to'):
             data = data.to(device)
         return data
-    
-    def set_valid_requires_grad(self, require=False):
-        self.valid_requires_grad = require
 
     def _is_main_proc(self):
         return self.local_rank == 0 or self.local_rank == -1
@@ -119,8 +116,8 @@ class Trainer:
                 loss.backward()
 
                 if self.use_wandb and self._is_main_proc():
-                    wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
-                    wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                    wandb.log({'train_MSELoss': loss.item()}, step=self.global_step)
+                    wandb.log({'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
                     wandb.log({'lr': self.optimizer.param_groups[0]['lr']}, step=self.global_step)
 
                 if self.config.grad_clip is not None:
@@ -165,7 +162,7 @@ class Trainer:
 
         metric_arr = []
         self.model.eval()
-        with torch.set_grad_enabled(self.valid_requires_grad):
+        with torch.no_grad():
             t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
                 batch = self.to_device(batch, device)
