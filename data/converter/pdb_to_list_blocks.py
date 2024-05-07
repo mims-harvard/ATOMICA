@@ -51,7 +51,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
         residues, indexes, res_ids = [], [], {}
 
         for residue in chain:
-            abrv = residue.get_resname()
+            abrv = residue.get_resname().strip()
             hetero_flag, res_number, insert_code = residue.get_id()
             res_id = f'{res_number}-{insert_code}'
             if hetero_flag == 'W':

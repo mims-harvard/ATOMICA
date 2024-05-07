@@ -280,7 +280,10 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         new_data['atom_positions'] = data['atom_positions'][atom_mask].tolist()
         new_data['block_lengths'] = data['block_lengths'][block_mask].tolist()
         new_data['segment_ids'] = data['segment_ids'][block_mask].tolist()
-        new_data['label'] = data['label']
+        for key in data:
+            if key in ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']:
+                continue
+            new_data[key] = data[key]
         return new_data
 
     @classmethod
@@ -410,7 +413,51 @@ class PDBDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        self.data = pickle.load(open(data_file, 'rb'))
+        with open(data_file, 'rb') as f:
+            self.data = pickle.load(f)
+        self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+        }        
+        '''
+        item = self.data[idx]
+        data = item['data']
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
+
+
+class LabelledPDBDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data_file):
+        super().__init__()
+        with open(data_file, 'rb') as f:
+            self.data = pickle.load(f)
         self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
 
     def __len__(self):
@@ -431,19 +478,71 @@ class PDBDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         data = item['data']
+        data["label"] = item["label"]
 
         return data
 
     @classmethod
     def collate_fn(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
-        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'label']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
                 val.append(torch.tensor(item[key], dtype=_type))
-            res[key] = torch.cat(val, dim=0)
+            if key == 'label':
+                res[key] = torch.tensor(val, dtype=_type)
+            else:
+                res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
+
+
+class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
+
+    def __init__(self, data_file):
+        super().__init__()
+        with open(data_file, 'rb') as f:
+            self.data = pickle.load(f)
+        self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
+
+    def __len__(self):
+        return len(self.data)
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+            'label': [1]
+        }        
+        '''
+        item = self.data[idx]
+        data = item['data']
+        data["label"] = item["label"]
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'label']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            if key == 'label':
+                res[key] = torch.tensor(val, dtype=_type)
+            else:
+                res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res

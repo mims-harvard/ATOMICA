@@ -3,6 +3,7 @@
 from .pretrain_model import DenoisePretrainModel
 from .affinity_predictor import AffinityPredictor
 from .ddG_predictor import DDGPredictor
+from .classifier_model import ClassifierModel, MultiClassClassifierModel
 from .prediction_model import PredictionModel
 import torch
 
@@ -34,15 +35,20 @@ def create_model(args):
             Model = AffinityPredictor
         elif args.task == 'DDG':
             Model = DDGPredictor
+        elif args.task == 'binary_classifier':
+            Model = ClassifierModel
+        elif args.task == 'multiclass_classifier':
+            Model = MultiClassClassifierModel
+            add_params["num_classes"] = args.num_classifier_classes
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
-            
+        
         if args.pretrain_ckpt:
-            if Model == AffinityPredictor or Model == DDGPredictor:
-                add_params = {
+            if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel]:
+                add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'global_message_passing': args.global_message_passing,
-                }
+                })
             model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
             print(f"Model size: {sum(p.numel() for p in model.parameters())}")
             num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)

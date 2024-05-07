@@ -3,9 +3,24 @@ import pickle
 from data.dataset import PDBDataset
 from models.prediction_model import PredictionModel
 from trainers.abs_trainer import Trainer
+import torch
 
 def main(args):
     dataset = PDBDataset(args.data_path)
+
+    # # Filter out large items
+    # too_large = []
+    # new_data, new_indexes = [], []
+    # for item in dataset.data:
+    #     if len(item["data"]['B']) <= 500:
+    #         new_data.append(item)
+    #         new_indexes.append(item["id"])
+    #     else:
+    #         too_large.append(item["id"])
+    # dataset.data = new_data
+    # dataset.indexes = new_indexes
+    # print(f"Removed {len(too_large)} items that are too large. Remaining {len(dataset)} items.")
+
     model = PredictionModel.load_from_pretrained(args.model_ckpt)
     model = model.to("cuda")
     batch_size = args.batch_size
@@ -15,27 +30,52 @@ def main(args):
         items = dataset.data[idx:min(idx+batch_size, len(dataset))]
 
         outputs = []
-        for item in items:
-            outputs.append({"id": item["id"]})
-        batch = dataset.collate_fn([item["data"] for item in items])
-        batch = Trainer.to_device(batch, "cuda")
-        return_obj = model.infer(batch)
-        
-        curr_block = 0
-        curr_atom = 0
-        for i, item in enumerate(items):
-            num_blocks = len(item["data"]["B"])
-            num_atoms = len(item["data"]["A"])
+        try:
+            for item in items:
+                outputs.append({"id": item["id"]})
+            batch = dataset.collate_fn([item["data"] for item in items])
+            batch = Trainer.to_device(batch, "cuda")
+            return_obj = model.infer(batch)
+            
+            curr_block = 0
+            curr_atom = 0
+            for i, item in enumerate(items):
+                num_blocks = len(item["data"]["B"])
+                num_atoms = len(item["data"]["A"])
 
-            outputs[i]["graph_embedding"] = return_obj.graph_repr[i].detach().cpu().numpy()
-            outputs[i]["block_embedding"] = return_obj.block_repr[curr_block: curr_block + num_blocks].detach().cpu().numpy()
-            outputs[i]["atom_embedding"] = return_obj.unit_repr[curr_atom: curr_atom + num_atoms].detach().cpu().numpy()
-            outputs[i]["block_id"] = item["data"]["B"]
-            outputs[i]["atom_id"] = item["data"]["A"]
+                outputs[i]["graph_embedding"] = return_obj.graph_repr[i].detach().cpu().numpy()
+                outputs[i]["block_embedding"] = return_obj.block_repr[curr_block: curr_block + num_blocks].detach().cpu().numpy()
+                outputs[i]["atom_embedding"] = return_obj.unit_repr[curr_atom: curr_atom + num_atoms].detach().cpu().numpy()
+                outputs[i]["block_id"] = item["data"]["B"]
+                outputs[i]["atom_id"] = item["data"]["A"]
 
-            curr_block += num_blocks
-            curr_atom += num_atoms
-
+                curr_block += num_blocks
+                curr_atom += num_atoms
+        except Exception as e:
+            if "CUDA out of memory" in str(e):
+                torch.cuda.empty_cache()
+                print("CUDA out of memory, reducing batch size to 1 for this batch.")
+                outputs = []
+                # go through the batch one by one
+                for item in items:
+                    try:
+                        output = {"id": item["id"]}
+                        batch = dataset.collate_fn([item["data"]])
+                        batch = Trainer.to_device(batch, "cuda")
+                        return_obj = model.infer(batch)
+                        output["graph_embedding"] = return_obj.graph_repr[0].detach().cpu().numpy()
+                        output["block_embedding"] = return_obj.block_repr.detach().cpu().numpy()
+                        output["atom_embedding"] = return_obj.unit_repr.detach().cpu().numpy()
+                        output["block_id"] = item["data"]["B"]
+                        output["atom_id"] = item["data"]["A"]
+                        outputs.append(output)
+                    except Exception as e:
+                        print(f"Error processing item {item['id']}: {e}")
+                        torch.cuda.empty_cache()
+                        continue
+            else:
+                import pdb; pdb.set_trace()
+                raise e
         embeddings.extend(outputs)
     
     with open(args.output_path, "wb") as f:

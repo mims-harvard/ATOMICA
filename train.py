@@ -11,7 +11,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset
 from data.dataset_ec import ECDataset
@@ -29,12 +29,13 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion'],
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion', 'binary_classifier', 'multiclass_classifier'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
                              'pretrain_gaussian: pretraining with gaussian atom coordinate noise, ' + \
                              'pretrain_torsion: pretraining with torsion angle noise, ')
+    parser.add_argument('--num_classifier_classes', type=int, default=None, help='number of classes for task=multiclass_classifier')
     parser.add_argument('--train_set2', type=str, default=None, help='path to another train set if task is PretrainMix')
     parser.add_argument('--valid_set2', type=str, default=None, help='path to another valid set if task is PretrainMix')
     parser.add_argument('--train_set3', type=str, default=None, help='path to the third train set')
@@ -169,6 +170,28 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
         dataset = MixDatasetWrapper(*datasets)
         print_log(f'Mixed pretrain dataset size: {len(dataset)}')
+    elif task == 'binary_classifier':
+        dataset = LabelledPDBDataset(path)
+        datasets = [dataset]
+        if path2 is not None:
+            dataset2 = LabelledPDBDataset(path2)
+            datasets.append(dataset2)
+        if path3 is not None:
+            dataset3 = LabelledPDBDataset(path3)
+            datasets.append(dataset3)
+        if len(datasets) > 1:
+            dataset = MixDatasetWrapper(*datasets)
+    elif task == 'multiclass_classifier':
+        dataset = MultiClassLabelledPDBDataset(path)
+        datasets = [dataset]
+        if path2 is not None:
+            dataset2 = MultiClassLabelledPDBDataset(path2)
+            datasets.append(dataset2)
+        if path3 is not None:
+            dataset3 = MultiClassLabelledPDBDataset(path3)
+            datasets.append(dataset3)
+        if len(datasets) > 1:
+            dataset = MixDatasetWrapper(*datasets)
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset
@@ -194,7 +217,7 @@ def set_noise(dataset, args):
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
-    if model_type == models.AffinityPredictor:
+    if model_type in [models.AffinityPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
         trainer = trainers.PretrainTrainer(

@@ -65,7 +65,7 @@ class PretrainTrainer(Trainer):
 
     def _before_train_epoch_start(self):
         # reform batch, with new random batches
-        # self.train_loader.dataset._form_batch()
+        self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 
     ########## Override end ##########

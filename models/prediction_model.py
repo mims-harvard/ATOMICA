@@ -57,7 +57,13 @@ class PredictionModel(DenoisePretrainModel):
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
         if partial_finetune:
             model.requires_grad_(requires_grad=False)
-            model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
+            if hasattr(model, "classifier_ffn"):
+                # For classifier model, only finetune the classifier_ffn
+                model.classifier_ffn.requires_grad_(requires_grad=True)
+            else:
+                # For prediction model, only finetune the energy_ffn
+                model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
+
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
             model.edge_embedding.requires_grad_(requires_grad=True)
             model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)

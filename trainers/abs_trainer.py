@@ -119,8 +119,15 @@ class Trainer:
                 loss.backward()
 
                 if self.use_wandb and self._is_main_proc():
+                    total_norm = 0.0
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.detach().data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    total_norm = total_norm ** 0.5
                     wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
                     wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                    wandb.log({f'param_grad_norm': total_norm}, step=self.global_step)
                     wandb.log({'lr': self.optimizer.param_groups[0]['lr']}, step=self.global_step)
 
                 if self.config.grad_clip is not None:
