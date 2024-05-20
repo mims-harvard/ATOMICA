@@ -3,6 +3,7 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_sum
+import torch
 
 from .prediction_model import PredictionModel, PredictionReturnValue
 
@@ -17,8 +18,10 @@ class DDGPredictor(PredictionModel):
             nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
             nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, 1, bias=False),
-            nn.Sigmoid()
         )
     
     @classmethod
@@ -27,46 +30,31 @@ class DDGPredictor(PredictionModel):
         model.ddg_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def forward(self, wt, mt, ddg) -> PredictionReturnValue:
-        wt_return_value = super().forward(
-            Z=wt['X'], B=wt['B'], A=wt['A'],
-            block_lengths=wt['block_lengths'],
-            lengths=wt['lengths'],
-            segment_ids=wt['segment_ids'],
+    def forward(self, data, ddg) -> PredictionReturnValue:
+        return_value = super().forward(
+            Z=data['X'], B=data['B'], A=data['A'],
+            block_lengths=data['block_lengths'],
+            lengths=data['lengths'],
+            segment_ids=data['segment_ids'],
         )
-
-        mt_return_value = super().forward(
-            Z=mt['X'], B=mt['B'], A=mt['A'],
-            block_lengths=mt['block_lengths'],
-            lengths=mt['lengths'],
-            segment_ids=mt['segment_ids'],
-        )
-        
-        diff = mt_return_value.graph_repr - wt_return_value.graph_repr 
-        pred = self.ddg_ffn(diff).squeeze()
-        ddg = (ddg > 0).float()
+        # num_items = return_value.graph_repr.shape[0]//2
+        # diff = return_value.graph_repr[:num_items] - return_value.graph_repr[num_items:]
+        # pred = self.ddg_ffn(diff).squeeze(dim=1)
+        pred = self.ddg_ffn(return_value.graph_repr).squeeze(dim=1)
         assert pred.shape == ddg.shape
-        loss = F.binary_cross_entropy(pred, ddg)
+        loss = F.mse_loss(pred, ddg)
         return loss
     
     def infer(self, batch):
         self.eval()
-        wt, mt, _ = batch
-
-        wt_return_value = super().forward(
-            Z=wt['X'], B=wt['B'], A=wt['A'],
-            block_lengths=wt['block_lengths'],
-            lengths=wt['lengths'],
-            segment_ids=wt['segment_ids'],
+        data, _ = batch
+        return_value = super().forward(
+            Z=data['X'], B=data['B'], A=data['A'],
+            block_lengths=data['block_lengths'],
+            lengths=data['lengths'],
+            segment_ids=data['segment_ids'],
         )
-
-        mt_return_value = super().forward(
-            Z=mt['X'], B=mt['B'], A=mt['A'],
-            block_lengths=mt['block_lengths'],
-            lengths=mt['lengths'],
-            segment_ids=mt['segment_ids'],
-        )
-        
-        diff = mt_return_value.graph_repr - wt_return_value.graph_repr 
-        pred = self.ddg_ffn(diff).squeeze()
+        num_items = return_value.graph_repr.shape[0]//2
+        diff = return_value.graph_repr[:num_items] - return_value.graph_repr[num_items:]
+        pred = self.ddg_ffn(diff).squeeze(dim=1)
         return pred

@@ -28,11 +28,15 @@ class PredictionModel(DenoisePretrainModel):
             global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
+        nonlinearity = nn.ReLU
         self.energy_ffn = nn.Sequential(
-            nn.ReLU(),
+            nonlinearity(),
             nn.Dropout(dropout),
             nn.Linear(hidden_size, hidden_size),
-            nn.ReLU(),
+            nonlinearity(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, hidden_size),
+            nonlinearity(),
             nn.Dropout(dropout),
             nn.Linear(hidden_size, 1, bias=False)
         )

@@ -335,16 +335,15 @@ class MutationDataset(torch.utils.data.Dataset):
             [1]
         ]
         '''
-        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float)
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
 
     @classmethod
     def collate_fn(cls, batch):
         wt = [item[0] for item in batch]
         mt = [item[1] for item in batch]
-        label = [item[2] for item in batch]
-        wt_batch = cls.collate_fn_(wt)
-        mt_batch = cls.collate_fn_(mt)
-        return wt_batch, mt_batch, torch.tensor(label, dtype=torch.float)
+        label = [item[2] for item in batch] + [item[3] for item in batch]
+        batch = cls.collate_fn_(wt+mt)
+        return batch, torch.tensor(label, dtype=torch.float)
 
     @classmethod
     def collate_fn_(cls, batch):
