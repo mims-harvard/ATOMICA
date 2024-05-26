@@ -66,7 +66,6 @@ class Trainer:
         self.use_wandb = False
 
         # training process recording
-        self.valid_requires_grad = False
         self.global_step = 0
         self.valid_global_step = 0
         self.epoch = 0
@@ -85,9 +84,6 @@ class Trainer:
         elif hasattr(data, 'to'):
             data = data.to(device)
         return data
-    
-    def set_valid_requires_grad(self, require=False):
-        self.valid_requires_grad = require
 
     def _is_main_proc(self):
         return self.local_rank == 0 or self.local_rank == -1
@@ -144,7 +140,7 @@ class Trainer:
                     if not type(batch) is dict:
                         batch = batch[0]
                     print_log(
-                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0]}, 
+                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0] if 'X' in batch else None}, 
                         num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}, 
                         max_item_block_size={batch['lengths'].max()}""", level='ERROR'
                     )
@@ -172,7 +168,7 @@ class Trainer:
 
         metric_arr = []
         self.model.eval()
-        with torch.set_grad_enabled(self.valid_requires_grad):
+        with torch.no_grad():
             t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
                 batch = self.to_device(batch, device)

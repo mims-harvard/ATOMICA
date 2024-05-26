@@ -21,17 +21,23 @@ PredictionReturnValue = namedtuple(
 
 class PredictionModel(DenoisePretrainModel):
     def __init__(self, hidden_size, edge_size, k_neighbors,
-                 n_layers, dropout=0.1, global_message_passing=False, fragmentation_method=None) -> None:
+                 n_layers, dropout=0.0, global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
             hidden_size=hidden_size, edge_size=edge_size, 
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
             global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
+        nonlinearity = nn.ReLU
         self.energy_ffn = nn.Sequential(
-            nn.SiLU(),
+            nonlinearity(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_size, hidden_size),
-            nn.SiLU(),
+            nonlinearity(),
+            nn.Dropout(dropout),
+            nn.Linear(hidden_size, hidden_size),
+            nonlinearity(),
+            nn.Dropout(dropout),
             nn.Linear(hidden_size, 1, bias=False)
         )
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'
@@ -40,10 +46,12 @@ class PredictionModel(DenoisePretrainModel):
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
         partial_finetune = kwargs.get('partial_finetune', False)
+        if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
+            print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
             hidden_size=pretrained_model.hidden_size,
             edge_size=pretrained_model.edge_size,
-            k_neighbors=pretrained_model.k_neighbors,
+            k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
             dropout=pretrained_model.dropout,
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility

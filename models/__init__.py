@@ -27,6 +27,7 @@ def create_model(args):
                 translation_weight=args.tr_weight,
                 rotation_weight=args.rot_weight,
                 torsion_weight=args.tor_weight,
+                dropout=args.dropout,
             )
         return model
     else:
@@ -48,6 +49,7 @@ def create_model(args):
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'global_message_passing': args.global_message_passing,
+                    'k_neighbors': args.k_neighbors,
                 })
             model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
             print(f"Model size: {sum(p.numel() for p in model.parameters())}")
@@ -62,5 +64,6 @@ def create_model(args):
                 n_layers=args.n_layers,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
+                dropout=args.dropout,
                 **add_params
             )

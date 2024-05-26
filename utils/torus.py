@@ -11,14 +11,14 @@ import os
 
 def p(x, sigma, N=10):
     p_ = 0
-    for i in tqdm.trange(-N, N + 1):
+    for i in tqdm.trange(-N, N + 1, desc='torus calculating p'):
         p_ += np.exp(-(x + 2 * np.pi * i) ** 2 / 2 / sigma ** 2)
     return p_
 
 
 def grad(x, sigma, N=10):
     p_ = 0
-    for i in tqdm.trange(-N, N + 1):
+    for i in tqdm.trange(-N, N + 1, desc='torus calculating grad'):
         p_ += (x + 2 * np.pi * i) / sigma ** 2 * np.exp(-(x + 2 * np.pi * i) ** 2 / 2 / sigma ** 2)
     return p_
 
@@ -29,7 +29,7 @@ SIGMA_MIN, SIGMA_MAX, SIGMA_N = 3e-3, 2, 5000  # relative to pi
 x = 10 ** np.linspace(np.log10(X_MIN), 0, X_N + 1) * np.pi
 sigma = 10 ** np.linspace(np.log10(SIGMA_MIN), np.log10(SIGMA_MAX), SIGMA_N + 1) * np.pi
 
-if os.path.exists('.p.npy'):
+if os.path.exists('.p.npy') and os.path.exists('.score.npy'):
     p_ = np.load('.p.npy')
     score_ = np.load('.score.npy')
 else:

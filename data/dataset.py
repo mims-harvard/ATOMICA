@@ -9,6 +9,7 @@ from typing import List
 
 import numpy as np
 import torch
+from torch_scatter import scatter_mean, scatter_sum
 
 from utils.logger import print_log
 
@@ -338,20 +339,20 @@ class MutationDataset(torch.utils.data.Dataset):
             [1]
         ]
         '''
-        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float)
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float) 
+        #torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
 
     @classmethod
     def collate_fn(cls, batch):
         wt = [item[0] for item in batch]
         mt = [item[1] for item in batch]
         label = [item[2] for item in batch]
-        wt_batch = cls.collate_fn_(wt)
-        mt_batch = cls.collate_fn_(mt)
-        return wt_batch, mt_batch, torch.tensor(label, dtype=torch.float)
+        batch = cls.collate_fn_(wt+mt)
+        return batch, torch.tensor(label, dtype=torch.float)
 
     @classmethod
     def collate_fn_(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
         res = {}
         for key, _type in zip(keys, types):
@@ -361,6 +362,15 @@ class MutationDataset(torch.utils.data.Dataset):
             res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+
+        block_id = torch.zeros_like(res['A']) # [Nu]
+        block_id[torch.cumsum(res['block_lengths'], dim=0)[:-1]] = 1
+        block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+        res['Z_block'] = scatter_mean(res['X'], block_id, dim=0)
+        
+        del res['A']
+        del res['X']
+        del res['block_lengths']
         return res
     
     
@@ -558,7 +568,7 @@ class MixDatasetWrapper(torch.utils.data.Dataset):
             self.total_len += len(dataset)
             self.cum_len.append(self.total_len)
         self.collate_fn = self.datasets[0].collate_fn
-
+    
     def __len__(self):
         return self.total_len
     
