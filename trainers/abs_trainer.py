@@ -5,7 +5,6 @@ import re
 import json
 from tqdm import tqdm
 
-from ray import train
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -134,7 +133,7 @@ class Trainer:
                     if not type(batch) is dict:
                         batch = batch[0]
                     print_log(
-                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0]}, 
+                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0] if 'X' in batch else None}, 
                         num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}, 
                         max_item_block_size={batch['lengths'].max()}""", level='ERROR'
                     )

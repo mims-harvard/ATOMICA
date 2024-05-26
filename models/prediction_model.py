@@ -46,10 +46,12 @@ class PredictionModel(DenoisePretrainModel):
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
         partial_finetune = kwargs.get('partial_finetune', False)
+        if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
+            print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
             hidden_size=pretrained_model.hidden_size,
             edge_size=pretrained_model.edge_size,
-            k_neighbors=pretrained_model.k_neighbors,
+            k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
             dropout=pretrained_model.dropout,
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility

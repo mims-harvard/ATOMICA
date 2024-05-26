@@ -9,6 +9,7 @@ from typing import List
 
 import numpy as np
 import torch
+from torch_scatter import scatter_mean, scatter_sum
 
 from utils.logger import print_log
 
@@ -335,19 +336,20 @@ class MutationDataset(torch.utils.data.Dataset):
             [1]
         ]
         '''
-        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float) 
+        #torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
 
     @classmethod
     def collate_fn(cls, batch):
         wt = [item[0] for item in batch]
         mt = [item[1] for item in batch]
-        label = [item[2] for item in batch] + [item[3] for item in batch]
+        label = [item[2] for item in batch]
         batch = cls.collate_fn_(wt+mt)
         return batch, torch.tensor(label, dtype=torch.float)
 
     @classmethod
     def collate_fn_(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
         res = {}
         for key, _type in zip(keys, types):
@@ -357,6 +359,15 @@ class MutationDataset(torch.utils.data.Dataset):
             res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+
+        block_id = torch.zeros_like(res['A']) # [Nu]
+        block_id[torch.cumsum(res['block_lengths'], dim=0)[:-1]] = 1
+        block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+        res['Z_block'] = scatter_mean(res['X'], block_id, dim=0)
+        
+        del res['A']
+        del res['X']
+        del res['block_lengths']
         return res
     
     
