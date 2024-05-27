@@ -5,6 +5,7 @@ from .affinity_predictor import AffinityPredictor
 from .ddG_predictor import DDGPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel
 from .prediction_model import PredictionModel
+from .masking_model import MaskedNodeModel
 import torch
 
 def create_model(args):
@@ -41,6 +42,11 @@ def create_model(args):
         elif args.task == 'multiclass_classifier':
             Model = MultiClassClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
+        elif args.task == 'masking':
+            Model = MaskedNodeModel
+            add_params["num_layers"] = args.num_layers
+            add_params["num_nodes"] = args.num_nodes
+            add_params['global_message_passing'] = args.global_message_passing
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         

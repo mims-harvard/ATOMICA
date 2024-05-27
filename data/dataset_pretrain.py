@@ -4,13 +4,125 @@ import numpy as np
 import copy
 from collections import defaultdict
 from utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform
+from torch_scatter import scatter_mean
+
+class PretrainMaskedDataset(torch.utils.data.Dataset):
+    def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
+        super().__init__()
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ {'id': item['id']} for item in self.data ]
+        self.mask_proportion = mask_proportion
+        self.mask_token = mask_token
+        self.atom_mask_token = atom_mask_token
+        self.vocab_to_mask = vocab_to_mask # list of vocab indices that can be masked
+        self.idx_to_mask_block = dict(zip(self.vocab_to_mask, range(len(self.vocab_to_mask))))
+        self.preprocess()
+
+    def preprocess(self):
+        missing_maskable_nodes = []
+        for idx, item in enumerate(self.data):
+            data = item["data"]
+            item["data"]["can_mask"] = np.where(
+                np.logical_and(np.isin(
+                    np.array(data['B']), np.array(self.vocab_to_mask)), 
+                    np.array(data["segment_ids"])==0))[0].tolist()
+            # only mask amino acids in the pocket
+            if len(item["data"]["can_mask"]) == 0:
+                missing_maskable_nodes.append(idx)
+        print(f"Removed {len(missing_maskable_nodes)} items with no maskable nodes. Original={len(self.data)} Cleaned={len(self.data) - len(missing_maskable_nodes)}")
+        self.data = [self.data[i] for i in range(len(self.data)) if i not in missing_maskable_nodes]
+    
+    def __len__(self):
+        return len(self.data)
+
+    def _get_raw_item(self, idx):
+        # apply no noise
+        return self.data[idx]
+
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+            'masked_blocks': [Nblock]
+            'label': [Nmasked_blocks]
+        }        
+        '''
+        item = self.data[idx]
+        data = copy.deepcopy(item['data'])
+        
+        B = np.array(data['B'])
+        can_mask = data["can_mask"]
+        num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
+        selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
+        masked_blocks = np.zeros_like(data['B'], dtype=bool)
+        masked_blocks[selected_indices] = True
+
+        block_ids = sum([block_len*[block_id] for block_id, block_len in enumerate(data['block_lengths'])], [])
+        block_centers = scatter_mean(torch.tensor(data['X'], dtype=torch.float), torch.tensor(block_ids, dtype=torch.long), dim=0)
+        masked_A, masked_X = [], []
+        curr_block = 0
+        for block_id in range(len(B)):
+            block_len = data['block_lengths'][block_id]
+            if masked_blocks[block_id]:
+                masked_A.append(self.atom_mask_token)
+                masked_X.append(block_centers[block_id])
+            else:
+                masked_A.extend(data['A'][curr_block:curr_block+block_len])
+                masked_X.extend(data['X'][curr_block:curr_block+block_len])
+            curr_block += block_len
+        data['A'] = masked_A
+        data['X'] = masked_X
+
+        block_lengths = np.array(data['block_lengths'])
+        block_lengths[masked_blocks] = 1
+        data['block_lengths'] = block_lengths.tolist()
+
+        data['label'] = [self.idx_to_mask_block[b] for b in B[masked_blocks].tolist()]
+        new_blocks = B
+        new_blocks[masked_blocks] = self.mask_token
+        data['B'] = new_blocks.tolist()
+        data['masked_blocks'] = masked_blocks.tolist()
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        """
+        an example of the returned batch
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+            'masked_blocks': [Nblock]
+            'label': [Nmasked_blocks]
+        }        
+        """
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'masked_blocks', 'label']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.bool, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+                res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
 
 class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
-        self.indexes = [ {'id': item['id'], 'label': item['affinity']['neglog_aff'] } for item in self.data ]  # to satify the requirements of inference.py
+        self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
         self.atom_noise, self.global_tr, self.global_rot = None, None, None
         # remove items with no torsion angles in either segment
         cleaned_data = []
@@ -171,7 +283,7 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
     def __init__(self, data_file):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
-        self.indexes = [ {'id': item['id'], 'label': item['affinity']['neglog_aff'] } for item in self.data ]  # to satify the requirements of inference.py
+        self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
         self.atom_noise, self.global_tr, self.global_rot = None, None, None
     
     def set_atom_noise(self, noise_level):

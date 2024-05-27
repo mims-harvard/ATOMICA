@@ -15,8 +15,7 @@ from .pretrain_model import DenoisePretrainModel
 
 PredictionReturnValue = namedtuple(
     'ReturnValue',
-    ['energy', 'block_energy',
-     'unit_repr', 'block_repr', 'graph_repr', 'graph_unit_repr', 'batch_id', 'block_id'],
+    ['unit_repr', 'block_repr', 'graph_repr', 'graph_unit_repr', 'batch_id', 'block_id'],
 )
 
 class PredictionModel(DenoisePretrainModel):
@@ -28,24 +27,12 @@ class PredictionModel(DenoisePretrainModel):
             global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
-        nonlinearity = nn.ReLU
-        self.energy_ffn = nn.Sequential(
-            nonlinearity(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size),
-            nonlinearity(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, hidden_size),
-            nonlinearity(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_size, 1, bias=False)
-        )
+        
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'
 
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
-        partial_finetune = kwargs.get('partial_finetune', False)
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
@@ -63,14 +50,6 @@ class PredictionModel(DenoisePretrainModel):
                fragmentation_method={model.fragmentation_method}""")
         assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
-        if partial_finetune:
-            model.requires_grad_(requires_grad=False)
-            if hasattr(model, "classifier_ffn"):
-                # For classifier model, only finetune the classifier_ffn
-                model.classifier_ffn.requires_grad_(requires_grad=True)
-            else:
-                # For prediction model, only finetune the energy_ffn
-                model.energy_ffn.requires_grad_(requires_grad=True) # only finetune the energy_ffn
 
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
             model.edge_embedding.requires_grad_(requires_grad=True)
@@ -117,15 +96,7 @@ class PredictionModel(DenoisePretrainModel):
         block_repr, graph_repr = self.top_encoder(top_H_0, top_Z, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
         bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
 
-        block_energy = self.energy_ffn(block_repr).squeeze(-1)
-        if not self.global_message_passing: # ignore global blocks
-            block_energy[B == self.global_block_id] = 0
-        pred_energy = scatter_sum(block_energy, batch_id)
-        
         return PredictionReturnValue(
-            energy=pred_energy,
-            block_energy=block_energy,
-
             # representations
             unit_repr=bottom_block_repr,
             block_repr=block_repr,

@@ -27,7 +27,10 @@ class DDGPredictor(PredictionModel):
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
-        model.ddg_ffn.requires_grad_(requires_grad=True)
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.requires_grad_(requires_grad=False)
+            model.ddg_ffn.requires_grad_(requires_grad=True)
         return model
     
     def get_pred(self, B, top_Z, lengths, segment_ids):
