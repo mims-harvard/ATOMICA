@@ -3,6 +3,7 @@
 from typing import List, Optional
 
 from Bio.PDB import PDBParser
+from Bio.PDB.MMCIFParser import MMCIFParser
 
 from data.dataset import Block, Atom, VOCAB
 
@@ -33,9 +34,14 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
             If return_indexes, also returns a list of residue indexes for each chain. 
             Each residue is indexed with the format "<chain_id>_<residue_number>".
     '''
-
-    parser = PDBParser(QUIET=True)
-    structure = parser.get_structure('anonym', pdb)
+    if pdb.endswith(".pdb"):
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('anonym', pdb)
+    elif pdb.endswith(".cif"):
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure('anonym', pdb)
+    else:
+        raise ValueError(f"Unsupported PDB file type, {pdb}")
 
     list_blocks, list_indexes, chain_ids = [], [], {}
     
