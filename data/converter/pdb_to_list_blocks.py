@@ -3,11 +3,14 @@
 from typing import List, Optional
 
 from Bio.PDB import PDBParser
+from Bio.PDB.MMCIFParser import MMCIFParser
 
 from data.dataset import Block, Atom, VOCAB
 
 
-def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> List[List[Block]]:
+def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, 
+                       return_indexes: bool =False, is_rna: bool=False, is_dna: bool=False, 
+                       use_model:int =None) -> List[List[Block]]:
     '''
         Convert pdb file to a list of lists of blocks using Biopython.
         Each chain will be a list of blocks.
@@ -27,12 +30,23 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
                     [residueB1, residueB2, ...]   # chain B
                 ],
                 where each residue is instantiated by Block data class.
+            
+            If return_indexes, also returns a list of residue indexes for each chain. 
+            Each residue is indexed with the format "<chain_id>_<residue_number>".
     '''
+    if pdb.endswith(".pdb"):
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure('anonym', pdb)
+    elif pdb.endswith(".cif"):
+        parser = MMCIFParser(QUIET=True)
+        structure = parser.get_structure('anonym', pdb)
+    else:
+        raise ValueError(f"Unsupported PDB file type, {pdb}")
 
-    parser = PDBParser(QUIET=True)
-    structure = parser.get_structure('anonym', pdb)
-
-    list_blocks, chain_ids = [], {}
+    list_blocks, list_indexes, chain_ids = [], [], {}
+    
+    if use_model is not None:
+        structure = structure[use_model]
 
     for chain in structure.get_chains():
 
@@ -40,10 +54,10 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
         if (selected_chains is not None) and (_id not in selected_chains):
             continue
 
-        residues, res_ids = [], {}
+        residues, indexes, res_ids = [], [], {}
 
         for residue in chain:
-            abrv = residue.get_resname()
+            abrv = residue.get_resname().strip()
             hetero_flag, res_number, insert_code = residue.get_id()
             res_id = f'{res_number}-{insert_code}'
             if hetero_flag == 'W':
@@ -52,12 +66,19 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
                 continue  # the solution (e.g. H_EDO (EDO))
             if abrv == 'MSE':
                 abrv = 'MET'  # MET is usually transformed to MSE for structural analysis
+            
+            # some pdbs use single letter code for DNA and RNA
+            if is_dna and abrv in {'A', 'T', 'G', 'C'} and not abrv.startswith("D"):
+                abrv = "D" + abrv
+            if is_rna and abrv in {'A', 'U', 'G', 'C'} and not abrv.startswith("R"):
+                abrv = "R" + abrv
             symbol = VOCAB.abrv_to_symbol(abrv)
                 
             # filter Hs because not all data include them
             atoms = [ Atom(atom.get_id(), atom.get_coord(), atom.element) for atom in residue if atom.element != 'H' ]
             residues.append(Block(symbol, atoms))
             res_ids[res_id] = True
+            indexes.append(f"{_id}_{res_number}")
         
         # the last few residues might be non-relevant molecules in the solvent if their types are unk
         end = len(residues) - 1
@@ -67,17 +88,23 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None) -> L
             else:
                 break
         residues = residues[:end + 1]
+        indexes = indexes[:end + 1]
         if len(residues) == 0:  # not a chain
             continue
 
         chain_ids[_id] = len(list_blocks)
         list_blocks.append(residues)
+        list_indexes.append(indexes)
 
     # reorder
     if selected_chains is not None:
         list_blocks = [list_blocks[chain_ids[chain_id]] for chain_id in selected_chains]
+        list_indexes = [list_indexes[chain_ids[chain_id]] for chain_id in selected_chains]
     
+    if return_indexes:
+        return list_blocks, list_indexes
     return list_blocks
+
 
 
 if __name__ == '__main__':

@@ -21,8 +21,8 @@ ID2BOND = [None, BondType.SINGLE, BondType.DOUBLE, BondType.TRIPLE, BondType.ARO
 @singleton
 class TokenizerWrapper:
 
-    def __init__(self):
-        self.tokenizer = None
+    def __init__(self, method=None):
+        self.tokenizer = self.load(method)
 
     def load(self, method: Optional[str]):
         if method is None:
@@ -127,10 +127,12 @@ def tokenize_3d(
         atoms: List[str],
         coords: Optional[List[Tuple[float, float, float]]]=None,
         smiles: Optional[str]=None,
-        bonds: Optional[List[Tuple[int, int, int]]]=None
+        bonds: Optional[List[Tuple[int, int, int]]]=None,
+        fragmentation_method: Optional[str]=None
     ):
     
     tokenizer = TOKENIZER
+    tokenizer.load(fragmentation_method)
     assert (coords is not None and smiles is not None) or (bonds is not None)
     atoms = [format_atom(atom) for atom in atoms]
     rw_mol = Chem.RWMol()

@@ -63,14 +63,17 @@ def main(args):
     # seeds = [2023, 2022, 2021, 2020, 2019]
     seeds = [2023, 2022, 2021]
     split_dirs = []
+    out_split_dirs = []
     for i, seed in enumerate(seeds):
         print_log(f'split {i}, seed {seed}')
-        split_dir = os.path.join(args.out_dir, f'split{i}')
+        split_dir = os.path.join(os.path.split(args.pdbbind)[0], f'split{i}')
+        out_split_dir = os.path.join(args.out_dir, f'split{i}')
         split_dirs.append(split_dir)
+        out_split_dirs.append(out_split_dir)
         if not os.path.exists(split_dir):  # split train/valid
             namespace = Namespace(
                 data=args.pdbbind,
-                out_dir=split_dir,
+                out_dir=out_split_dir,
                 seq_id=0.3,
                 valid_ratio=0.1,
                 test_ratio=0,  # PPAB is used as the test set
@@ -97,7 +100,7 @@ def main(args):
         # 4. add data path / save directory to config
         for split_name in ['valid', 'train']:
             config[f'{split_name}_set'] = os.path.join(split_dir, split_name + suffix)
-        config['save_dir'] = f'{split_dir}/models/{config["model_type"]}'
+        config['save_dir'] = f'{out_split_dirs[i]}/models/'
         config['seed'] = seeds[i]
 
         # training
@@ -136,7 +139,7 @@ def main(args):
             
         # inference
         print_log(f'Inference with checkpoint {best_ckpt}')
-        reference_splits = ['rigid', 'medium', 'flexible', 'all']
+        reference_splits = ['all'] # 'rigid', 'medium', 'flexible', 
         result_path = os.path.join(config['save_dir'], f'split{i}_epoch{best_epoch}_results.jsonl')
         namespace = Namespace(
             test_set=test_set,
@@ -164,7 +167,7 @@ def main(args):
         # evaluation
         print_log(f'Evaluating ...')
         for name in reference_splits:
-            namespace = Namespace(predictions=result_path, reference=os.path.join(args.ppab_dir, f'PPAB_V2_{name}.jsonl'))
+            namespace = Namespace(predictions=result_path, reference=None) #os.path.join(args.ppab_dir, f'PPAB_V2_{name}.jsonl'))
             metrics = eval_proc(namespace)
             if name not in round_metrics:
                 round_metrics[name] = []

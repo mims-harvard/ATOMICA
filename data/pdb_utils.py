@@ -96,7 +96,7 @@ class Vocab:
 
         bases = [ # bases for RNA/DNA
                 ('DA', 'DA'), ('DG', 'DG'), ('DC', 'DC'), ('DT', 'DT'), # DNA
-                ('RA', 'RA'), ('RG', 'RG'), ('RC', 'RC'), ('RU', 'RU')      # RNA
+                ('RA', 'RA'), ('RG', 'RG'), ('RC', 'RC'), ('RU', 'RU'), # RNA, RI = inosine
         ]
 
         sms = [(atom.lower(), atom) for atom in ATOMS]
@@ -108,6 +108,8 @@ class Vocab:
                 if smi in _tmp_map: # single atom
                     continue
                 frags.append((str(i), smi))
+        
+        self.aas, self.bases, self.sms, self.frags = aas, bases, sms, frags
 
         self.atom_pad, self.atom_mask, self.atom_global = 'p', 'm', 'g'
         self.atom_pos_pad, self.atom_pos_mask, self.atom_pos_global = 'p', 'm', 'g'

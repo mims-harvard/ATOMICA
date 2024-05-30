@@ -28,3 +28,8 @@ testing_scripts
 
 scripts/exps/configs/LBA/*.json
 scripts/exps/configs/PPA/*.json
+
+trainers/deprecated
+models/deprecated
+
+plip/

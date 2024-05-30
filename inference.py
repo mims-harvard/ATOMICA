@@ -6,6 +6,7 @@ from tqdm import tqdm
 
 import torch
 from torch.utils.data import DataLoader
+from trainers.abs_trainer import Trainer
 
 from train import create_dataset
 from data.pdb_utils import VOCAB
@@ -14,7 +15,7 @@ from data.pdb_utils import VOCAB
 def parse():
     parser = argparse.ArgumentParser(description='inference dG')
     parser.add_argument('--test_set', type=str, required=True, help='Path to the test set')
-    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS'],
+    parser.add_argument('--task', type=str, default=None, choices=['PPA', 'PLA', 'LEP', 'PDBBind', 'NL', 'PLA_PS', 'LEP_PS', 'PN', 'DDG'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'LEP: ligand efficacy prediction, ')
@@ -33,7 +34,6 @@ def main(args):
     VOCAB.load_tokenizer(args.fragment)
     # load model
     model = torch.load(args.ckpt, map_location='cpu')
-    print(f"MODEL TYPE: {model.model_type}, hierarchical: {model.hierarchical}, atom_level: {model.atom_level}, no_block_embedding: {model.no_block_embedding}, n_layers: {model.n_layers}, hidden_size: {model.hidden_size}")
     print(f"MODEL SIZE: {sum(p.numel() for p in model.parameters())}")
     device = torch.device('cpu' if args.gpu == -1 else f'cuda:{args.gpu}')
     model.to(device)
@@ -59,11 +59,8 @@ def main(args):
     for batch in tqdm(test_loader):
         with torch.no_grad():
             # move data
-            for k in batch:
-                if hasattr(batch[k], 'to'):
-                    batch[k] = batch[k].to(device)
-            del batch['label']
-            
+            batch = Trainer.to_device(batch, device)
+
             # for attention visualization
             # model.encoder.encoder.prefix = str(batch_id)
             #print(batch)
@@ -71,12 +68,17 @@ def main(args):
             if type(results) == tuple:
                 results = (res.tolist() for res in results)
                 results = (res for res in zip(*results))
+            elif torch.numel(results) == 1:
+                results = [results.item()]
             else:
                 results = results.tolist()
             
-            for pred_label in results:
+            for i, pred_label in enumerate(results):
                 item_id = items[idx]['id']
-                gt = items[idx]['label'] if 'label' in items[idx] else items[idx]['affinity']['neglog_aff']
+                if args.task == 'DDG':
+                    gt = batch[-1][i].item()
+                else:
+                    gt = items[idx]['label'] if 'label' in items[idx] else items[idx]['affinity']['neglog_aff']
                 out_dict = {
                         'id': item_id,
                         'label': pred_label,

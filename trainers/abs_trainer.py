@@ -17,8 +17,8 @@ import wandb
 
 class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch, warmup=0,
-                 metric_min_better=True, patience=3,
-                 grad_clip=None, save_topk=-1,  # -1 for save all
+                 metric_min_better=True, patience=3, cycle_steps=1,
+                 grad_clip=None, save_topk=-1, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr
@@ -28,6 +28,7 @@ class TrainConfig:
         self.patience = patience if patience > 0 else max_epoch
         self.grad_clip = grad_clip
         self.save_topk = save_topk
+        self.cycle_steps = cycle_steps # for cyclic learning rate
         self.__dict__.update(kwargs)
 
     def add_parameter(self, **kwargs):
@@ -65,7 +66,6 @@ class Trainer:
         self.use_wandb = False
 
         # training process recording
-        self.valid_requires_grad = False
         self.global_step = 0
         self.valid_global_step = 0
         self.epoch = 0
@@ -84,9 +84,6 @@ class Trainer:
         elif hasattr(data, 'to'):
             data = data.to(device)
         return data
-    
-    def set_valid_requires_grad(self, require=False):
-        self.valid_requires_grad = require
 
     def _is_main_proc(self):
         return self.local_rank == 0 or self.local_rank == -1
@@ -118,8 +115,15 @@ class Trainer:
                 loss.backward()
 
                 if self.use_wandb and self._is_main_proc():
+                    total_norm = 0.0
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.detach().data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    total_norm = total_norm ** 0.5
                     wandb.log({f'train_MSELoss': loss.item()}, step=self.global_step)
                     wandb.log({f'train_RMSELoss': np.sqrt(loss.item())}, step=self.global_step)
+                    wandb.log({f'param_grad_norm': total_norm}, step=self.global_step)
                     wandb.log({'lr': self.optimizer.param_groups[0]['lr']}, step=self.global_step)
 
                 if self.config.grad_clip is not None:
@@ -133,8 +137,10 @@ class Trainer:
             except RuntimeError as e:
                 if "out of memory" in str(e) and torch.cuda.is_available():
                     print_log(e, level='ERROR')
+                    if not type(batch) is dict:
+                        batch = batch[0]
                     print_log(
-                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0]}, 
+                        f"""Out of memory error, skipping batch, num_nodes={batch['X'].shape[0] if 'X' in batch else None}, 
                         num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]}, 
                         max_item_block_size={batch['lengths'].max()}""", level='ERROR'
                     )
@@ -162,7 +168,7 @@ class Trainer:
 
         metric_arr = []
         self.model.eval()
-        with torch.set_grad_enabled(self.valid_requires_grad):
+        with torch.no_grad():
             t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
                 batch = self.to_device(batch, device)

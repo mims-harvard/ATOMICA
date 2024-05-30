@@ -8,7 +8,7 @@ from data.dataset import Block, Atom, VOCAB
 from .atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 
 
-def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: Optional[str] = None, fragment: bool=False) -> List[Block]:
+def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: Optional[str] = None, fragment: str=None) -> List[Block]:
     '''
         Convert an Mol2 file to a list of lists of blocks for each molecule / residue.
         
@@ -72,7 +72,7 @@ def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: 
                 continue
             blocks.append(Block(atom.element.lower(), [atom]))
             remap[i + 1] = len(remap) # atom indexes in the records start from 1
-        if fragment:
+        if fragment is not None:
             bonds = []
             for line in lines[bond_start + 1:]:
                 if line.startswith('@'):
@@ -92,7 +92,7 @@ def mol2_to_blocks(mol2_file: str, using_hydrogen: bool = False, molecule_type: 
                 if src not in remap or dst not in remap:
                     continue
                 bonds.append((remap[src], remap[dst], _type))
-            blocks = atom_blocks_to_frag_blocks(blocks, bonds=bonds)
+            blocks = atom_blocks_to_frag_blocks(blocks, bonds=bonds, fragmentation_method=fragment)
     elif molecule_type == 'protein':
         residues = {}
         for line in atom_infos:
