@@ -357,7 +357,7 @@ def main(args):
             json.dump(vars(args), f)
         if args.use_wandb:
             wandb.init(
-                entity="ada-f",
+                entity="zaixizhang8",
                 dir=config.save_dir,
                 settings=wandb.Settings(start_method="fork"),
                 project="InteractNN",

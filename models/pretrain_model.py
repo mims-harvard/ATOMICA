@@ -110,17 +110,6 @@ class DenoisePretrainModel(nn.Module):
         self.torsion_weight = torsion_weight
         self.mse_loss = nn.MSELoss()
 
-        if self.denoising:
-            assert self.atom_noise or self.translation_noise or self.rotation_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
-
-        self.theta_range = np.linspace(0.1, np.pi/4, 100)
-        self.sigma_range = np.linspace(0.1, rot_sigma, 100)
-        self.expansion = [_expansion(self.theta_range, sigma) for sigma in self.sigma_range]
-        self.density = [_density(exp, self.theta_range) for exp in self.expansion]
-        self.score = [_score(exp, self.theta_range, sigma) for exp, sigma in zip(self.expansion, self.sigma_range)]
-
-        assert not (self.hierarchical and self.atom_level), 'Hierarchical model is incompatible with atom-level model'
-
         self.global_block_id = VOCAB.symbol_to_idx(VOCAB.GLB)
 
         self.block_embedding = BlockEmbedding(
@@ -161,127 +150,44 @@ class DenoisePretrainModel(nn.Module):
                 nn.ReLU(),
                 nn.Dropout(dropout),
                 nn.Linear(hidden_size, hidden_size),
-                nn.SiLU(),
+                nn.ReLU(),
+                nn.Dropout(dropout),
                 nn.Linear(hidden_size, 1, bias=False)
             )
-        else:
-            if self.atom_noise:
-                self.bottom_scale_noise_ffn = nn.Sequential(
-                    nn.SiLU(),
-                    nn.Linear(2*hidden_size, hidden_size),
-                    nn.SiLU(),
-                    nn.Linear(hidden_size, 1, bias=False)
-                )
-                if self.hierarchical:
-                    self.top_scale_noise_ffn = nn.Sequential(
-                        nn.SiLU(),
-                        nn.Linear(hidden_size, hidden_size),
-                        nn.SiLU(),
-                        nn.Linear(hidden_size, 1, bias=False)
-                    )
-            if self.translation_noise:
-                self.bottom_translation_scale_ffn = nn.Sequential(
-                    nn.SiLU(),
-                    nn.Linear(hidden_size, hidden_size),
-                    nn.SiLU(),
-                    nn.Linear(hidden_size, 1, bias=False)
-                )
-                if self.hierarchical:
-                    self.top_translation_scale_ffn = nn.Sequential(
-                        nn.SiLU(),
-                        nn.Linear(hidden_size, hidden_size),
-                        nn.SiLU(),
-                        nn.Linear(hidden_size, 1, bias=False)
-                    )
-            if self.rotation_noise:
-                self.bottom_rotation_scale_ffn = nn.Sequential(
-                    nn.SiLU(),
-                    nn.Linear(hidden_size, hidden_size),
-                    nn.SiLU(),
-                    nn.Linear(hidden_size, 1, bias=False)
-                )
-                if self.hierarchical:
-                    self.top_rotation_scale_ffn = nn.Sequential(
-                        nn.SiLU(),
-                        nn.Linear(hidden_size, hidden_size),
-                        nn.SiLU(),
-                        nn.Linear(hidden_size, 1, bias=False)
-                    )
-                
-
-    @torch.no_grad()
-    def choose_receptor(self, batch_size, device):
-        segment_retain = (torch.randn((batch_size, ), device=device) > 0).long()  # [bs], 0 or 1
-        return segment_retain
-    
-    
-    @torch.no_grad()
-    def rigid_transform(self, Z, rotation_matrices, translation_vectors, perturb_mask, batch_id, batch_size):
-        # TODO: SPEED THIS UP!!!! NEED TO RESHAPE Z INTO [B, N, 3] AND USE BATCHED MATRIX MULTIPLICATION
-        w = rotation_matrices # [B, 3], B = batch_size
-        c = w.norm(dim=-1, keepdim=True)  # [B, 1]
-        c1 = torch.sin(c) / c.clamp(min=1e-6) # [B, 1]
-        c2 = (1 - torch.cos(c)) / (c ** 2).clamp(min=1e-6) # [B, 1]
-        for i in range(batch_size):
-            mask = batch_id == i
-            mask = torch.logical_and(mask, perturb_mask)
-            wi = w[i].unsqueeze(0)  # [1, 3]
-            if self.rotation_noise:
-                Z[mask] = Z[mask] + c1[i] * torch.cross(wi, Z[mask]) + c2[i] * torch.cross(wi, torch.cross(wi, Z[mask]))
-            if self.translation_noise:
-                Z[mask] = Z[mask] + translation_vectors[i]
-        return Z
-
-    @torch.no_grad()
-    def perturb(self, Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment):
-        perturb_block_mask = segment_ids == receptor_segment[batch_id]  # [Nb]
-        perturb_mask = perturb_block_mask[block_id]  # [Nu]
-        assert torch.any(perturb_mask), 'No perturbable nodes!'
-
-        # Random rigid transform
-        sidx = [random.randint(0, 99) for _ in range(batch_size)]  # 0 is padding
-        tidx = [np.random.choice(list(range(100)), p=self.density[i]) for i in sidx]
-        theta = torch.tensor([self.theta_range[i] for i in tidx]).float().cuda()
-        w = torch.randn(batch_size, 3).cuda()
-        hat_w = F.normalize(w, dim=-1)
-        w = hat_w * theta.unsqueeze(-1) # [batch_size,3]
-        eps = np.random.uniform(0.1, 1.0, size=batch_size)
-        eps = torch.tensor(eps).float().cuda().unsqueeze(-1)
-        hat_t = torch.randn(batch_size, 3).cuda() * eps
-        # Apply
-        center = Z[(B[block_id] == self.global_block_id) & perturb_mask]  # [bs] center of perturbed segment
-        Z_perturbed = Z - center[batch_id][block_id]
-        Z_perturbed = self.rigid_transform(Z_perturbed, w, hat_t, perturb_mask, bottom_batch_id, batch_size)
-        Z_perturbed = Z_perturbed + center[batch_id][block_id]
-
-        # Apply atom level coordinate noise
-        if self.atom_noise:
-            atom_noise = torch.clamp(torch.randn_like(Z), min=-1, max=1)  # [Nu, channel, 3]
-            atom_noise[~perturb_mask] = 0  # only one side of the complex is perturbed
-            Z_perturbed = Z_perturbed + atom_noise
-        else:
-            atom_noise = None
-        return Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask
-    
-    @torch.no_grad()
-    def update_global_block(self, Z, B, block_id):
-        is_global = B[block_id] == self.global_block_id  # [Nu]
-        scatter_ids = torch.cumsum(is_global.long(), dim=0) - 1  # [Nu]
-        not_global = ~is_global
-        centers = scatter_mean(Z[not_global], scatter_ids[not_global], dim=0)  # [Nglobal, n_channel, 3], Nglobal = batch_size * 2
-        Z = Z.clone()
-        Z[is_global] = centers
-        return Z, not_global
-
-    def pred_noise_from_energy(self, energy, Z):
-        dy = grad(
-            [energy.sum()],  
-            [Z],
-            create_graph=self.training,
-            retain_graph=self.training,
-        )[0]
-        pred_noise = (-dy).view(-1, self.n_channel, 3).contiguous() # the direction of the gradients is where the energy drops the fastest. Noise adopts the opposite direction
-        return pred_noise
+        if self.translation_noise:
+            self.bottom_translation_scale_ffn = nn.Sequential(
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
+            self.top_translation_scale_ffn = nn.Sequential(
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
+        if self.rotation_noise:
+            self.bottom_rotation_scale_ffn = nn.Sequential(
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
+            self.top_rotation_scale_ffn = nn.Sequential(
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, hidden_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_size, 1, bias=False)
+            )
 
     def get_edges(self, B, batch_id, segment_ids, Z, block_id):
         intra_edges, inter_edges, global_global_edges, global_normal_edges = construct_edges(
@@ -306,7 +212,6 @@ class DenoisePretrainModel(nn.Module):
                 tr_eps=None, rot_score=None,tor_edges=None, tor_score=None, tor_batch=None,
                 ) -> ReturnValue:
         # batch_id and block_id
-        print('Here!')
         with torch.no_grad():
             assert tor_edges.shape[1] == tor_score.shape[0], f"tor_edges {tor_edges.shape} and tor_score {tor_score.shape} should have the same length"
             assert self.atom_noise or self.translation_noise or self.rotation_noise or self.torsion_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
@@ -325,18 +230,7 @@ class DenoisePretrainModel(nn.Module):
             bottom_segment_ids = segment_ids[block_id]  # [Nu]
             bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
 
-            batch_size = lengths.shape[0]
-            # select receptor
-            receptor_segment = self.choose_receptor(batch_size, batch_id.device)
-            # perturbation
-            assert Z.shape[1] == 1, "n_channel must be 1"
-            Z = Z.squeeze() # [Nu, n_channel, 3] -> [Nu, 3], n_channel == 1
-            Z_perturbed, hat_w, hat_t, eps, sidx, tidx, atom_noise, perturb_mask, perturb_block_mask = self.perturb(Z, B, block_id, batch_id, bottom_batch_id, batch_size, segment_ids, receptor_segment)
-            Z_perturbed, not_global = self.update_global_block(Z_perturbed, B, block_id)
-            Z_perturbed = Z_perturbed.unsqueeze(1)  # [Nu, 1, 3]
-            # FIXME: update global atom block A == VOCAB.get_atom_global_idx())
-
-        Z_perturbed.requires_grad_(True)
+        Z_perturbed = Z
 
         # embedding
         bottom_H_0 = self.block_embedding.atom_embedding(A) # FIXME: ablation

@@ -12,11 +12,14 @@ class MaskedNodeModel(PredictionModel):
         super().__init__(**kwargs)
         layers = []
         for _ in range(num_layers):
-            layers.append(nn.Linear(self.hidden_size, self.hidden_size))
+            layers.append(nn.MultiheadAttention(embed_dim=self.hidden_size, num_heads=4, dropout=self.dropout))
+            #layers.append(nn.Linear(self.hidden_size, self.hidden_size))
             layers.append(nn.ReLU())
             layers.append(nn.Dropout(self.dropout))
-        layers.append(nn.Linear(self.hidden_size, num_nodes))
-        self.masked_ffn = nn.Sequential(*layers)
+        # layers.append(nn.Linear(self.hidden_size, num_nodes))
+        # self.masked_ffn = nn.Sequential(*layers)
+        self.attention_layers = nn.ModuleList(layers)
+        self.output_layer = nn.Linear(self.hidden_size, num_nodes)
 
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
@@ -50,7 +53,17 @@ class MaskedNodeModel(PredictionModel):
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, label) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
-        logits = self.masked_ffn(return_value.block_repr[masked_blocks])
+        #logits = self.masked_ffn(return_value.block_repr[masked_blocks])
+        attn_output = return_value.block_repr[masked_blocks]
+        for i in range(0, len(self.attention_layers), 3):
+            attn_layer = self.attention_layers[i]
+            #relu = self.attention_layers[i+1]
+            #dropout = self.attention_layers[i+2]
+            
+            attn_output, _ = attn_layer(attn_output, attn_output, attn_output)
+            #attn_output = relu(attn_output)
+            #attn_output = dropout(attn_output)
+        logits = self.output_layer(attn_output)
         return F.cross_entropy(logits, label), F.softmax(logits, dim=1)
     
     def infer(self, batch, extra_info=False):
