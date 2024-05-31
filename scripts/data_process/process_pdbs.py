@@ -102,7 +102,6 @@ def main(args):
         chain2 = chain2.split("_")
         if lig_code is None or lig_code == '' or pd.isna(lig_code):
             # For PP, PDNA, PRNA, Ppeptide interactions
-
             item = process_pdb(pdb_file, pdb_id, chain1, chain2, args.interface_dist_th) 
             if item is not None:
                 items.append(item)

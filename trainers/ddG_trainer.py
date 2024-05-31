@@ -4,6 +4,16 @@ from math import exp, pi, cos, log
 import torch
 from .abs_trainer import Trainer
 import wandb
+import os
+from tqdm import tqdm
+import numpy as np
+from scipy.stats import spearmanr
+
+from utils.logger import print_log
+
+########### Import your packages below ##########
+import wandb
+
 
 
 class DDGTrainer(Trainer):
@@ -36,7 +46,8 @@ class DDGTrainer(Trainer):
         return (self.global_step + 1) * 1.0 / self.config.warmup
 
     def train_step(self, batch, batch_idx):
-        return self.share_step(batch, batch_idx, val=False)
+        loss, _ = self.share_step(batch, batch_idx, val=False)
+        return loss
 
     def valid_step(self, batch, batch_idx):
         return self.share_step(batch, batch_idx, val=True)
@@ -49,7 +60,7 @@ class DDGTrainer(Trainer):
     ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
-        loss = self.model(*batch)
+        loss, pred = self.model(*batch)
 
         log_type = 'Validation' if val else 'Train'
 
@@ -60,4 +71,60 @@ class DDGTrainer(Trainer):
             lr = lr[0]
             self.log('lr', lr, batch_idx, val)
 
-        return loss
+        return loss, pred
+
+    def _valid_epoch(self, device):
+        if self.valid_loader is None:
+            if self._is_main_proc():
+                save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                module_to_save = self.model.module if self.local_rank == 0 else self.model
+                if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
+                    print_log(f'No validation, save path: {save_path}')
+                    torch.save(module_to_save, save_path)
+                else:
+                    print_log('No validation')
+            return
+
+        metric_arr = []
+        label_arr = []
+        pred_arr = []
+        self.model.eval()
+        with torch.no_grad():
+            t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
+            for batch in t_iter:
+                label_arr.append(batch[-1].cpu().numpy())
+                batch = self.to_device(batch, device)
+                metric, pred = self.valid_step(batch, self.valid_global_step)
+                pred_arr.append(pred.cpu().numpy())
+                if metric is None:
+                    continue # Out of memory
+                metric_arr.append(metric.cpu().item())
+                self.valid_global_step += 1
+        self.model.train()
+        # judge
+        pred_arr = np.concatenate(pred_arr)
+        label_arr = np.concatenate(label_arr)
+        valid_metric = np.mean(metric_arr)
+        if self.use_wandb and self._is_main_proc():
+            wandb.log({
+                'val_loss': valid_metric.item(),
+                'val_RMSELoss': np.sqrt(np.mean(np.square(pred_arr - label_arr))),
+                'val_pearson': np.corrcoef(pred_arr, label_arr)[0, 1],
+                'val_spearman': spearmanr(pred_arr, label_arr).statistic,
+            }, step=self.global_step)
+        if self._is_main_proc():
+            save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            module_to_save = self.model.module if self.local_rank == 0 else self.model
+            torch.save(module_to_save, save_path)
+            self._maintain_topk_checkpoint(valid_metric, save_path)
+            print_log(f'Validation: {valid_metric}, save path: {save_path}')
+        if self._metric_better(valid_metric):
+            self.patience = self.config.patience
+        else:
+            self.patience -= 1
+        self.last_valid_metric = valid_metric
+        # write valid_metric
+        for name in self.writer_buffer:
+            value = np.mean(self.writer_buffer[name])
+            self.log(name, value, self.epoch)
+        self.writer_buffer = {}

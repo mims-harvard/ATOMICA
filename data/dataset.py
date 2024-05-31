@@ -309,7 +309,9 @@ class MutationDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
         self.indexes = [ {'id': item['id'], 'label': item['ddG'] } for item in self.data ]  # to satify the requirements of inference.py
-
+        for item in self.data:
+            item['wt']["esm_embeddings"] = item["wt_esm_block_embeddings"]
+            item['mt']["esm_embeddings"] = item["mt_esm_block_embeddings"]
     def __len__(self):
         return len(self.data)
     
@@ -352,13 +354,16 @@ class MutationDataset(torch.utils.data.Dataset):
 
     @classmethod
     def collate_fn_(cls, batch):
-        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
-        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids', "esm_embeddings"]
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
-                val.append(torch.tensor(item[key], dtype=_type))
+                if key != "esm_embeddings":
+                    val.append(torch.tensor(item[key], dtype=_type))
+                else:
+                    val.append(item[key])
             res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
