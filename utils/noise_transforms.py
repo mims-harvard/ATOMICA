@@ -157,6 +157,7 @@ class TorsionNoiseTransform:
         global_block = np.sum(data['segment_ids'] < chosen_segment)
         global_atom = np.sum(block_id < global_block)
         data['X'][global_atom] = data['X'][global_atom+1:global_atom+segment_atoms].mean(axis=0)
+        # print(f"Torsion angle changes: {torsion_updates}")
         return data, torus_score(torsion_updates, self.tor_sigma), torsion_edges.T
     
 
@@ -228,6 +229,7 @@ class GlobalTranslationTransform:
         eps = np.random.uniform(0.1, self.tr_sigma)
         tr_score = np.random.normal(0, 1, (1, 3))
         data['X'][global_atom:global_atom+segment_atoms] += tr_score * eps
+        # print(f"Global translation: {tr_score * eps}")
         return data, np.squeeze(tr_score), eps
 
 
@@ -300,4 +302,5 @@ class GlobalRotationTransform:
         data['X'][global_atom+1:global_atom+segment_atoms] = new_coords
         data['X'][global_atom] = new_coords.mean(axis=0)
         rot_score = hat_w * self.score[sidx][tidx]
+        # print(f"Global rotation: {theta}")
         return data, np.squeeze(rot_score)

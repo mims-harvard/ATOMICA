@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
 from .pretrain_model import DenoisePretrainModel
-from .affinity_predictor import AffinityPredictor
+from .affinity_predictor import AffinityPredictor, AffinityPredictorNoisyNodes
 from .ddG_predictor import DDGPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel
 from .prediction_model import PredictionModel
@@ -14,6 +14,34 @@ def create_model(args):
             model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
         else:
             model = DenoisePretrainModel(
+                hidden_size=args.hidden_size,
+                edge_size=args.edge_size,
+                k_neighbors=args.k_neighbors,
+                n_layers=args.n_layers,
+                atom_noise=args.atom_noise != 0,
+                translation_noise=args.translation_noise != 0,
+                rotation_noise=args.rotation_noise != 0,
+                torsion_noise=args.torsion_noise != 0,
+                global_message_passing=args.global_message_passing,
+                fragmentation_method=args.fragmentation_method,
+                atom_weight=args.atom_weight,
+                translation_weight=args.tr_weight,
+                rotation_weight=args.rot_weight,
+                torsion_weight=args.tor_weight,
+                dropout=args.dropout,
+            )
+        return model
+    elif args.task == "PLA_noisy_nodes":
+        if args.pretrain_ckpt:
+            add_params = {
+                'partial_finetune': args.partial_finetune,
+                'global_message_passing': args.global_message_passing,
+                'k_neighbors': args.k_neighbors,
+            }
+            model = AffinityPredictorNoisyNodes.load_from_pretrained(args.pretrain_ckpt, noisy_nodes_weight=args.noisy_nodes_weight, **add_params)
+        else:
+            model = AffinityPredictorNoisyNodes(
+                noisy_nodes_weight=args.noisy_nodes_weight,
                 hidden_size=args.hidden_size,
                 edge_size=args.edge_size,
                 k_neighbors=args.k_neighbors,

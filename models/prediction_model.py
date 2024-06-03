@@ -51,6 +51,10 @@ class PredictionModel(DenoisePretrainModel):
         assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
 
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.requires_grad_(requires_grad=False)
+
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
             model.edge_embedding.requires_grad_(requires_grad=True)
             model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)

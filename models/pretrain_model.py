@@ -11,6 +11,7 @@ from torch_scatter import scatter_mean, scatter_sum
 from data.pdb_utils import VOCAB
 from .tools import BlockEmbedding, KNNBatchEdgeConstructor
 from .InteractNN.encoder import InteractNNEncoder
+from .InteractNN.utils import GaussianEmbedding
 
 
 ReturnValue = namedtuple(
@@ -129,8 +130,10 @@ class DenoisePretrainModel(nn.Module):
         self.encoder = InteractNNEncoder(
             hidden_size, edge_size, n_layers=n_layers, dropout=dropout,
             return_atom_noise=atom_noise, return_global_noise=translation_noise or rotation_noise,
-            return_torsion_noise=torsion_noise, global_message_passing=global_message_passing)
+            return_torsion_noise=torsion_noise, global_message_passing=global_message_passing,
+            max_torsion_neighbors=k_neighbors, max_edge_length=20, max_global_edge_length=20, max_torsion_edge_length=5)
         self.top_encoder = deepcopy(self.encoder)
+        self.top_encoder.encoder.edge_embedder[0] = GaussianEmbedding(num_gaussians=edge_size, stop=30)
 
         # Denoising heads
         if self.torsion_noise:
