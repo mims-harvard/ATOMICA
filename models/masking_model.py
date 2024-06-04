@@ -54,15 +54,25 @@ class MaskedNodeModel(PredictionModel):
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, label) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
         #logits = self.masked_ffn(return_value.block_repr[masked_blocks])
-        attn_output = return_value.block_repr[masked_blocks]
-        for i in range(0, len(self.attention_layers), 3):
-            attn_layer = self.attention_layers[i]
-            #relu = self.attention_layers[i+1]
-            #dropout = self.attention_layers[i+2]
+        #attn_output = return_value.block_repr[masked_blocks]
+        
+        # Create a list to hold segmented representations
+        segments = []
+        start_idx = 0
+
+        for size in lengths:
+            segments.append(return_value.block_repr[start_idx:start_idx + size])
+            start_idx += size
             
-            attn_output, _ = attn_layer(attn_output, attn_output, attn_output)
-            #attn_output = relu(attn_output)
-            #attn_output = dropout(attn_output)
+        # Perform self-attention on each segment
+        attention_results = []
+        for segment in segments:
+            for i in range(0, len(self.attention_layers), 3):
+                attn_layer = self.attention_layers[i]
+                attn_output, _ = attn_layer(segment, segment, segment)
+            attention_results.append(attn_output)
+        attn_output = torch.cat(attention_results, dim=0)[masked_blocks]
+
         logits = self.output_layer(attn_output)
         return F.cross_entropy(logits, label), F.softmax(logits, dim=1)
     
