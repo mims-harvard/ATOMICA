@@ -29,7 +29,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion', 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes'],
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion', 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
@@ -175,7 +175,7 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
         dataset = MixDatasetWrapper(*datasets)
         print_log(f'Mixed pretrain dataset size: {len(dataset)}')
-    elif task == 'binary_classifier':
+    elif task == 'binary_classifier' or task == 'regression':
         dataset = LabelledPDBDataset(path)
         datasets = [dataset]
         if path2 is not None:
@@ -263,7 +263,7 @@ def set_noise(dataset, args):
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
-    if model_type in [models.AffinityPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
+    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
         trainer = trainers.PretrainTrainer(

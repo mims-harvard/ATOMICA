@@ -3,7 +3,7 @@
 from .pretrain_model import DenoisePretrainModel
 from .affinity_predictor import AffinityPredictor, AffinityPredictorNoisyNodes
 from .ddG_predictor import DDGPredictor
-from .classifier_model import ClassifierModel, MultiClassClassifierModel
+from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
 from .prediction_model import PredictionModel
 from .masking_model import MaskedNodeModel
 import torch
@@ -63,6 +63,8 @@ def create_model(args):
         add_params = {}
         if args.task in {'PLA', 'PPA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN'}:
             Model = AffinityPredictor
+        elif args.task == 'regression':
+            Model = RegressionPredictor
         elif args.task == 'DDG':
             Model = DDGPredictor
         elif args.task == 'binary_classifier':
@@ -79,7 +81,7 @@ def create_model(args):
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
         if args.pretrain_ckpt:
-            if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel]:
+            if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'global_message_passing': args.global_message_passing,

@@ -40,6 +40,33 @@ class TrainConfig:
     def __str__(self):
         return str(self.__class__) + ': ' + str(self.__dict__)
 
+class LearningRateWarmup(object):
+    # source: https://github.com/developer0hye/Learning-Rate-WarmUp
+    def __init__(self, optimizer, warmup_iteration, start_lr, target_lr, after_scheduler=None):
+        self.optimizer = optimizer
+        self.warmup_iteration = warmup_iteration
+        self.target_lr = target_lr
+        self.start_lr = start_lr
+        self.after_scheduler = after_scheduler
+        self.last_lr = 0
+        self.step(1)
+
+    def warmup_learning_rate(self, cur_iteration):
+        warmup_lr = self.start_lr + (self.target_lr - self.start_lr)*float(cur_iteration)/float(self.warmup_iteration)
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = warmup_lr
+
+    def step(self, cur_iteration):
+        if cur_iteration <= self.warmup_iteration:
+            self.warmup_learning_rate(cur_iteration)
+        else:
+            self.after_scheduler.step(cur_iteration-self.warmup_iteration)
+    
+    def load_state_dict(self, state_dict):
+        self.after_scheduler.load_state_dict(state_dict)
+    
+    def get_last_lr(self):
+        return self.optimizer.param_groups[0]['lr']
 
 class Trainer:
     def __init__(self, model, train_loader, valid_loader, config):

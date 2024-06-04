@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 from math import exp, pi, cos, log
 import torch
-from .abs_trainer import Trainer
+from .abs_trainer import Trainer, LearningRateWarmup
 from utils.logger import print_log
 from tqdm import tqdm
 import numpy as np
@@ -93,7 +93,7 @@ class AffinityTrainer(Trainer):
         with torch.no_grad():
             t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
-                label_arr.append(batch[-1].cpu().numpy())
+                label_arr.append(batch['label'].cpu().numpy())
                 batch = self.to_device(batch, device)
                 metric, pred = self.valid_step(batch, self.valid_global_step)
                 pred_arr.append(pred.cpu().numpy())
@@ -143,13 +143,15 @@ class AffinityNoisyNodesTrainer(Trainer):
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr if self.config.warmup_steps == 0 else self.config.warmup_start_lr, weight_decay=1e-3)
         return optimizer
 
     def get_scheduler(self, optimizer):
         log_alpha = self.log_alpha
         lr_lambda = lambda step: exp(log_alpha * (step + 1))
         scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+        if self.config.warmup_steps > 0:
+            scheduler = LearningRateWarmup(optimizer, self.config.warmup_steps, self.config.warmup_start_lr, self.config.warmup_end_lr, scheduler)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'
@@ -180,8 +182,7 @@ class AffinityNoisyNodesTrainer(Trainer):
 
         self.log(f'Loss/Train', loss_pred+loss_denoise, batch_idx)
 
-        lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
-        lr = lr[0]
+        lr = self.optimizer.param_groups[0]['lr']
         self.log('lr', lr, batch_idx)
 
         return loss_pred, loss_denoise
@@ -229,7 +230,10 @@ class AffinityNoisyNodesTrainer(Trainer):
                     t_iter.set_postfix(loss=loss.detach().cpu().item(), version=self.version)
                 self.global_step += 1
                 if self.sched_freq == 'batch':
-                    self.scheduler.step()
+                    if isinstance(self.scheduler, LearningRateWarmup):
+                        self.scheduler.step(self.global_step)
+                    else:
+                        self.scheduler.step()
                 if self.use_wandb and self._is_main_proc():
                     wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
             except RuntimeError as e:
@@ -254,8 +258,10 @@ class AffinityNoisyNodesTrainer(Trainer):
                 'train_epoch_loss': np.mean(metric_dict["loss"]),
             }, step=self.global_step)
         if self.sched_freq == 'epoch':
-            self.scheduler.step()
-
+            if isinstance(self.scheduler, LearningRateWarmup):
+                self.scheduler.step(self.epoch)
+            else:
+                self.scheduler.step()
 
     def _valid_epoch(self, device):
         if self.valid_loader is None:

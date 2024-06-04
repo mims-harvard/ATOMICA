@@ -115,3 +115,48 @@ class MultiClassClassifierModel(PredictionModel):
         if extra_info:
             return pred_label, return_value
         return pred_label
+
+
+class RegressionPredictor(PredictionModel):
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        nonlinearity = nn.ReLU
+        self.energy_ffn = nn.Sequential(
+            nonlinearity(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nonlinearity(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nonlinearity(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, 1)
+        )
+    
+    @classmethod
+    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
+        model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.energy_ffn.requires_grad_(requires_grad=True)
+        return model
+    
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
+        return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
+        pred_energy = self.energy_ffn(return_value.graph_repr).squeeze(-1)
+        return F.mse_loss(pred_energy, label), pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
+    
+    def infer(self, batch, extra_info=False):
+        self.eval()
+        return_value = super().forward(
+            Z=batch['X'], B=batch['B'], A=batch['A'],
+            block_lengths=batch['block_lengths'],
+            lengths=batch['lengths'],
+            segment_ids=batch['segment_ids'],
+        )
+        pred_energy = self.energy_ffn(return_value.graph_repr).squeeze(-1)
+        if extra_info:
+            return pred_energy, return_value
+        return pred_energy
+    
