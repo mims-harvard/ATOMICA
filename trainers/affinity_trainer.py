@@ -10,6 +10,7 @@ import wandb
 from scipy.stats import spearmanr
 import os
 from collections import defaultdict
+from torch.optim.lr_scheduler import SequentialLR, LinearLR, LambdaLR
 
 class AffinityTrainer(Trainer):
 
@@ -29,7 +30,7 @@ class AffinityTrainer(Trainer):
     def get_scheduler(self, optimizer):
         log_alpha = self.log_alpha
         lr_lambda = lambda step: exp(log_alpha * (step + 1))  # equal to alpha^{step}
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'
@@ -147,13 +148,13 @@ class AffinityNoisyNodesTrainer(Trainer):
 
     def get_scheduler(self, optimizer):
         log_alpha = self.log_alpha
-        lr_lambda = lambda step: exp(log_alpha * (step + 1))  # equal to alpha^{step}
-        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+        lr_lambda = lambda step: exp(log_alpha * (step + 1))
+        scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'
         }
-
+        
     def lr_weight(self, step):
         if self.global_step >= self.config.warmup:
             return 0.99 ** self.epoch

@@ -12,6 +12,7 @@ from torch_scatter import scatter_mean, scatter_sum
 from data.pdb_utils import VOCAB
 
 from .pretrain_model import DenoisePretrainModel
+from .InteractNN.utils import batchify
 
 PredictionReturnValue = namedtuple(
     'ReturnValue',
@@ -27,7 +28,6 @@ class PredictionModel(DenoisePretrainModel):
             global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
-        
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'
 
     @classmethod
@@ -95,7 +95,10 @@ class PredictionModel(DenoisePretrainModel):
         top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
         edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-        top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
+
+        batched_bottom_block_repr, _ = batchify(bottom_block_repr, block_id)
+        block_repr_from_bottom = self.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
+        top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
         global_mask = B != self.global_block_id if not self.global_message_passing else None
         block_repr, graph_repr = self.top_encoder(top_H_0, top_Z, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
         bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1

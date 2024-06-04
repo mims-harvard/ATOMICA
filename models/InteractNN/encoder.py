@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from torch_scatter import scatter_mean, scatter_sum
 
 from .interactnn import InteractionModule
+from .utils import batchify, unbatchify
 
 class InteractNNEncoder(nn.Module):
     def __init__(self, hidden_size, edge_size, n_layers=3, return_atom_noise=False, return_global_noise=False, 
@@ -17,6 +18,9 @@ class InteractNNEncoder(nn.Module):
                                          max_edge_length=max_edge_length, max_global_edge_length=max_global_edge_length, max_torsion_edge_length=max_torsion_edge_length)
         self.return_noise = any([return_atom_noise, return_global_noise, return_torsion_noise])
         self.global_message_passing = global_message_passing
+        self.attention_layer = nn.MultiheadAttention(hidden_size, num_heads=4, dropout=dropout, batch_first=True)
+        self.graph_repr_fc = nn.Linear(hidden_size, hidden_size)
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=None, tor_batch=None, global_mask=None):
         if self.return_noise:
@@ -27,10 +31,20 @@ class InteractNNEncoder(nn.Module):
         block_repr = F.normalize(block_repr, dim=-1)
         if global_mask is not None: # filter out global nodes if no global message passing
             assert self.global_message_passing == False, "global_message_passing is True so no global_mask should be provided"
+            block_repr_, batchify_mask = batchify(block_repr[global_mask], batch_id[global_mask])
+            block_repr_, _ = self.attention_layer(block_repr_, block_repr_, block_repr_)
+            block_repr[global_mask] = unbatchify(block_repr_, batchify_mask)
             graph_repr = scatter_sum(block_repr[global_mask], batch_id[global_mask], dim=0)
+            graph_repr = self.graph_repr_fc(graph_repr)
+            graph_repr = self.dropout(graph_repr)
         else:
             assert self.global_message_passing == True, "global_message_passing is False so a global_mask should be provided"
-            graph_repr = scatter_sum(block_repr, batch_id, dim=0)  # [bs, hidden]
+            block_repr_, batchify_mask = batchify(block_repr, batch_id)
+            block_repr_, _ = self.attention_layer(block_repr_, block_repr_, block_repr_)
+            block_repr = unbatchify(block_repr_, batchify_mask)
+            graph_repr = scatter_sum(block_repr, batch_id, dim=0)
+            graph_repr = self.graph_repr_fc(graph_repr)
+            graph_repr = self.dropout(graph_repr)
         graph_repr = F.normalize(graph_repr, dim=-1)
 
         if self.return_noise:

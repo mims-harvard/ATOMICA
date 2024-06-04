@@ -399,5 +399,8 @@ class NoisyNodesTorsionDataset(PretrainTorsionDataset):
     
     def __getitem__(self, idx):
         item = super().__getitem__(idx)
-        item['label'] = self.data[idx]['label'] # replace dummy label of PretrainTorsionDataset
+        if 'label' in self.data[idx]:
+            item['label'] = self.data[idx]['label']
+        else:
+            item['label'] = self.data[idx]['affinity']['neglog_aff'] # replace dummy label of PretrainTorsionDataset
         return item

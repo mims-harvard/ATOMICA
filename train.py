@@ -45,7 +45,9 @@ def parse():
     parser.add_argument('--pretrain', action='store_true', help='pretraining mode')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--final_lr', type=float, default=1e-4, help='final learning rate')
-    parser.add_argument('--warmup', type=int, default=0, help='linear learning rate warmup')
+    parser.add_argument('--warmup_steps', type=int, default=0, help='linear learning rate warmup steps')
+    parser.add_argument('--warmup_start_lr', type=float, default=1e-5, help='linear learning rate warmup start lr')
+    parser.add_argument('--warmup_end_lr', type=float, default=1e-3, help='linear learning rate warmup end lr')
     parser.add_argument('--dropout', type=float, default=0.0, help='dropout rate')
     parser.add_argument('--max_epoch', type=int, default=10, help='max training epoch')
     parser.add_argument('--grad_clip', type=float, default=None, help='clip gradients with too big norm')
@@ -319,7 +321,9 @@ def main(args):
     config = trainers.TrainConfig(
         args.save_dir, args.lr, args.max_epoch,
         cycle_steps=args.cycle_steps,
-        warmup=args.warmup,
+        warmup_steps=args.warmup_steps,
+        warmup_start_lr=args.warmup_start_lr,
+        warmup_end_lr=args.warmup_end_lr,
         patience=args.patience,
         grad_clip=args.grad_clip,
         save_topk=args.save_topk,

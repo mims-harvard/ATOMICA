@@ -248,3 +248,40 @@ class SphericalHarmonicEdgeAttrs(nn.Module):
     
     def forward(self, edge_vec):
         return self.sh(edge_vec)
+
+
+def batchify(tensor, batch_ids):
+    # Determine the number of batches and the maximum sequence length
+    num_batches = batch_ids.max().item() + 1
+    max_seq_len = (batch_ids == torch.arange(num_batches, device=batch_ids.device).unsqueeze(1)).sum(dim=1).max().item()
+    
+    # Initialize the output tensor with the mask token
+    _, dim = tensor.shape
+    output = torch.zeros((num_batches, max_seq_len, dim), device=tensor.device) # * mask_token
+    batchify_mask = torch.zeros((num_batches, max_seq_len), device=tensor.device, dtype=torch.bool)
+    
+    # Populate the output tensor and the mask
+    for batch_id in range(num_batches):
+        mask = batch_ids == batch_id
+        sequence = tensor[mask]
+        output[batch_id, :sequence.size(0)] = sequence
+        batchify_mask[batch_id, :sequence.size(0)] = True
+    
+    return output, batchify_mask
+
+def unbatchify(batchified_tensor, batchify_mask):
+    # Get the dimensions
+    num_batches, max_seq_len, dim = batchified_tensor.shape
+    original_length = batchify_mask.sum().item()
+    
+    # Initialize the output tensor
+    output = torch.zeros((original_length, dim), device=batchified_tensor.device)
+    
+    # Fill the output tensor using the mask
+    idx = 0
+    for batch_id in range(num_batches):
+        seq_length = batchify_mask[batch_id].sum().item()
+        output[idx:idx + seq_length] = batchified_tensor[batch_id, :seq_length]
+        idx += seq_length
+    
+    return output

@@ -59,6 +59,8 @@ class DDGPredictor(PredictionModel):
 
         # embedding
         top_H_0 = self.block_embedding.block_embedding(B)
+        esm_embeddings = self.esm_projector(esm_embeddings)
+        top_H_0 = self.esm_and_block_projector(torch.cat([top_H_0, esm_embeddings], dim=1))
         perturb_block_mask = None
         
         #top level 
@@ -66,8 +68,6 @@ class DDGPredictor(PredictionModel):
         edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
         global_mask = B != self.global_block_id if not self.global_message_passing else None
         block_repr, _ = self.top_encoder(top_H_0, top_Z, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
-        esm_embeddings = self.esm_projector(esm_embeddings)
-        block_repr = self.esm_and_block_projector(torch.cat([block_repr, esm_embeddings], dim=1))
         graph_repr = scatter_sum(block_repr, batch_id, dim=0)
         graph_repr = F.normalize(graph_repr, dim=-1)
         # block_energy = self.energy_ffn(block_repr).squeeze(-1)

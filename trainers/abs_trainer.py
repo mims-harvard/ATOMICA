@@ -16,14 +16,17 @@ import wandb
 
 
 class TrainConfig:
-    def __init__(self, save_dir, lr, max_epoch, warmup=0,
+    def __init__(self, save_dir, lr, max_epoch,
+                 warmup_steps=0, warmup_start_lr=1e-5, warmup_end_lr=1e-4,
                  metric_min_better=True, patience=3, cycle_steps=1,
                  grad_clip=None, save_topk=-1, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr
         self.max_epoch = max_epoch
-        self.warmup = warmup
+        self.warmup_steps = warmup_steps
+        self.warmup_start_lr = warmup_start_lr
+        self.warmup_end_lr = warmup_end_lr
         self.metric_min_better = metric_min_better
         self.patience = patience if patience > 0 else max_epoch
         self.grad_clip = grad_clip

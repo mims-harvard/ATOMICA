@@ -12,6 +12,8 @@ from data.pdb_utils import VOCAB
 from .tools import BlockEmbedding, KNNBatchEdgeConstructor
 from .InteractNN.encoder import InteractNNEncoder
 from .InteractNN.utils import GaussianEmbedding
+from .tools import CrossAttention
+from .InteractNN.utils import batchify
 
 
 ReturnValue = namedtuple(
@@ -134,6 +136,7 @@ class DenoisePretrainModel(nn.Module):
             max_torsion_neighbors=k_neighbors, max_edge_length=20, max_global_edge_length=20, max_torsion_edge_length=5)
         self.top_encoder = deepcopy(self.encoder)
         self.top_encoder.encoder.edge_embedder[0] = GaussianEmbedding(num_gaussians=edge_size, stop=30)
+        self.atom_block_attn = CrossAttention(hidden_size, hidden_size, hidden_size, 4, dropout)
 
         # Denoising heads
         if self.torsion_noise:
@@ -254,7 +257,9 @@ class DenoisePretrainModel(nn.Module):
         top_Z = scatter_mean(Z_perturbed, block_id, dim=0)  # [Nb, n_channel, 3]
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
         edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-        top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
+        batched_bottom_block_repr, _ = batchify(bottom_block_repr, block_id)
+        block_repr_from_bottom = self.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
+        top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
         global_mask = B != self.global_block_id if not self.global_message_passing else None
         if self.top_encoder.return_noise:
             block_repr, graph_repr, trans_noise_top, rot_noise_top, pred_noise_top, _ = self.top_encoder(
