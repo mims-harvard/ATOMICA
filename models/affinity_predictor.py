@@ -127,8 +127,6 @@ class AffinityPredictorNoisyNodes(PredictionModel):
         self.encoder.return_noise = return_noise
         self.encoder.encoder.return_torsion_noise = return_noise
         self.encoder.encoder.return_global_noise = return_noise
-        self.top_encoder.return_noise = return_noise
-        self.top_encoder.encoder.return_global_noise = return_noise
 
     def infer(self, batch, extra_info=False):
         self.eval()

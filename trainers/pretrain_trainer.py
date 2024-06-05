@@ -114,7 +114,7 @@ class PretrainTrainer(Trainer):
                 self.resume_index = 0
             else:
                 self.train_loader.sampler.set_epoch(self.epoch)
-        t_iter = tqdm(enumerate(self.train_loader)) if self._is_main_proc() else enumerate(self.train_loader)
+        t_iter = tqdm(enumerate(self.train_loader), total=len(self.train_loader), desc=f"Train epoch {self.epoch}") if self._is_main_proc() else enumerate(self.train_loader)
         metric_dict = defaultdict(list)
         print(f"NUMBATCHES = {len(self.train_loader)}")
         for batch_idx, batch in t_iter:
@@ -131,8 +131,7 @@ class PretrainTrainer(Trainer):
                 metric_dict["rotation_loss"].append(loss_obj.rotation_loss.detach().cpu().item())
                 metric_dict["torsion_loss"].append(loss_obj.tor_loss.detach().cpu().item())
                 if self.use_wandb and self._is_main_proc():
-                    wandb.log({f'train_MSELoss': loss_obj.loss.detach().cpu().item()}, step=self.global_step)
-                    wandb.log({f'train_RMSELoss': np.sqrt(loss_obj.loss.detach().cpu().item())}, step=self.global_step)
+                    wandb.log({f'train_loss': loss_obj.loss.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_atom_loss': loss_obj.atom_loss.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_translation_loss': loss_obj.translation_loss.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_rotation_loss': loss_obj.rotation_loss.detach().cpu().item()}, step=self.global_step)
@@ -143,7 +142,7 @@ class PretrainTrainer(Trainer):
                     wandb.log({f'train_torsion_base': loss_obj.tor_base.detach().cpu().item()}, step=self.global_step)
                     if batch_idx % 500 == 0 and batch_idx > 0:
                         start_idx = max(0, len(metric_dict["loss"]) - 500)
-                        wandb.log({f'train_last500_MSELoss': np.mean(metric_dict["loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_loss': np.mean(metric_dict["loss"][start_idx:])}, step=self.global_step)
                         wandb.log({f'train_last500_atom_loss': np.mean(metric_dict["atom_loss"][start_idx:])}, step=self.global_step)
                         wandb.log({f'train_last500_translation_loss': np.mean(metric_dict["translation_loss"][start_idx:])}, step=self.global_step)
                         wandb.log({f'train_last500_rotation_loss': np.mean(metric_dict["rotation_loss"][start_idx:])}, step=self.global_step)
@@ -178,7 +177,7 @@ class PretrainTrainer(Trainer):
                 else:
                     raise e
         if self.use_wandb and self._is_main_proc():
-            wandb.log({f'train_epoch_MSELoss': np.mean(metric_dict["loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_loss': np.mean(metric_dict["loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
             wandb.log({f'train_epoch_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
@@ -214,7 +213,7 @@ class PretrainTrainer(Trainer):
         metric_dict = defaultdict(list)
         self.model.eval()
         with torch.no_grad():
-            t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
+            t_iter = tqdm(self.valid_loader, total=len(self.valid_loader), desc="Validation") if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
                 batch = self.to_device(batch, device)
                 metric = self.valid_step(batch, self.valid_global_step)
@@ -230,8 +229,7 @@ class PretrainTrainer(Trainer):
         # judge
         valid_metric = np.mean(metric_dict["loss"])
         if self.use_wandb and self._is_main_proc():
-            wandb.log({'val_MSELoss': valid_metric}, step=self.global_step)
-            wandb.log({'val_RMSELoss': np.sqrt(valid_metric)}, step=self.global_step)
+            wandb.log({'val_loss': valid_metric}, step=self.global_step)
             wandb.log({'val_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
             wandb.log({'val_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
             wandb.log({'val_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)

@@ -48,7 +48,6 @@ class LearningRateWarmup(object):
         self.target_lr = target_lr
         self.start_lr = start_lr
         self.after_scheduler = after_scheduler
-        self.last_lr = 0
         self.step(1)
 
     def warmup_learning_rate(self, cur_iteration):
@@ -60,7 +59,7 @@ class LearningRateWarmup(object):
         if cur_iteration <= self.warmup_iteration:
             self.warmup_learning_rate(cur_iteration)
         else:
-            self.after_scheduler.step(cur_iteration-self.warmup_iteration)
+            self.after_scheduler.step()
     
     def load_state_dict(self, state_dict):
         self.after_scheduler.load_state_dict(state_dict)
