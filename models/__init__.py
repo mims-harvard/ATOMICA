@@ -14,7 +14,8 @@ def create_model(args):
             model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
         else:
             model = DenoisePretrainModel(
-                hidden_size=args.hidden_size,
+                atom_hidden_size=args.atom_hidden_size,
+                block_hidden_size=args.block_hidden_size,
                 edge_size=args.edge_size,
                 k_neighbors=args.k_neighbors,
                 n_layers=args.n_layers,
@@ -42,7 +43,8 @@ def create_model(args):
         else:
             model = AffinityPredictorNoisyNodes(
                 noisy_nodes_weight=args.noisy_nodes_weight,
-                hidden_size=args.hidden_size,
+                atom_hidden_size=args.atom_hidden_size,
+                block_hidden_size=args.block_hidden_size,
                 edge_size=args.edge_size,
                 k_neighbors=args.k_neighbors,
                 n_layers=args.n_layers,
@@ -94,7 +96,8 @@ def create_model(args):
             return model
         else:
             return Model(
-                hidden_size=args.hidden_size,
+                atom_hidden_size=args.atom_hidden_size,
+                block_hidden_size=args.block_hidden_size,
                 edge_size=args.edge_size,
                 k_neighbors=args.k_neighbors,
                 n_layers=args.n_layers,

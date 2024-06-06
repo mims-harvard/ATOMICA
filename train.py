@@ -70,7 +70,8 @@ def parse():
                         help="Local rank. Necessary for using the torch.distributed.launch utility.")
     
     # model
-    parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
+    parser.add_argument('--atom_hidden_size', type=int, default=128, help='dimension of hidden states')
+    parser.add_argument('--block_hidden_size', type=int, default=128, help='dimension of hidden states for blocks')
     parser.add_argument('--edge_size', type=int, default=16, help='Dimension of edge embeddings')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')

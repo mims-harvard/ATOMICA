@@ -168,6 +168,10 @@ class InteractionModule(torch.nn.Module):
         edge_length_embedding = self.edge_embedder(edge_length)
 
         for l in range(self.num_conv_layers):
+            assert not torch.any(torch.isnan(edge_length_embedding)), "nans in edge_length_embedding"
+            assert not torch.any(torch.isnan(edge_type_attr)), "nans in edge_type_attr"
+            assert not torch.any(torch.isnan(node_attr)), "nans in node_attr"
+
             edge_attr = torch.cat(
                 (
                     edge_length_embedding,

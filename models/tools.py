@@ -155,12 +155,12 @@ class BlockEmbedding(nn.Module):
     '''
     [atom embedding + block embedding + atom position embedding]
     '''
-    def __init__(self, num_block_type, num_atom_type, embed_size, no_block_embedding=False):
+    def __init__(self, num_block_type, num_atom_type, atom_embed_size, block_embed_size, no_block_embedding=False):
         super().__init__()
         if not no_block_embedding:
-            self.block_embedding = nn.Embedding(num_block_type, embed_size)
+            self.block_embedding = nn.Embedding(num_block_type, block_embed_size)
         self.no_block_embedding = no_block_embedding
-        self.atom_embedding = nn.Embedding(num_atom_type, embed_size)
+        self.atom_embedding = nn.Embedding(num_atom_type, atom_embed_size)
     
     def forward(self, B, A, block_id):
         '''

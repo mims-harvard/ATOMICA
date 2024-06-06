@@ -14,10 +14,10 @@ PredictionReturnValue = namedtuple(
 )
 
 class PredictionModel(DenoisePretrainModel):
-    def __init__(self, hidden_size, edge_size, k_neighbors,
+    def __init__(self, atom_hidden_size, block_hidden_size, edge_size, k_neighbors,
                  n_layers, dropout=0.0, global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
-            hidden_size=hidden_size, edge_size=edge_size, 
+            atom_hidden_size=atom_hidden_size, block_hidden_size=block_hidden_size, edge_size=edge_size, 
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
             global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
@@ -30,7 +30,8 @@ class PredictionModel(DenoisePretrainModel):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
-            hidden_size=pretrained_model.hidden_size,
+            atom_hidden_size=pretrained_model.atom_hidden_size,
+            block_hidden_size=pretrained_model.hidden_size,
             edge_size=pretrained_model.edge_size,
             k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
@@ -50,7 +51,7 @@ class PredictionModel(DenoisePretrainModel):
             model.requires_grad_(requires_grad=False)
 
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
-            model.top_encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
+            model.edge_embedding_top.requires_grad_(requires_grad=True)
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
