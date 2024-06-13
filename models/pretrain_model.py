@@ -135,10 +135,11 @@ class DenoisePretrainModel(nn.Module):
         self.encoder = InteractNNEncoder(
             atom_hidden_size, edge_size, n_layers=n_layers, dropout=dropout,
             return_atom_noise=atom_noise, return_global_noise=translation_noise or rotation_noise,
-            return_torsion_noise=torsion_noise, global_message_passing=global_message_passing,
-            max_torsion_neighbors=k_neighbors, max_edge_length=5, max_global_edge_length=20, max_torsion_edge_length=5)
-        self.top_encoder = GET(
-            block_hidden_size, d_radial=edge_size, n_channel=1, n_rbf=edge_size, n_layers=4, dropout=dropout, d_edge=edge_size,
+            return_torsion_noise=torsion_noise, max_torsion_neighbors=k_neighbors, 
+            max_edge_length=5, max_global_edge_length=20, max_torsion_edge_length=5
+        )
+        self.top_encoder = InteractNNEncoder(
+            atom_hidden_size, edge_size, n_layers=n_layers, dropout=dropout, max_edge_length=5
         )
         self.atom_block_attn = CrossAttention(block_hidden_size, atom_hidden_size, block_hidden_size, 4, dropout)
         self.atom_block_attn_norm = nn.LayerNorm(block_hidden_size)
@@ -249,8 +250,8 @@ class DenoisePretrainModel(nn.Module):
         top_H_0 = self.atom_block_attn_norm(top_H_0)
 
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        block_repr, _ = self.top_encoder(top_H_0, top_Z.unsqueeze(1), top_block_id, 
-                                         batch_id, edges, edge_attr)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr) 
+        
         if self.global_message_passing:
             graph_repr = self.attention_pooling(block_repr, batch_id)
         else:

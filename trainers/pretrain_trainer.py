@@ -105,7 +105,7 @@ class PretrainTrainer(Trainer):
             else:
                 raise e
 
-    def _train_epoch(self, device, validation_freq=5000):
+    def _train_epoch(self, device):
         self._before_train_epoch_start()
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
             if self.resume_index > 0:
@@ -157,7 +157,7 @@ class PretrainTrainer(Trainer):
                     self.scheduler.step()
                 if self.use_wandb and self._is_main_proc():
                     wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
-                if batch_idx % validation_freq == 0 and batch_idx > 0:
+                if batch_idx == len(self.train_loader)//2:
                     print_log(f'validating ...') if self._is_main_proc() else 1
                     self._valid_epoch(device)
                     self._before_train_epoch_start()

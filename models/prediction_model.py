@@ -97,7 +97,7 @@ class PredictionModel(DenoisePretrainModel):
         top_H_0 = self.atom_block_attn_norm(top_H_0)
 
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        block_repr, _ = self.top_encoder(top_H_0, top_Z.unsqueeze(1), top_block_id, batch_id, edges, edge_attr)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
         if self.global_message_passing:
             graph_repr = self.attention_pooling(block_repr, batch_id)
         else:

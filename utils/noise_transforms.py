@@ -257,6 +257,7 @@ def _score(exp, theta, sigma, L=2000):
 
 class GlobalRotationTransform:
     def __init__(self, rot_sigma, max_theta):
+        # Source for SO3 transformation https://github.com/wengong-jin/DSMBind/blob/master/bindenergy/models/energy.py
         self.theta_range = np.linspace(0.1, max_theta, 100)
         self.sigma_range = np.linspace(0.1, rot_sigma, 100)
         self.expansion = [_expansion(self.theta_range, sigma) for sigma in self.sigma_range]

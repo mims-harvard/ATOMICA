@@ -36,13 +36,11 @@ class AffinityPredictor(PredictionModel):
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
-        # block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
-        # if not self.global_message_passing: # ignore global blocks
-        #     block_energy[B == self.global_block_id] = 0
-        # pred_energy = scatter_sum(block_energy, return_value.batch_id)
-        # return F.mse_loss(-pred_energy, label), -pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
-        pred_energy = self.energy_ffn(return_value.graph_repr).squeeze(-1)
-        return F.mse_loss(pred_energy, label), pred_energy
+        block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
+        if not self.global_message_passing: # ignore global blocks
+            block_energy[B == self.global_block_id] = 0
+        pred_energy = scatter_sum(block_energy, return_value.batch_id)
+        return F.mse_loss(-pred_energy, label), -pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
 
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -52,17 +50,13 @@ class AffinityPredictor(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         )
-        # block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
-        # if not self.global_message_passing: # ignore global blocks
-        #     block_energy[batch['B'] == self.global_block_id] = 0
-        # pred_energy = scatter_sum(block_energy, return_value.batch_id)
-        # if extra_info:
-        #     return -pred_energy, return_value
-        # return -pred_energy
-        pred_energy = self.energy_ffn(return_value.graph_repr).squeeze(-1)
+        block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
+        if not self.global_message_passing: # ignore global blocks
+            block_energy[batch['B'] == self.global_block_id] = 0
+        pred_energy = scatter_sum(block_energy, return_value.batch_id)
         if extra_info:
-            return pred_energy, return_value
-        return pred_energy
+            return -pred_energy, return_value
+        return -pred_energy
     
 
 class AffinityPredictorNoisyNodes(PredictionModel):
