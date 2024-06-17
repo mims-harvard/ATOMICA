@@ -81,7 +81,7 @@ def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, com
 class DenoisePretrainModel(nn.Module):
 
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size=16, k_neighbors=9, n_layers=3,
-                 dropout=0.0, global_message_passing=False, fragmentation_method=None,
+                 dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None,
                  atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, 
                  atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1) -> None:
         super().__init__()
@@ -98,6 +98,7 @@ class DenoisePretrainModel(nn.Module):
 
         # message passing parameters
         self.global_message_passing = global_message_passing
+        self.bottom_global_message_passing = bottom_global_message_passing
 
         # block embedding parameters
         self.fragmentation_method = fragmentation_method
@@ -126,10 +127,10 @@ class DenoisePretrainModel(nn.Module):
 
         self.edge_constructor = KNNBatchEdgeConstructor(
             k_neighbors=k_neighbors,
-            global_message_passing=global_message_passing,
+            global_message_passing=self.global_message_passing or self.bottom_global_message_passing,
             global_node_id_vocab=[self.global_block_id, VOCAB.get_atom_global_idx()], # global edges are only constructed for the global block, but not the global atom
             delete_self_loop=True)
-        self.edge_embedding_bottom = nn.Embedding(2, edge_size)  # [intra / inter ]
+        self.edge_embedding_bottom = nn.Embedding(4, edge_size)  # [intra / inter / global_global / global_normal]
         self.edge_embedding_top = nn.Embedding(4, edge_size)  # [intra / inter / global_global / global_normal]
         
         self.encoder = InteractNNEncoder(
@@ -139,7 +140,7 @@ class DenoisePretrainModel(nn.Module):
             max_edge_length=5, max_global_edge_length=20, max_torsion_edge_length=5
         )
         self.top_encoder = InteractNNEncoder(
-            atom_hidden_size, edge_size, n_layers=n_layers, dropout=dropout, max_edge_length=5
+            block_hidden_size, edge_size, n_layers=n_layers, dropout=dropout, max_edge_length=5
         )
         self.atom_block_attn = CrossAttention(block_hidden_size, atom_hidden_size, block_hidden_size, 4, dropout)
         self.atom_block_attn_norm = nn.LayerNorm(block_hidden_size)
@@ -230,7 +231,7 @@ class DenoisePretrainModel(nn.Module):
         
         # bottom level message passing
         edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
-                                          Z_perturbed, bottom_block_id, global_message_passing=False, 
+                                          Z_perturbed, bottom_block_id, self.bottom_global_message_passing, 
                                           top=False)
         bottom_block_repr, trans_noise, rot_noise, pred_noise, tor_noise = self.encoder(
             bottom_H_0, Z_perturbed, bottom_batch_id, perturb_mask, edges, edge_attr, 

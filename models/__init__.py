@@ -23,6 +23,7 @@ def create_model(args):
                 translation_noise=args.translation_noise != 0,
                 rotation_noise=args.rotation_noise != 0,
                 torsion_noise=args.torsion_noise != 0,
+                bottom_global_message_passing=args.bottom_global_message_passing,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
                 atom_weight=args.atom_weight,
@@ -36,6 +37,7 @@ def create_model(args):
         if args.pretrain_ckpt:
             add_params = {
                 'partial_finetune': args.partial_finetune,
+                'bottom_global_message_passing': args.bottom_global_message_passing,
                 'global_message_passing': args.global_message_passing,
                 'k_neighbors': args.k_neighbors,
             }
@@ -52,6 +54,7 @@ def create_model(args):
                 translation_noise=args.translation_noise != 0,
                 rotation_noise=args.rotation_noise != 0,
                 torsion_noise=args.torsion_noise != 0,
+                bottom_global_message_passing=args.bottom_global_message_passing,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
                 atom_weight=args.atom_weight,
@@ -79,6 +82,7 @@ def create_model(args):
             add_params["num_layers"] = args.num_layers
             add_params["num_nodes"] = args.num_nodes
             add_params['global_message_passing'] = args.global_message_passing
+            add_params['bottom_global_message_passing'] = args.bottom_global_message_passing
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
@@ -86,6 +90,7 @@ def create_model(args):
             if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
+                    'bottom_global_message_passing': args.bottom_global_message_passing,
                     'global_message_passing': args.global_message_passing,
                     'k_neighbors': args.k_neighbors,
                 })
@@ -101,6 +106,7 @@ def create_model(args):
                 edge_size=args.edge_size,
                 k_neighbors=args.k_neighbors,
                 n_layers=args.n_layers,
+                bottom_global_message_passing=args.bottom_global_message_passing,
                 global_message_passing=args.global_message_passing,
                 fragmentation_method=args.fragmentation_method,
                 dropout=args.dropout,
