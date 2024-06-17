@@ -97,8 +97,6 @@ class AffinityTrainer(Trainer):
                 batch = self.to_device(batch, device)
                 metric, pred = self.valid_step(batch, self.valid_global_step)
                 pred_arr.append(pred.cpu().numpy())
-                if metric is None:
-                    continue # Out of memory
                 metric_arr.append(metric.cpu().item())
                 self.valid_global_step += 1
         self.model.train()
