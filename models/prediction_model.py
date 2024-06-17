@@ -15,11 +15,11 @@ PredictionReturnValue = namedtuple(
 
 class PredictionModel(DenoisePretrainModel):
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size, k_neighbors,
-                 n_layers, dropout=0.0, global_message_passing=False, fragmentation_method=None) -> None:
+                 n_layers, dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
             atom_hidden_size=atom_hidden_size, block_hidden_size=block_hidden_size, edge_size=edge_size, 
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
-            global_message_passing=global_message_passing,
+            bottom_global_message_passing=bottom_global_message_passing, global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'
@@ -37,11 +37,13 @@ class PredictionModel(DenoisePretrainModel):
             n_layers=pretrained_model.n_layers,
             dropout=pretrained_model.dropout,
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
+            bottom_global_message_passing=kwargs.get('bottom_global_message_passing', pretrained_model.bottom_global_message_passing),
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
-               n_layers={model.n_layers}, global_message_passing={model.global_message_passing}, 
+               n_layers={model.n_layers}, bottom_global_message_passing={model.bottom_global_message_passing},
+               global_message_passing={model.global_message_passing}, 
                fragmentation_method={model.fragmentation_method}""")
         assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
@@ -53,6 +55,10 @@ class PredictionModel(DenoisePretrainModel):
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
             model.edge_embedding_top.requires_grad_(requires_grad=True)
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
+        
+        if pretrained_model.bottom_global_message_passing is False and model.bottom_global_message_passing is True:
+            model.edge_embedding_bottom.requires_grad_(requires_grad=True)
+            print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
     ########## overload ##########
@@ -79,7 +85,7 @@ class PredictionModel(DenoisePretrainModel):
 
         # bottom level message passing
         edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
-                                          Z, bottom_block_id, global_message_passing=False, 
+                                          Z, bottom_block_id, self.bottom_global_message_passing, 
                                           top=False)
         bottom_block_repr = self.encoder(
             bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr, 
