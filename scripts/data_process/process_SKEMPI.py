@@ -4,6 +4,7 @@ import os
 import sys
 import pickle
 from tqdm import tqdm
+import copy
 
 PROJ_DIR = os.path.join(
     os.path.split(os.path.abspath(__file__))[0],
@@ -30,24 +31,25 @@ def group_chains(list_chain_blocks, list_chain_pdb_indexes, group1, group2):
             group2_indexes.extend(chain_pdb_indexes)
     return [group1_chains, group2_chains], [group1_indexes, group2_indexes]
 
-def process_wt(pdb_file, dist_th, group1_chains, group2_chains):
-    wt_blocks, pdb_indexes = pdb_to_list_blocks(pdb_file, return_indexes=True)
-    if len(wt_blocks) != 2:
-        wt_blocks, pdb_indexes = group_chains(wt_blocks, pdb_indexes, group1_chains, group2_chains)
-    wt_blocks1, wt_blocks2, block_indexes1, block_indexes2 = blocks_interface(wt_blocks[0], wt_blocks[1], dist_th, return_indexes=True)
-    pdb_indexes1 = [pdb_indexes[0][i] for i in block_indexes1]
-    pdb_indexes2 = [pdb_indexes[1][i] for i in block_indexes2]
-    pdb_indexes_map = {}
-    pdb_indexes_map.update(dict(zip(range(1,len(wt_blocks1)+1), pdb_indexes1))) # map block index to pdb index, +1 for global block)
-    pdb_indexes_map.update(dict(zip(range(len(wt_blocks1)+2,len(wt_blocks1)+len(wt_blocks2)+2), pdb_indexes2))) # map block index to pdb index, +2 for global blocks
-    wt_data = blocks_to_data(wt_blocks1, wt_blocks2)
-    return wt_data, pdb_indexes_map
+# def process_wt(pdb_file, dist_th, group1_chains, group2_chains):
+#     wt_blocks, pdb_indexes = pdb_to_list_blocks(pdb_file, return_indexes=True)
+#     if len(wt_blocks) != 2:
+#         wt_blocks, pdb_indexes = group_chains(wt_blocks, pdb_indexes, group1_chains, group2_chains)
+#     wt_blocks1, wt_blocks2, block_indexes1, block_indexes2 = blocks_interface(wt_blocks[0], wt_blocks[1], dist_th, return_indexes=True)
+#     pdb_indexes1 = [pdb_indexes[0][i] for i in block_indexes1]
+#     pdb_indexes2 = [pdb_indexes[1][i] for i in block_indexes2]
+#     pdb_indexes_map = {}
+#     pdb_indexes_map.update(dict(zip(range(1,len(wt_blocks1)+1), pdb_indexes1))) # map block index to pdb index, +1 for global block)
+#     pdb_indexes_map.update(dict(zip(range(len(wt_blocks1)+2,len(wt_blocks1)+len(wt_blocks2)+2), pdb_indexes2))) # map block index to pdb index, +2 for global blocks
+#     wt_data = blocks_to_data(wt_blocks1, wt_blocks2)
+#     return wt_data, pdb_indexes_map
 
 def process_mut(pdb_file, dist_th, group1_chains, group2_chains, mut_sites):
     # mut_sites [(mut_ch, mut_site, wt_aa, mut_aa)]
-    mut_blocks, pdb_indexes = pdb_to_list_blocks(pdb_file, return_indexes=True)
-    if len(mut_blocks) != 2:
-        mut_blocks, pdb_indexes = group_chains(mut_blocks, pdb_indexes, group1_chains, group2_chains)
+    wt_blocks, pdb_indexes = pdb_to_list_blocks(pdb_file, return_indexes=True)
+    if len(wt_blocks) != 2:
+        wt_blocks, pdb_indexes = group_chains(wt_blocks, pdb_indexes, group1_chains, group2_chains)
+    mut_blocks = copy.deepcopy(wt_blocks)
     
     mut_locs = []
     for mut_ch, mut_site, wt_aa, mut_aa in mut_sites:
@@ -75,6 +77,8 @@ def process_mut(pdb_file, dist_th, group1_chains, group2_chains, mut_sites):
         mut_blocks[mut_ch_i][mut_site_i] = Block(symbol=mut_aa, units=backbone_atoms)
 
     mut_blocks1, mut_blocks2, mut_indexes1, mut_indexes2 = blocks_interface(mut_blocks[0], mut_blocks[1], dist_th, return_indexes=True)
+    wt_blocks1 = [wt_blocks[0][i] for i in mut_indexes1]
+    wt_blocks2 = [wt_blocks[1][i] for i in mut_indexes2]
 
     # Check if mutation site is in the interface
     mut_block_indexes = []
@@ -96,7 +100,8 @@ def process_mut(pdb_file, dist_th, group1_chains, group2_chains, mut_sites):
     pdb_indexes_map.update(dict(zip(range(1,len(mut_blocks1)+1), pdb_indexes1))) # map block index to pdb index, +1 for global block)
     pdb_indexes_map.update(dict(zip(range(len(mut_blocks1)+2,len(mut_blocks1)+len(mut_blocks2)+2), pdb_indexes2))) # map block index to pdb index, +2 for global blocks
     mut_data = blocks_to_data(mut_blocks1, mut_blocks2)
-    return mut_data, mut_block_indexes, pdb_indexes_map
+    wt_data = blocks_to_data(wt_blocks1, wt_blocks2)
+    return wt_data, mut_data, mut_block_indexes, pdb_indexes_map
 
 def process_data(skempi_csv, pdb_dir, dist_th=8.0):
     skempi_df = pd.read_csv(skempi_csv, sep=';')
@@ -120,10 +125,8 @@ def process_data(skempi_csv, pdb_dir, dist_th=8.0):
         mutation_sites = []
         for mutation_site in mutation_site_list:
             mutation_sites.append((mutation_site[1], mutation_site[2:-1], mutation_site[0], mutation_site[-1]))
-
-        wt_data, wt_pdb_indexes_map = process_wt(pdb_file, dist_th, group1_chains, group2_chains)
         try:
-            mt_data, mut_block_indexes, mut_pdb_indexes_map = process_mut(pdb_file, dist_th, group1_chains, group2_chains, mutation_sites)
+            wt_data, mt_data, mut_block_indexes, pdb_indexes_map = process_mut(pdb_file, dist_th, group1_chains, group2_chains, mutation_sites)
         except Exception as e:
             if "Invalid mutation site, mutated residue not found in the interface." in str(e):
                 print(f"WARNING: Invalid mutation site, mutated residue not found in the interface. pdb={pdb_file}")
@@ -138,8 +141,7 @@ def process_data(skempi_csv, pdb_dir, dist_th=8.0):
             "wt_binding_affinity": wt_ba,
             "mt_binding_affinity": mt_ba,
             "mt_block_indexes": mut_block_indexes,
-            "wt_pdb_indexes_map": wt_pdb_indexes_map,
-            "mt_pdb_indexes_map": mut_pdb_indexes_map,
+            "pdb_indexes_map": pdb_indexes_map,
         }
         data.append(item)
     return data

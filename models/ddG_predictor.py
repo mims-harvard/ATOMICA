@@ -23,7 +23,7 @@ class DDGPredictor(PredictionModel):
             nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, 1, bias=False),
         )
-        self.esm_projector = nn.Sequential(
+        self.esm_projector1 = nn.Sequential(
             nn.Linear(2560, 2560),
             nn.ReLU(),
             nn.Dropout(self.dropout),
@@ -32,7 +32,16 @@ class DDGPredictor(PredictionModel):
             nn.Dropout(self.dropout),
             nn.Linear(2560, self.hidden_size),
         )
-        self.esm_and_block_projector = nn.Sequential(
+        # self.esm_projector2 = nn.Sequential(
+        #     nn.Linear(2560, 2560),
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(2560, 2560),
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(2560, self.hidden_size),
+        # )
+        self.esm_and_block_projector1 = nn.Sequential(
             nn.Linear(2*self.hidden_size, 2*self.hidden_size),
             nn.ReLU(),
             nn.Dropout(self.dropout),
@@ -41,6 +50,15 @@ class DDGPredictor(PredictionModel):
             nn.Dropout(self.dropout),
             nn.Linear(2*self.hidden_size, self.hidden_size),
         )
+        # self.esm_and_block_projector2 = nn.Sequential(
+        #     nn.Linear(2*self.hidden_size, 2*self.hidden_size),
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(2*self.hidden_size, 2*self.hidden_size),
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(2*self.hidden_size, self.hidden_size),
+        # )
             
     
     @classmethod
@@ -48,7 +66,6 @@ class DDGPredictor(PredictionModel):
         model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
         partial_finetune = kwargs.get('partial_finetune', False)
         if partial_finetune:
-            model.requires_grad_(requires_grad=False)
             model.ddg_ffn.requires_grad_(requires_grad=True)
         return model
     
@@ -60,6 +77,8 @@ class DDGPredictor(PredictionModel):
 
         # embedding
         top_H_0 = self.block_embedding.block_embedding(B)
+        esm_embeddings_proj1 = self.esm_projector1(esm_embeddings)
+        top_H_0 = self.esm_and_block_projector1(torch.cat([top_H_0, esm_embeddings_proj1], dim=1))
         perturb_block_mask = None
         
         #top level 
@@ -67,8 +86,8 @@ class DDGPredictor(PredictionModel):
         edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
         global_mask = B != self.global_block_id if not self.global_message_passing else None
         block_repr, _ = self.top_encoder(top_H_0, top_Z, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
-        esm_embeddings = self.esm_projector(esm_embeddings)
-        block_repr = self.esm_and_block_projector(torch.cat([block_repr, esm_embeddings], dim=1))
+        # esm_embeddings_proj2 = self.esm_projector2(esm_embeddings)
+        # block_repr = self.esm_and_block_projector2(torch.cat([block_repr, esm_embeddings_proj2], dim=1))
         graph_repr = scatter_sum(block_repr, batch_id, dim=0)
         graph_repr = F.normalize(graph_repr, dim=-1)
         # block_energy = self.energy_ffn(block_repr).squeeze(-1)
