@@ -214,6 +214,8 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         data['tor_edges'] = tor_edges
         data['noisy_segment'] = chosen_segment
 
+        # coord_change = np.linalg.norm(data["X"] - item["data"]["X"], axis=1)
+        # print(f'Change in atomic position: mean {np.mean(coord_change):.2f}, max {np.max(coord_change):.2f}, min {np.min(coord_change):.2f}')
         return data
 
     @classmethod
@@ -271,7 +273,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         res['tor_edges'] = torch.tensor(res['tor_edges'], dtype=torch.long)
         res['tor_batch'] = torch.tensor(res['tor_batch'], dtype=torch.long)
         assert res['tor_edges'].shape[1] == res['tor_score'].shape[0] == res['tor_batch'].shape[0], "mismatch in tor score and number of tor edges"
-        res['label'] = torch.tensor([-1 for _ in batch], dtype=torch.float)
+        res['label'] = torch.tensor([x['label'] for x in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         res['atom_score'], res['atom_eps'] = None, None # no atom noise
@@ -384,9 +386,21 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
             val = [item[key] for item in batch]
             val = np.array(val)
             res[key] = torch.tensor(val, dtype=_type)
-        res['label'] = torch.tensor([-1 for _ in batch], dtype=torch.float)
+        res['label'] = torch.tensor([x['label'] for x in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         res['tor_edges'], res['tor_score'], res['tor_batch'] = None, None, None # no tor noise
         return res
     
+
+class NoisyNodesTorsionDataset(PretrainTorsionDataset):
+    def __init__(self, data_file):
+        super().__init__(data_file)
+    
+    def __getitem__(self, idx):
+        item = super().__getitem__(idx)
+        if 'label' in self.data[idx]:
+            item['label'] = self.data[idx]['label']
+        else:
+            item['label'] = self.data[idx]['affinity']['neglog_aff'] # replace dummy label of PretrainTorsionDataset
+        return item

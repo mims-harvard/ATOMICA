@@ -87,7 +87,7 @@ def main(args):
     print(f'prediction: {len(preds)}, test set: {len(test_set)}')
     print(f'Number of entries in both sets: {len(cover_ids)}')
 
-    if task == 'PPA' or task == 'PLA' or task == 'PDBBind' or task == 'PLA_frag':
+    if task == 'PPA' or task == 'PLA' or task == 'PDBBind' or task == 'PLA_frag' or task == 'PLA_noisy_nodes':
         metrics = {
             'Pearson': pearsonr,
             'Spearman': spearmanr,

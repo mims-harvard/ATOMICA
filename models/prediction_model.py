@@ -1,33 +1,27 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
 from collections import namedtuple
-
-import numpy as np
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.autograd import grad
-from torch_scatter import scatter_mean, scatter_sum
+from torch_scatter import scatter_mean
 
 from data.pdb_utils import VOCAB
-
 from .pretrain_model import DenoisePretrainModel
+from .InteractNN.utils import batchify
 
 PredictionReturnValue = namedtuple(
     'ReturnValue',
-    ['unit_repr', 'block_repr', 'graph_repr', 'graph_unit_repr', 'batch_id', 'block_id'],
+    ['unit_repr', 'block_repr', 'graph_repr', 'batch_id', 'block_id'],
 )
 
 class PredictionModel(DenoisePretrainModel):
-    def __init__(self, hidden_size, edge_size, k_neighbors,
+    def __init__(self, atom_hidden_size, block_hidden_size, edge_size, k_neighbors,
                  n_layers, dropout=0.0, global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
-            hidden_size=hidden_size, edge_size=edge_size, 
+            atom_hidden_size=atom_hidden_size, block_hidden_size=block_hidden_size, edge_size=edge_size, 
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
             global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
             torsion_noise=False, fragmentation_method=fragmentation_method)
-        
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'
 
     @classmethod
@@ -36,7 +30,8 @@ class PredictionModel(DenoisePretrainModel):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
-            hidden_size=pretrained_model.hidden_size,
+            atom_hidden_size=pretrained_model.atom_hidden_size,
+            block_hidden_size=pretrained_model.hidden_size,
             edge_size=pretrained_model.edge_size,
             k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
@@ -51,10 +46,12 @@ class PredictionModel(DenoisePretrainModel):
         assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
 
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.requires_grad_(requires_grad=False)
+
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
-            model.edge_embedding.requires_grad_(requires_grad=True)
-            model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
-            model.top_encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
+            model.edge_embedding_top.requires_grad_(requires_grad=True)
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
 
@@ -62,7 +59,6 @@ class PredictionModel(DenoisePretrainModel):
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids) -> PredictionReturnValue:
         # batch_id and block_id
         with torch.no_grad():
-
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
             batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
             batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
@@ -78,30 +74,42 @@ class PredictionModel(DenoisePretrainModel):
             bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
 
         # embedding
-        bottom_H_0 = self.block_embedding.atom_embedding(A) # FIXME: ablation
+        bottom_H_0 = self.block_embedding.atom_embedding(A)
         top_H_0 = self.block_embedding.block_embedding(B)
 
-        perturb_mask = None
-        perturb_block_mask = None
         # bottom level message passing
-        edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, Z, bottom_block_id)
-        atom_mask = A != VOCAB.get_atom_global_idx() if not self.global_message_passing else None
-        bottom_block_repr, graph_repr_bottom = self.encoder(bottom_H_0, Z, bottom_batch_id, perturb_mask, edges, edge_attr, global_mask=atom_mask)
-        #top level 
+        edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
+                                          Z, bottom_block_id, global_message_passing=False, 
+                                          top=False)
+        bottom_block_repr = self.encoder(
+            bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr, 
+        )
+        
+        # top level message passing
         top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-        top_H_0 = top_H_0 + scatter_mean(bottom_block_repr, block_id, dim=0)
-        global_mask = B != self.global_block_id if not self.global_message_passing else None
-        block_repr, graph_repr = self.top_encoder(top_H_0, top_Z, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
-        bottom_block_repr = torch.concat([bottom_block_repr, block_repr[block_id]], dim=-1) # bottom_block_repr and block_repr may have different dim size for dim=1
+        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
+                                          self.global_message_passing, top=True)
+        atom_mask = A != VOCAB.get_atom_global_idx()
+        batched_bottom_block_repr, _ = batchify(bottom_block_repr[atom_mask], block_id[atom_mask])
+        block_repr_from_bottom = self.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
+        top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
+        top_H_0 = self.atom_block_attn_norm(top_H_0)
+
+        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
+        if self.global_message_passing:
+            graph_repr = self.attention_pooling(block_repr, batch_id)
+        else:
+            global_mask = B != self.global_block_id if not self.global_message_passing else None
+            graph_repr = self.attention_pooling(block_repr[global_mask], batch_id[global_mask])
+
 
         return PredictionReturnValue(
             # representations
             unit_repr=bottom_block_repr,
             block_repr=block_repr,
             graph_repr=graph_repr,
-            graph_unit_repr=graph_repr_bottom,
 
             # batch information
             batch_id=batch_id,

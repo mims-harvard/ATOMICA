@@ -16,14 +16,17 @@ import wandb
 
 
 class TrainConfig:
-    def __init__(self, save_dir, lr, max_epoch, warmup=0,
+    def __init__(self, save_dir, lr, max_epoch,
+                 warmup_steps=0, warmup_start_lr=1e-5, warmup_end_lr=1e-4,
                  metric_min_better=True, patience=3, cycle_steps=1,
                  grad_clip=None, save_topk=-1, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr
         self.max_epoch = max_epoch
-        self.warmup = warmup
+        self.warmup_steps = warmup_steps
+        self.warmup_start_lr = warmup_start_lr
+        self.warmup_end_lr = warmup_end_lr
         self.metric_min_better = metric_min_better
         self.patience = patience if patience > 0 else max_epoch
         self.grad_clip = grad_clip
@@ -37,6 +40,32 @@ class TrainConfig:
     def __str__(self):
         return str(self.__class__) + ': ' + str(self.__dict__)
 
+class LearningRateWarmup(object):
+    # source: https://github.com/developer0hye/Learning-Rate-WarmUp
+    def __init__(self, optimizer, warmup_iteration, start_lr, target_lr, after_scheduler=None):
+        self.optimizer = optimizer
+        self.warmup_iteration = warmup_iteration
+        self.target_lr = target_lr
+        self.start_lr = start_lr
+        self.after_scheduler = after_scheduler
+        self.step(1)
+
+    def warmup_learning_rate(self, cur_iteration):
+        warmup_lr = self.start_lr + (self.target_lr - self.start_lr)*float(cur_iteration)/float(self.warmup_iteration)
+        for param_group in self.optimizer.param_groups:
+            param_group['lr'] = warmup_lr
+
+    def step(self, cur_iteration):
+        if cur_iteration <= self.warmup_iteration:
+            self.warmup_learning_rate(cur_iteration)
+        else:
+            self.after_scheduler.step()
+    
+    def load_state_dict(self, state_dict):
+        self.after_scheduler.load_state_dict(state_dict)
+    
+    def get_last_lr(self):
+        return self.optimizer.param_groups[0]['lr']
 
 class Trainer:
     def __init__(self, model, train_loader, valid_loader, config):

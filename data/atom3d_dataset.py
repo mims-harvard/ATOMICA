@@ -90,9 +90,9 @@ class LEPDataset(BlockGeoAffDataset):
 
 class LBADataset(BlockGeoAffDataset):
 
-    def __init__(self, data_file, database=None, dist_th=6, n_cpu=4, fragment=False):
+    def __init__(self, data_file, database=None, dist_th=6, n_cpu=4, fragment=False, suffix=''):
         self.fragment = fragment
-        suffix = fragment if fragment else ''
+        suffix += fragment if fragment else suffix
         print(f'fragmentation {self.fragment}')
         super().__init__(data_file, database, dist_th, n_cpu, suffix)
 
@@ -135,7 +135,7 @@ class LBADataset(BlockGeoAffDataset):
                 if bond_type == 1.5:
                     bond_type = 4  # aromatic
                 bonds.append((getattr(row, 'atom1'), getattr(row, 'atom2'), bond_type))
-            blocks2 = atom_blocks_to_frag_blocks(blocks2, bonds=bonds)
+            blocks2 = atom_blocks_to_frag_blocks(blocks2, bonds=bonds, fragmentation_method=self.fragment)
         
         result = blocks_to_data(blocks1, blocks2)
         # result = BlockGeoAffDataset._residues_to_data(rec_blocks, lig_blocks)

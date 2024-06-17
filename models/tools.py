@@ -155,12 +155,12 @@ class BlockEmbedding(nn.Module):
     '''
     [atom embedding + block embedding + atom position embedding]
     '''
-    def __init__(self, num_block_type, num_atom_type, embed_size, no_block_embedding=False):
+    def __init__(self, num_block_type, num_atom_type, atom_embed_size, block_embed_size, no_block_embedding=False):
         super().__init__()
         if not no_block_embedding:
-            self.block_embedding = nn.Embedding(num_block_type, embed_size)
+            self.block_embedding = nn.Embedding(num_block_type, block_embed_size)
         self.no_block_embedding = no_block_embedding
-        self.atom_embedding = nn.Embedding(num_atom_type, embed_size)
+        self.atom_embedding = nn.Embedding(num_atom_type, atom_embed_size)
     
     def forward(self, B, A, block_id):
         '''
@@ -193,3 +193,52 @@ if __name__ == '__main__':
 
     for d, gt_d in zip(gt, _block_edge_dist(X, block_id, src_dst)):
         assert d == gt_d
+
+
+class CrossAttention(nn.Module):
+    def __init__(self, dim_query, dim_kv, dim_out, num_heads, dropout):
+        super(CrossAttention, self).__init__()
+        self.query_proj = nn.Linear(dim_query, dim_out)
+        self.key_proj = nn.Linear(dim_kv, dim_out)
+        self.value_proj = nn.Linear(dim_kv, dim_out)
+        self.num_heads = num_heads
+        self.dim_out = dim_out
+        self.scale = (dim_out // num_heads) ** -0.5
+        self.softmax = nn.Softmax(dim=-1)
+        self.output_proj = nn.Linear(dim_out, dim_out)
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, query, key_value):
+        # Project inputs to query, key, value spaces
+        query = self.query_proj(query)
+        key = self.key_proj(key_value)
+        value = self.value_proj(key_value)
+        
+        # Split into multiple heads
+        batch_size, num_seq1, _ = query.shape
+        _, num_seq2, _ = key.shape
+        
+        query = query.view(batch_size, num_seq1, self.num_heads, self.dim_out // self.num_heads)
+        key = key.view(batch_size, num_seq2, self.num_heads, self.dim_out // self.num_heads)
+        value = value.view(batch_size, num_seq2, self.num_heads, self.dim_out // self.num_heads)
+        
+        # Transpose for attention calculation: (batch, num_heads, seq_len, dim_out)
+        query = query.transpose(1, 2)
+        key = key.transpose(1, 2)
+        value = value.transpose(1, 2)
+        
+        # Scaled dot-product attention
+        scores = torch.matmul(query, key.transpose(-2, -1)) * self.scale
+        attn_weights = self.softmax(scores)
+        attn_weights = self.dropout(attn_weights)
+        attn_output = torch.matmul(attn_weights, value)
+        
+        # Concatenate multiple heads
+        attn_output = attn_output.transpose(1, 2).contiguous()
+        attn_output = attn_output.view(batch_size, num_seq1, self.dim_out)
+        
+        # Final linear projection
+        output = self.output_proj(attn_output)
+        output = self.dropout(output)
+        
+        return output

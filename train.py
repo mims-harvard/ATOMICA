@@ -29,7 +29,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion', 'binary_classifier', 'multiclass_classifier', 'masking'],
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion', 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
@@ -40,13 +40,14 @@ def parse():
     parser.add_argument('--valid_set2', type=str, default=None, help='path to another valid set if task is PretrainMix')
     parser.add_argument('--train_set3', type=str, default=None, help='path to the third train set')
     parser.add_argument('--valid_set3', type=str, default=None, help='path to the third valid set')
-    parser.add_argument('--fragment', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation on small molecules')
 
     # training related
     parser.add_argument('--pretrain', action='store_true', help='pretraining mode')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--final_lr', type=float, default=1e-4, help='final learning rate')
-    parser.add_argument('--warmup', type=int, default=0, help='linear learning rate warmup')
+    parser.add_argument('--warmup_steps', type=int, default=0, help='linear learning rate warmup steps')
+    parser.add_argument('--warmup_start_lr', type=float, default=1e-5, help='linear learning rate warmup start lr')
+    parser.add_argument('--warmup_end_lr', type=float, default=1e-3, help='linear learning rate warmup end lr')
     parser.add_argument('--dropout', type=float, default=0.0, help='dropout rate')
     parser.add_argument('--max_epoch', type=int, default=10, help='max training epoch')
     parser.add_argument('--grad_clip', type=float, default=None, help='clip gradients with too big norm')
@@ -69,7 +70,8 @@ def parse():
                         help="Local rank. Necessary for using the torch.distributed.launch utility.")
     
     # model
-    parser.add_argument('--hidden_size', type=int, default=128, help='dimension of hidden states')
+    parser.add_argument('--atom_hidden_size', type=int, default=128, help='dimension of hidden states')
+    parser.add_argument('--block_hidden_size', type=int, default=128, help='dimension of hidden states for blocks')
     parser.add_argument('--edge_size', type=int, default=16, help='Dimension of edge embeddings')
     parser.add_argument('--k_neighbors', type=int, default=9, help='Number of neighbors in KNN graph')
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')
@@ -88,6 +90,7 @@ def parse():
     parser.add_argument('--atom_weight', type=float, default=1.0, help='Weight of atom loss')
     parser.add_argument('--mask_proportion', type=float, default=0.1, help='block masking rate')
     parser.add_argument('--num_layers', type=int, default=4, help='num layers for mask node prediction head')
+    parser.add_argument('--noisy_nodes_weight', type=float, default=0, help='coefficient for denoising loss during finetuning')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -173,7 +176,7 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
         dataset = MixDatasetWrapper(*datasets)
         print_log(f'Mixed pretrain dataset size: {len(dataset)}')
-    elif task == 'binary_classifier':
+    elif task == 'binary_classifier' or task == 'regression':
         dataset = LabelledPDBDataset(path)
         datasets = [dataset]
         if path2 is not None:
@@ -225,14 +228,23 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             datasets.append(dataset3)
         if len(datasets) > 1:
             dataset = MixDatasetWrapper(*datasets)
+    elif task == "PLA_noisy_nodes_train":
+        from data.dataset_pretrain import NoisyNodesTorsionDataset
+        dataset = NoisyNodesTorsionDataset(path)
+        if path2 is not None or path3 is not None:
+            raise NotImplementedError('NoisyNodesTorsionDataset does not support multiple datasets')
+    elif task == "PLA_noisy_nodes":
+        dataset = LabelledPDBDataset(path) # for valid and test set do not apply noise
+        if path2 is not None or path3 is not None:
+            raise NotImplementedError('NoisyNodesTorsionDataset does not support multiple datasets')
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset
 
 
 def set_noise(dataset, args):
-    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedDataset
-    if type(dataset) == PretrainAtomDataset or type(dataset) == PretrainTorsionDataset:
+    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedDataset, NoisyNodesTorsionDataset
+    if type(dataset) in [PretrainAtomDataset, PretrainTorsionDataset, NoisyNodesTorsionDataset]:
         if args.atom_noise != 0 and args.torsion_noise != 0:
             raise ValueError('Cannot set both atom and torsion noise at the same time')
         if type(dataset) == PretrainAtomDataset and args.atom_noise != 0:
@@ -241,7 +253,7 @@ def set_noise(dataset, args):
             dataset.set_translation_noise(args.translation_noise)
         if args.rotation_noise != 0:
             dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
-        if type(dataset) == PretrainTorsionDataset and args.torsion_noise != 0:
+        if type(dataset) in [PretrainTorsionDataset, NoisyNodesTorsionDataset] and args.torsion_noise != 0:
             dataset.set_torsion_noise(args.torsion_noise)
     elif type(dataset) == PretrainMaskedDataset:
         dataset.mask_proportion = args.mask_proportion
@@ -252,7 +264,7 @@ def set_noise(dataset, args):
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
-    if model_type in [models.AffinityPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
+    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
         trainer = trainers.PretrainTrainer(
@@ -263,6 +275,8 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.MaskingTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DDGPredictor:
         trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
+    elif model_type == models.AffinityPredictorNoisyNodes:
+        trainer = trainers.AffinityNoisyNodesTrainer(model, train_loader, valid_loader, config)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
     return trainer
@@ -270,7 +284,7 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
 
 def main(args):
     setup_seed(args.seed)
-    VOCAB.load_tokenizer(args.fragment)
+    VOCAB.load_tokenizer(args.fragmentation_method)
     # torch.autograd.set_detect_anomaly(True)
     if args.task == "masking":
         args.num_nodes = len(VOCAB.aas)
@@ -279,11 +293,15 @@ def main(args):
     model = models.create_model(args)
 
     ########### load your train / valid set ###########
-    train_set = create_dataset(args.task, args.train_set, args.train_set2, args.train_set3, args.fragment)
-    if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking'}:
+    if args.task == 'PLA_noisy_nodes':
+        train_task = 'PLA_noisy_nodes_train'
+    else:
+        train_task = args.task
+    train_set = create_dataset(train_task, args.train_set, args.train_set2, args.train_set3, args.fragmentation_method)
+    if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'PLA_noisy_nodes'}:
         set_noise(train_set, args)
     if args.valid_set is not None:
-        valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragment)
+        valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragmentation_method)
         if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking'}:
             set_noise(valid_set, args)
         print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
@@ -299,15 +317,14 @@ def main(args):
         args.batch_size, args.valid_batch_size = 1, 1
         args.num_workers = 1
 
-    ########## set your collate_fn ##########
-    collate_fn = train_set.collate_fn
-
     ########## define your model/trainer/trainconfig #########
     step_per_epoch = (len(train_set) + args.batch_size - 1) // args.batch_size
     config = trainers.TrainConfig(
         args.save_dir, args.lr, args.max_epoch,
         cycle_steps=args.cycle_steps,
-        warmup=args.warmup,
+        warmup_steps=args.warmup_steps,
+        warmup_start_lr=args.warmup_start_lr,
+        warmup_end_lr=args.warmup_end_lr,
         patience=args.patience,
         grad_clip=args.grad_clip,
         save_topk=args.save_topk,
@@ -341,11 +358,11 @@ def main(args):
                               num_workers=args.num_workers,
                               shuffle=(args.shuffle and train_sampler is None),
                               sampler=train_sampler,
-                              collate_fn=collate_fn)
+                              collate_fn=train_set.collate_fn)
     if valid_set is not None:
         valid_loader = DataLoader(valid_set, batch_size=args.valid_batch_size,
                                   num_workers=args.num_workers,
-                                  collate_fn=collate_fn)
+                                  collate_fn=valid_set.collate_fn)
     else:
         valid_loader = None
     trainer = create_trainer(model, train_loader, valid_loader, config, 
@@ -360,10 +377,11 @@ def main(args):
                 entity="ada-f",
                 dir=config.save_dir,
                 settings=wandb.Settings(start_method="fork"),
-                project="InteractNN",
+                project=f"InteractNN-{args.task}",
                 name=args.run_name,
                 config=vars(args),
             )
+    
     trainer.train(args.gpus, args.local_rank, args.use_wandb)
     
     return trainer.topk_ckpt_map

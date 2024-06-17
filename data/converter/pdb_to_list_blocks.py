@@ -98,6 +98,9 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
 
     # reorder
     if selected_chains is not None:
+        for chain_id in selected_chains:
+            if chain_id not in chain_ids:
+                raise ValueError(f"Chain {chain_id} not found in the PDB file {pdb}")
         list_blocks = [list_blocks[chain_ids[chain_id]] for chain_id in selected_chains]
         list_indexes = [list_indexes[chain_ids[chain_id]] for chain_id in selected_chains]
     

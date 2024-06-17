@@ -497,7 +497,6 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
             data["label"] = item["label"]
         else:
             data['label'] = item['affinity']['neglog_aff']
-
         return data
 
     @classmethod

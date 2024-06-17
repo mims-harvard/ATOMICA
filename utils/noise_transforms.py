@@ -157,6 +157,7 @@ class TorsionNoiseTransform:
         global_block = np.sum(data['segment_ids'] < chosen_segment)
         global_atom = np.sum(block_id < global_block)
         data['X'][global_atom] = data['X'][global_atom+1:global_atom+segment_atoms].mean(axis=0)
+        # print(f"Torsion angle changes: {torsion_updates}")
         return data, torus_score(torsion_updates, self.tor_sigma), torsion_edges.T
     
 
@@ -228,6 +229,7 @@ class GlobalTranslationTransform:
         eps = np.random.uniform(0.1, self.tr_sigma)
         tr_score = np.random.normal(0, 1, (1, 3))
         data['X'][global_atom:global_atom+segment_atoms] += tr_score * eps
+        # print(f"Global translation: {tr_score * eps}")
         return data, np.squeeze(tr_score), eps
 
 
@@ -250,16 +252,19 @@ def _score(exp, theta, sigma, L=2000):
         lo = np.sin(theta / 2)
         dlo = 1 / 2 * np.cos(theta / 2)
         dSigma += (2 * l + 1) * np.exp(-l * (l + 1) * sigma**2) * (lo * dhi - hi * dlo) / (lo ** 2)
-    return dSigma / exp + np.sin(theta) / (1 - np.cos(theta))
+    return dSigma / exp #+ np.sin(theta) / (1 - np.cos(theta))
 
 
 class GlobalRotationTransform:
     def __init__(self, rot_sigma, max_theta):
-        self.theta_range = np.linspace(0.1, max_theta, 100)
-        self.sigma_range = np.linspace(0.1, rot_sigma, 100)
-        self.expansion = [_expansion(self.theta_range, sigma) for sigma in self.sigma_range]
-        self.density = [_density(exp, self.theta_range) for exp in self.expansion]
-        self.score = [_score(exp, self.theta_range, sigma) for exp, sigma in zip(self.expansion, self.sigma_range)]
+        # Source for SO3 transformation 
+        # https://github.com/wengong-jin/DSMBind/blob/master/bindenergy/models/energy.py
+        # https://github.com/gcorso/DiffDock/blob/main/utils/so3.py 
+        self.theta_range = np.linspace(0.001, max_theta, 100)
+        self.sigma = rot_sigma
+        self.expansion = _expansion(self.theta_range, self.sigma)
+        self.density = _density(self.expansion, self.theta_range)
+        self.score = _score(self.expansion, self.theta_range, self.sigma)
 
     def __call__(self, data, chosen_segment):
         """
@@ -271,8 +276,7 @@ class GlobalRotationTransform:
             data with global rotation, and the score
         """
     
-        sidx = np.random.randint(0, 99) # 0 is padding
-        tidx = np.random.choice(list(range(100)), p=self.density[sidx])
+        tidx = np.random.choice(list(range(100)), p=self.density)
         theta = self.theta_range[tidx]
         w = np.random.normal(0, 1, (1,3))
         hat_w = w / np.linalg.norm(w)
@@ -299,5 +303,6 @@ class GlobalRotationTransform:
 
         data['X'][global_atom+1:global_atom+segment_atoms] = new_coords
         data['X'][global_atom] = new_coords.mean(axis=0)
-        rot_score = hat_w * self.score[sidx][tidx]
+        rot_score = hat_w * self.score[tidx]
+        # print(f"Global rotation: {theta}")
         return data, np.squeeze(rot_score)
