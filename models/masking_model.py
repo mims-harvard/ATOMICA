@@ -8,7 +8,7 @@ import torch
 
 class MaskedNodeModel(PredictionModel):
 
-    def __init__(self, num_layers, num_nodes, **kwargs) -> None:
+    def __init__(self, num_nodes, num_layers=4,  **kwargs) -> None:
         super().__init__(**kwargs)
         layers = []
         for _ in range(num_layers):

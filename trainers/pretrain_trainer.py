@@ -11,6 +11,7 @@ from tqdm import tqdm
 import wandb
 import numpy as np
 from collections import defaultdict
+from sklearn.metrics import accuracy_score
 
 class PretrainTrainer(Trainer):
 
@@ -234,6 +235,204 @@ class PretrainTrainer(Trainer):
             wandb.log({'val_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
             wandb.log({'val_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
             wandb.log({'val_torsion_loss': np.mean(metric_dict["torsion_loss"])}, step=self.global_step)
+        if self._is_main_proc():
+            save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            module_to_save = self.model.module if self.local_rank == 0 else self.model
+            torch.save(module_to_save, save_path)
+            self._maintain_topk_checkpoint(valid_metric, save_path)
+            training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
+            if not os.path.exists(self.training_state_dir):
+                os.makedirs(self.training_state_dir)
+            torch.save(self._get_training_state(), training_save_path)
+            print_log(f'Training state save path: {training_save_path}')
+            print_log(f'Validation: {valid_metric}, save path: {save_path}')
+        if self._metric_better(valid_metric):
+            self.patience = self.config.patience
+        else:
+            self.patience -= 1
+        self.last_valid_metric = valid_metric
+        # write valid_metric
+        for name in self.writer_buffer:
+            value = np.mean(self.writer_buffer[name])
+            self.log(name, value, self.epoch)
+        self.writer_buffer = {}
+
+class PretrainMaskingNoisingTrainer(PretrainTrainer):
+
+    def __init__(self, model, train_loader, valid_loader, config, resume_state=None):
+        super().__init__(model, train_loader, valid_loader, config, resume_state)              
+
+    def share_step(self, batch, batch_idx, val=False):
+        try:
+            loss = self.model(
+                Z=batch['X'], B=batch['B'], A=batch['A'],
+                block_lengths=batch['block_lengths'],
+                lengths=batch['lengths'],
+                segment_ids=batch['segment_ids'],
+                receptor_segment=batch['noisy_segment'], 
+                atom_score=batch['atom_score'], 
+                atom_eps=batch['atom_eps'], 
+                tr_score=batch['tr_score'], 
+                tr_eps=batch['tr_eps'],
+                rot_score=batch['rot_score'],
+                tor_score=batch['tor_score'],
+                tor_edges=batch['tor_edges'],
+                tor_batch=batch['tor_batch'],
+                masked_blocks=batch['masked_blocks'], 
+                masked_labels=batch['masked_labels'],
+            )
+
+            if not val:
+                lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
+                lr = lr[0]
+                self.log('lr', lr, batch_idx, val)
+
+            return loss
+        except RuntimeError as e:
+            if "out of memory" in str(e) and torch.cuda.is_available():
+                print_log(e, level='ERROR')
+                print_log(
+                    f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
+                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]},
+                    max_item_block_size={batch['lengths'].max()}""", level='ERROR')
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        del p.grad  # free some memory
+                torch.cuda.empty_cache()
+                return None
+            else:
+                raise e
+
+    def _train_epoch(self, device):
+        self._before_train_epoch_start()
+        if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
+            if self.resume_index > 0:
+                self.train_loader.sampler.set_epoch(epoch=self.epoch, resume_index=self.resume_index)
+                print_log(f"Resume training from epoch {self.epoch}, global step {self.global_step}")
+                self.resume_index = 0
+            else:
+                self.train_loader.sampler.set_epoch(self.epoch)
+        t_iter = tqdm(enumerate(self.train_loader), total=len(self.train_loader), desc=f"Train epoch {self.epoch}") if self._is_main_proc() else enumerate(self.train_loader)
+        metric_dict = defaultdict(list)
+        print(f"NUMBATCHES = {len(self.train_loader)}")
+        for batch_idx, batch in t_iter:
+            try:
+                batch = self.to_device(batch, device)
+                loss_obj = self.train_step(batch, self.global_step)
+                if loss_obj is None:
+                    continue # Out of memory
+                self.optimizer.zero_grad()
+                loss_obj.loss.backward()
+                metric_dict["loss"].append(loss_obj.loss.detach().cpu().item())
+                metric_dict["atom_loss"].append(loss_obj.atom_loss.detach().cpu().item())
+                metric_dict["translation_loss"].append(loss_obj.translation_loss.detach().cpu().item())
+                metric_dict["rotation_loss"].append(loss_obj.rotation_loss.detach().cpu().item())
+                metric_dict["torsion_loss"].append(loss_obj.tor_loss.detach().cpu().item())
+                metric_dict["masked_loss"].append(loss_obj.masked_loss.detach().cpu().item())
+                if self.use_wandb and self._is_main_proc():
+                    wandb.log({f'train_loss': loss_obj.loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_atom_loss': loss_obj.atom_loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_translation_loss': loss_obj.translation_loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_rotation_loss': loss_obj.rotation_loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_torsion_loss': loss_obj.tor_loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_masked_loss': loss_obj.masked_loss.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_atom_base': loss_obj.atom_base.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_translation_base': loss_obj.translation_base.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_rotation_base': loss_obj.rotation_base.detach().cpu().item()}, step=self.global_step)
+                    wandb.log({f'train_torsion_base': loss_obj.tor_base.detach().cpu().item()}, step=self.global_step)
+                    if batch_idx % 500 == 0 and batch_idx > 0:
+                        start_idx = max(0, len(metric_dict["loss"]) - 500)
+                        wandb.log({f'train_last500_loss': np.mean(metric_dict["loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_atom_loss': np.mean(metric_dict["atom_loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_translation_loss': np.mean(metric_dict["translation_loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_rotation_loss': np.mean(metric_dict["rotation_loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_torsion_loss': np.mean(metric_dict["torsion_loss"][start_idx:])}, step=self.global_step)
+                        wandb.log({f'train_last500_masked_loss': np.mean(metric_dict["masked_loss"][start_idx:])}, step=self.global_step)
+                if self.config.grad_clip is not None:
+                    torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.config.grad_clip)
+                self.optimizer.step()
+                if hasattr(t_iter, 'set_postfix'):
+                    t_iter.set_postfix(loss=loss_obj.loss.detach().cpu().item(), version=self.version)
+                self.global_step += 1
+                if self.sched_freq == 'batch':
+                    self.scheduler.step()
+                if self.use_wandb and self._is_main_proc():
+                    wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
+                if batch_idx == len(self.train_loader)//2:
+                    print_log(f'validating ...') if self._is_main_proc() else 1
+                    self._valid_epoch(device)
+                    self._before_train_epoch_start()
+            except RuntimeError as e:
+                if "out of memory" in str(e) and torch.cuda.is_available():
+                    print_log(e, level='ERROR')
+                    print_log(
+                        f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
+                        num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]},
+                        max_item_block_size={batch['lengths'].max()}""", level='ERROR'
+                    )
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            del p.grad
+                    torch.cuda.empty_cache()
+                    continue
+                else:
+                    raise e
+        if self.use_wandb and self._is_main_proc():
+            wandb.log({f'train_epoch_loss': np.mean(metric_dict["loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_torsion_loss': np.mean(metric_dict["torsion_loss"])}, step=self.global_step)
+            wandb.log({f'train_epoch_masked_loss': np.mean(metric_dict["masked_loss"])}, step=self.global_step)
+        if self.sched_freq == 'epoch':
+            self.scheduler.step()
+    
+
+    def _valid_epoch(self, device):
+        if self.valid_loader is None:
+            if self._is_main_proc():
+                save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                if not os.path.exists(self.training_state_dir):
+                    os.makedirs(self.training_state_dir)
+                training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
+                module_to_save = self.model.module if self.local_rank == 0 else self.model
+                if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
+                    print_log(f'No validation, save path: {save_path}')
+                    torch.save(module_to_save, save_path)
+                    torch.save(self._get_training_state(), training_save_path)
+                else:
+                    print_log('No validation')
+            return
+
+        metric_dict = defaultdict(list)
+        self.model.eval()
+        with torch.no_grad():
+            t_iter = tqdm(self.valid_loader, total=len(self.valid_loader), desc="Validation") if self._is_main_proc() else self.valid_loader
+            for batch in t_iter:
+                batch = self.to_device(batch, device)
+                metric = self.valid_step(batch, self.valid_global_step)
+                if metric is None:
+                    continue # Out of memory
+                metric_dict["loss"].append(metric.loss.detach().cpu().item())
+                metric_dict["atom_loss"].append(metric.atom_loss.detach().cpu().item())
+                metric_dict["translation_loss"].append(metric.translation_loss.detach().cpu().item())
+                metric_dict["rotation_loss"].append(metric.rotation_loss.detach().cpu().item())
+                metric_dict["torsion_loss"].append(metric.tor_loss.detach().cpu().item())
+                metric_dict["masked_loss"].append(metric.masked_loss.detach().cpu().item())
+                metric_dict["masked_labels"].extend(batch['masked_labels'].detach().cpu().tolist())
+                metric_dict["pred_labels"].extend(metric.pred_blocks.detach().cpu().argmax(dim=1).tolist())
+                self.valid_global_step += 1
+        self.model.train()
+        # judge
+        valid_metric = np.mean(metric_dict["loss"])
+        if self.use_wandb and self._is_main_proc():
+            wandb.log({'val_loss': valid_metric}, step=self.global_step)
+            wandb.log({'val_atom_loss': np.mean(metric_dict["atom_loss"])}, step=self.global_step)
+            wandb.log({'val_translation_loss': np.mean(metric_dict["translation_loss"])}, step=self.global_step)
+            wandb.log({'val_rotation_loss': np.mean(metric_dict["rotation_loss"])}, step=self.global_step)
+            wandb.log({'val_torsion_loss': np.mean(metric_dict["torsion_loss"])}, step=self.global_step)
+            wandb.log({'val_masked_loss': np.mean(metric_dict["masked_loss"])}, step=self.global_step)
+            wandb.log({'val_mask_acc': accuracy_score(metric_dict["masked_labels"], metric_dict["pred_labels"])}, step=self.global_step)
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
             module_to_save = self.model.module if self.local_rank == 0 else self.model

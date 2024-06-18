@@ -21,7 +21,7 @@ class PredictionModel(DenoisePretrainModel):
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
             bottom_global_message_passing=bottom_global_message_passing, global_message_passing=global_message_passing,
             atom_noise=False, translation_noise=False, rotation_noise=False, 
-            torsion_noise=False, fragmentation_method=fragmentation_method)
+            torsion_noise=False, fragmentation_method=fragmentation_method, num_masked_block_classes=0)
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Prediction model should not have any denoising heads'
 
     @classmethod

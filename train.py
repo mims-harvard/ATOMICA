@@ -29,7 +29,8 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion', 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression'],
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
+                                 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
@@ -89,8 +90,8 @@ def parse():
     parser.add_argument('--rot_weight', type=float, default=1.0, help='Weight of rotation loss')
     parser.add_argument('--tor_weight', type=float, default=1.0, help='Weight of torsional loss')
     parser.add_argument('--atom_weight', type=float, default=1.0, help='Weight of atom loss')
-    parser.add_argument('--mask_proportion', type=float, default=0.1, help='block masking rate')
-    parser.add_argument('--num_layers', type=int, default=4, help='num layers for mask node prediction head')
+    parser.add_argument('--mask_proportion', type=float, default=0, help='block masking rate')
+    parser.add_argument('--mask_weight', type=float, default=1.0, help='block masking rate')
     parser.add_argument('--noisy_nodes_weight', type=float, default=0, help='coefficient for denoising loss during finetuning')
 
     # load pretrain
@@ -160,6 +161,29 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
         dataset = MixDatasetWrapper(*datasets)
         print_log(f'Mixed pretrain dataset size: {len(dataset)}')
+    elif task == 'pretrain_torsion_masking':
+        from data.dataset_pretrain import PretrainMaskedTorsionDataset
+        dataset_args = {
+            "mask_proportion": 0,
+            "mask_token": VOCAB.symbol_to_idx(VOCAB.MASK),
+            "vocab_to_mask": [VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas + VOCAB.bases + VOCAB.sms + VOCAB.frags],
+            "atom_mask_token": VOCAB.get_atom_mask_idx(),
+        }
+        dataset1 = PretrainMaskedTorsionDataset(path, **dataset_args)
+        print_log(f'Pretrain dataset {path} size: {len(dataset1)}')
+        if path2 is None and path3 is None:
+            return dataset1
+        datasets = [dataset1]
+        if path2 is not None:
+            dataset2 = PretrainMaskedTorsionDataset(path2, **dataset_args)
+            datasets.append(dataset2)
+            print_log(f'Pretrain dataset {path2} size: {len(dataset2)}')
+        if path3 is not None:
+            dataset3 = PretrainMaskedTorsionDataset(path3, **dataset_args)
+            datasets.append(dataset3)
+            print_log(f'Pretrain dataset {path3} size: {len(dataset3)}')
+        dataset = MixDatasetWrapper(*datasets)
+        print_log(f'Mixed pretrain dataset size: {len(dataset)}')
     elif task == 'pretrain_gaussian':
         from data.dataset_pretrain import PretrainAtomDataset
         dataset1 = PretrainAtomDataset(path)
@@ -201,31 +225,19 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             dataset = MixDatasetWrapper(*datasets)
     elif task == "masking":
         from data.dataset_pretrain import PretrainMaskedDataset
-        dataset = PretrainMaskedDataset(
-            path,
-            mask_proportion=0,
-            mask_token=VOCAB.symbol_to_idx(VOCAB.MASK),
-            vocab_to_mask=[VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas],
-            atom_mask_token=VOCAB.get_atom_mask_idx(),
-        )
+        dataset_args = {
+            "mask_proportion": 0,
+            "mask_token": VOCAB.symbol_to_idx(VOCAB.MASK),
+            "vocab_to_mask": [VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas],
+            "atom_mask_token": VOCAB.get_atom_mask_idx(),
+        }
+        dataset = PretrainMaskedDataset(path, **dataset_args)
         datasets = [dataset]
         if path2 is not None:
-            dataset2 = PretrainMaskedDataset(
-                path2,
-                mask_proportion=0,
-                mask_token=VOCAB.symbol_to_idx(VOCAB.MASK),
-                vocab_to_mask=[VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas],
-                atom_mask_token=VOCAB.get_atom_mask_idx(),
-            )
+            dataset2 = PretrainMaskedDataset(path2, **dataset_args)
             datasets.append(dataset2)
         if path3 is not None:
-            dataset3 = PretrainMaskedDataset(
-                path3,
-                mask_proportion=0,
-                mask_token=VOCAB.symbol_to_idx(VOCAB.MASK),
-                vocab_to_mask=[VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas],
-                atom_mask_token=VOCAB.get_atom_mask_idx(),
-            )
+            dataset3 = PretrainMaskedDataset(path3, **dataset_args)
             datasets.append(dataset3)
         if len(datasets) > 1:
             dataset = MixDatasetWrapper(*datasets)
@@ -244,8 +256,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
 
 
 def set_noise(dataset, args):
-    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedDataset, NoisyNodesTorsionDataset
-    if type(dataset) in [PretrainAtomDataset, PretrainTorsionDataset, NoisyNodesTorsionDataset]:
+    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset
+    if type(dataset) in [PretrainAtomDataset, PretrainTorsionDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset]:
         if args.atom_noise != 0 and args.torsion_noise != 0:
             raise ValueError('Cannot set both atom and torsion noise at the same time')
         if type(dataset) == PretrainAtomDataset and args.atom_noise != 0:
@@ -254,8 +266,10 @@ def set_noise(dataset, args):
             dataset.set_translation_noise(args.translation_noise)
         if args.rotation_noise != 0:
             dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
-        if type(dataset) in [PretrainTorsionDataset, NoisyNodesTorsionDataset] and args.torsion_noise != 0:
+        if type(dataset) in [PretrainTorsionDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset] and args.torsion_noise != 0:
             dataset.set_torsion_noise(args.torsion_noise)
+        if type(dataset) == PretrainMaskedTorsionDataset:
+            dataset.mask_proportion = args.mask_proportion
     elif type(dataset) == PretrainMaskedDataset:
         dataset.mask_proportion = args.mask_proportion
     elif type(dataset) == MixDatasetWrapper:
@@ -268,10 +282,16 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
     if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
-        trainer = trainers.PretrainTrainer(
-            model, train_loader, valid_loader, config, 
-            resume_state=resume_state,
-        )
+        if model.masking_objective:
+            trainer = trainers.PretrainMaskingNoisingTrainer(
+                model, train_loader, valid_loader, config, 
+                resume_state=resume_state,  
+            )
+        else:
+            trainer = trainers.PretrainTrainer(
+                model, train_loader, valid_loader, config, 
+                resume_state=resume_state,
+            )
     elif model_type == models.MaskedNodeModel:
         trainer = trainers.MaskingTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DDGPredictor:
@@ -289,6 +309,8 @@ def main(args):
     # torch.autograd.set_detect_anomaly(True)
     if args.task == "masking":
         args.num_nodes = len(VOCAB.aas)
+    elif args.task == "pretrain_torsion_masking":
+        args.num_nodes = len(VOCAB.aas + VOCAB.bases + VOCAB.sms + VOCAB.frags)
     else:
         args.num_nodes = None
     model = models.create_model(args)
@@ -299,11 +321,11 @@ def main(args):
     else:
         train_task = args.task
     train_set = create_dataset(train_task, args.train_set, args.train_set2, args.train_set3, args.fragmentation_method)
-    if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'PLA_noisy_nodes'}:
+    if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'PLA_noisy_nodes', 'pretrain_torsion_masking'}:
         set_noise(train_set, args)
     if args.valid_set is not None:
         valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragmentation_method)
-        if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking'}:
+        if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'pretrain_torsion_masking'}:
             set_noise(valid_set, args)
         print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
     else:

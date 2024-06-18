@@ -31,6 +31,8 @@ def create_model(args):
                 rotation_weight=args.rot_weight,
                 torsion_weight=args.tor_weight,
                 dropout=args.dropout,
+                num_masked_block_classes=args.num_nodes,
+                mask_weight=args.mask_weight,
             )
         return model
     elif args.task == "PLA_noisy_nodes":
@@ -79,7 +81,6 @@ def create_model(args):
             add_params["num_classes"] = args.num_classifier_classes
         elif args.task == 'masking':
             Model = MaskedNodeModel
-            add_params["num_layers"] = args.num_layers
             add_params["num_nodes"] = args.num_nodes
             add_params['global_message_passing'] = args.global_message_passing
             add_params['bottom_global_message_passing'] = args.bottom_global_message_passing

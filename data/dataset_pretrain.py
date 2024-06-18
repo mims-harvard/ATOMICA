@@ -31,6 +31,7 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
                 missing_maskable_nodes.append(idx)
         print(f"Removed {len(missing_maskable_nodes)} items with no maskable nodes. Original={len(self.data)} Cleaned={len(self.data) - len(missing_maskable_nodes)}")
         self.data = [self.data[i] for i in range(len(self.data)) if i not in missing_maskable_nodes]
+        self.indexes = [self.indexes[i] for i in range(len(self.indexes)) if i not in missing_maskable_nodes]
     
     def __len__(self):
         return len(self.data)
@@ -123,7 +124,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
         self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
-        self.atom_noise, self.global_tr, self.global_rot = None, None, None
+        self.tor, self.global_tr, self.global_rot = None, None, None
         # remove items with no torsion angles in either segment
         cleaned_data = []
         cleaned_indexes = []
@@ -213,7 +214,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         data['tor_score'] = tor_score
         data['tor_edges'] = tor_edges
         data['noisy_segment'] = chosen_segment
-
+        
         # coord_change = np.linalg.norm(data["X"] - item["data"]["X"], axis=1)
         # print(f'Change in atomic position: mean {np.mean(coord_change):.2f}, max {np.max(coord_change):.2f}, min {np.min(coord_change):.2f}')
         return data
@@ -243,6 +244,8 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
+                if isinstance(item[key], np.ndarray):
+                    item[key] = item[key].tolist()
                 val.append(torch.tensor(item[key], dtype=_type))
             res[key] = torch.cat(val, dim=0)
 
@@ -279,6 +282,90 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         res['atom_score'], res['atom_eps'] = None, None # no atom noise
         return res
 
+
+class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
+    def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
+        super().__init__(data_file)
+        self.mask_proportion = mask_proportion
+        self.mask_token = mask_token
+        self.atom_mask_token = atom_mask_token
+        self.vocab_to_mask = vocab_to_mask # list of vocab indices that can be masked
+        self.idx_to_mask_block = dict(zip(self.vocab_to_mask, range(len(self.vocab_to_mask))))
+        self.preprocess()
+
+    def preprocess(self):
+        missing_maskable_nodes = []
+        for idx, item in enumerate(self.data):
+            data = item["data"]
+            item["data"]["can_mask"] = np.where(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)))[0].tolist()
+            if len(item["data"]["can_mask"]) == 0:
+                missing_maskable_nodes.append(idx)
+        print(f"Removed {len(missing_maskable_nodes)} items with no maskable nodes. Original={len(self.data)} Cleaned={len(self.data) - len(missing_maskable_nodes)}")
+        self.data = [self.data[i] for i in range(len(self.data)) if i not in missing_maskable_nodes]
+        self.indexes = [self.indexes[i] for i in range(len(self.indexes)) if i not in missing_maskable_nodes]
+    
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        data = super().__getitem__(idx)
+
+        data['X'] = data['X'].tolist()
+        B = np.array(data['B'])
+        # mask blocks on the non-noisy side to not interfere with the noised torsion angles
+        can_mask = [x for x in item['data']["can_mask"] if data['segment_ids'][x] != data['noisy_segment']] 
+        num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
+        selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
+        masked_blocks = np.zeros_like(data['B'], dtype=bool)
+        masked_blocks[selected_indices] = True
+
+        block_ids = sum([block_len*[block_id] for block_id, block_len in enumerate(data['block_lengths'])], [])
+        block_centers = scatter_mean(torch.tensor(data['X'], dtype=torch.float), torch.tensor(block_ids, dtype=torch.long), dim=0).tolist()
+        masked_A, masked_X = [], []
+        old_A_map = {}
+        curr_block = 0
+        curr_A = 0
+        for block_id in range(len(B)):
+            block_len = data['block_lengths'][block_id]
+            if masked_blocks[block_id]:
+                for A_i in range(block_len):
+                    old_A_map[curr_A+A_i] = len(masked_A)
+                masked_A.append(self.atom_mask_token)
+                masked_X.append(block_centers[block_id])
+            else:
+                for A_i in range(block_len):
+                    old_A_map[curr_A+A_i] = len(masked_A) + A_i
+                masked_A.extend(data['A'][curr_block:curr_block+block_len])
+                masked_X.extend(data['X'][curr_block:curr_block+block_len])
+            curr_block += block_len
+            curr_A += block_len
+        data['A'] = masked_A
+        data['X'] = masked_X
+        def map_atoms(x):
+            return old_A_map[x]  # Return the mapped value, or the original if not found
+        vectorized_map_values = np.vectorize(map_atoms)
+        data['tor_edges'] = vectorized_map_values(data['tor_edges'])
+
+        block_lengths = np.array(data['block_lengths'])
+        block_lengths[masked_blocks] = 1
+        data['block_lengths'] = block_lengths.tolist()
+
+        data['masked_labels'] = [self.idx_to_mask_block[b] for b in B[masked_blocks].tolist()]
+        new_blocks = B
+        new_blocks[masked_blocks] = self.mask_token
+        data['B'] = new_blocks.tolist()
+        data['masked_blocks'] = masked_blocks.tolist()
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        res = super().collate_fn(batch)
+        keys = ['masked_blocks', 'masked_labels']
+        types = [torch.bool, torch.long]
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+                res[key] = torch.cat(val, dim=0)
+        return res
 
 class PretrainAtomDataset(torch.utils.data.Dataset):
 
