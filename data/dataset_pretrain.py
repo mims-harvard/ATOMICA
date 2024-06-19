@@ -297,8 +297,12 @@ class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
         missing_maskable_nodes = []
         for idx, item in enumerate(self.data):
             data = item["data"]
-            item["data"]["can_mask"] = np.where(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)))[0].tolist()
-            if len(item["data"]["can_mask"]) == 0:
+            can_mask0 = item["data"]["can_mask"] = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
+                    np.array(data["segment_ids"])==0))[0].tolist()
+            can_mask1 = item["data"]["can_mask"] = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
+                    np.array(data["segment_ids"])==1))[0].tolist()
+            item["data"]["can_mask"] = [can_mask0, can_mask1]
+            if len(can_mask0) == 0 or len(can_mask1) == 0:
                 missing_maskable_nodes.append(idx)
         print(f"Removed {len(missing_maskable_nodes)} items with no maskable nodes. Original={len(self.data)} Cleaned={len(self.data) - len(missing_maskable_nodes)}")
         self.data = [self.data[i] for i in range(len(self.data)) if i not in missing_maskable_nodes]
@@ -311,7 +315,10 @@ class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
         data['X'] = data['X'].tolist()
         B = np.array(data['B'])
         # mask blocks on the non-noisy side to not interfere with the noised torsion angles
-        can_mask = [x for x in item['data']["can_mask"] if data['segment_ids'][x] != data['noisy_segment']] 
+        if data['noisy_segment'] == 0:
+            can_mask = item["data"]["can_mask"][0]
+        else:
+            can_mask = item["data"]["can_mask"][1]
         num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
         selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
         masked_blocks = np.zeros_like(data['B'], dtype=bool)
