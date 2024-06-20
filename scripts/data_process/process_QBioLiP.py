@@ -70,7 +70,7 @@ def parse():
                         help='PP=protein-protein, PL=protein-small molecule ligand, PRNA=protein-RNA, PDNA=protein-DNA,\
                               Ppeptide=protein-peptide, Pion=protein-ion, RNAL=RNA-small molecule ligand')
     parser.add_argument('--index_path', type=str, required=True, help='Path to Q-BioLiP annotation file')
-    parser.add_argument('--exclude_path', type=str, required=True, help='Path to file with PDB ids to be excluded from the dataset')
+    parser.add_argument('--exclude_path', type=str, default=None, help='Path to file with PDB ids to be excluded from the dataset')
     parser.add_argument('--out_dir', type=str, required=True,
                         help='Output directory')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
@@ -99,7 +99,7 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
     items = []
     prot_fname = os.path.join(data_dir_rec, protein_file_name)
     try:
-        list_blocks = pdb_to_list_blocks(prot_fname)
+        list_blocks, pdb_indexes = pdb_to_list_blocks(prot_fname, return_indexes=True)
     except Exception as e:
         print_log(f'{protein_file_name} protein parsing failed: {e}', level='ERROR')
         return None
@@ -110,7 +110,7 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
     
     pairs = list(itertools.combinations(range(len(list_blocks)), 2))
     for i, j in pairs:
-        blocks1, blocks2 = blocks_interface(list_blocks[i], list_blocks[j], interface_dist_th)
+        blocks1, blocks2, indexes1, indexes2 = blocks_interface(list_blocks[i], list_blocks[j], interface_dist_th, return_indexes=True)
         if len(blocks1) >= 4 and len(blocks2) >= 4: # Minimum interface size
             data = blocks_to_data(blocks1, blocks2)
             for key in data:
@@ -120,6 +120,13 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
             item['id'] = protein_file_name[:-len(".pdb")]
             item['affinity'] = { 'neglog_aff': -1.0 }
             item['data'] = data
+
+            pdb_indexes_map = {}
+            pdb_indexes_map.update(dict(zip(range(1,len(blocks1)+1), [pdb_indexes[i][idx] for idx in indexes1])))# map block index to pdb index, +1 for global block)
+            pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), [pdb_indexes[j][idx] for idx in indexes2])))# map block index to pdb index, +1 for global block)
+            item["block_to_pdb_indexes"] = pdb_indexes_map
+
+            item['dist_th'] = interface_dist_th
             items.append(item)
     return items
 
@@ -134,7 +141,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
 
     try:
         is_rna = "_RNA_" in rec # for RNAL
-        list_blocks1 = pdb_to_list_blocks(rec, is_rna=is_rna)
+        list_blocks1, list_pdb_indexes1 = pdb_to_list_blocks(rec, is_rna=is_rna, return_indexes=True)
     except Exception as e:
         print_log(f'{rec} protein parsing failed: {e}', level='ERROR')
         return None
@@ -145,10 +152,9 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
             lig_type = "RNA"
     if lig_type in {"RNA", "DNA", "III"}:
         try:
-            list_of_blocks2 = pdb_to_list_blocks(lig, is_rna=lig_type=="RNA", is_dna=lig_type=="DNA")
-            blocks2 = []
-            for b in list_of_blocks2:
-                blocks2.extend(b)
+            list_of_blocks2, list_pdb_indexes2 = pdb_to_list_blocks(lig, is_rna=lig_type=="RNA", is_dna=lig_type=="DNA", return_indexes=True)
+            blocks2 = sum(list_of_blocks2, [])
+            pdb_indexes2 = sum(list_pdb_indexes2, [])
         except Exception as e:
             print_log(f'{lig} ligand parsing failed: {e}', level='ERROR')
             return None
@@ -158,12 +164,11 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
         except Exception as e:
             print_log(f'{lig} ligand parsing failed: {e}', level='ERROR')
             return None
-    blocks1 = []
-    for b in list_blocks1:
-        blocks1.extend(b)
+    blocks1 = sum(list_blocks1, [])
+    pdb_indexes1 = sum(list_pdb_indexes1, [])
 
     # construct pockets
-    blocks1, interface_blocks2 = blocks_interface(blocks1, blocks2, interface_dist_th)
+    blocks1, interface_blocks2, indexes1, indexes2 = blocks_interface(blocks1, blocks2, interface_dist_th, return_indexes=True)
     if len(blocks1) == 0:  # no interface (if len(interface1) == 0 then we must have len(interface2) == 0)
         print_log(f'{complex_file_name} has no interface', level='ERROR')
         return None
@@ -186,6 +191,11 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
             data[key] = data[key].tolist()
 
     item['data'] = data
+    pdb_indexes_map = {}
+    pdb_indexes_map.update(dict(zip(range(1,len(blocks1)+1), [pdb_indexes1[idx] for idx in indexes1])))# map block index to pdb index, +1 for global block)
+    pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), [pdb_indexes2[idx] for idx in indexes2])))# map block index to pdb index, +1 for global block)
+    item["block_to_pdb_indexes"] = pdb_indexes_map
+    item['dist_th'] = interface_dist_th
 
     return item
 
@@ -194,9 +204,12 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
 def filter_PP_indexes(args):
     protein_indexes = pd.read_csv(args.index_path, sep=',')
     raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_rec))
-    with open(args.exclude_path, "r") as f:
-        exclude_protein_file_names = f.readlines()
-        exclude_protein_file_names = [x.strip() for x in exclude_protein_file_names]
+    if args.exclude_path is not None:
+        with open(args.exclude_path, "r") as f:
+            exclude_protein_file_names = f.readlines()
+            exclude_protein_file_names = [x.strip() for x in exclude_protein_file_names]
+    else:
+        exclude_protein_file_names = []
     protein_file_names = []
     for _, row in protein_indexes.iterrows():
         file_name = row[0]
@@ -216,11 +229,14 @@ def filter_complex_indexes(args):
     complex_indexes = pd.read_csv(args.index_path, sep=',')
     raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_rec))
     raw_ligand_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_lig))
-    with open(args.exclude_path, "r") as f:
-        exclude_protein_file_names = f.readlines()
-        exclude_protein_file_names = [x.strip() for x in exclude_protein_file_names]
+    if args.exclude_path is not None:
+        with open(args.exclude_path, "r") as f:
+            exclude_protein_file_names = f.readlines()
+            exclude_protein_file_names = [x.strip() for x in exclude_protein_file_names]
+    else:
+        exclude_protein_file_names = []
     complex_file_names = []
-    for _, row in complex_indexes.iterrows():
+    for _, row in tqdm(complex_indexes.iterrows(), total=len(complex_indexes), desc="Filtering complexes"):
         rec_file_name, ligand_file_name = row[0], row[1]
         if rec_file_name not in raw_protein_file_names:
             print_log(f"Missing file: {rec_file_name}.pdb", level="ERROR")
@@ -276,29 +292,32 @@ def main(args):
 
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
+    
+    with open(os.path.join(args.out_dir, f'QBioLiP_{args.task}.pkl'), 'wb') as f:
+        pickle.dump(processed_data, f)
 
-    from random import shuffle
-    shuffle(processed_data)
-    if len(processed_data)*0.1 < 10000:
-        num_valid = int(len(processed_data)*0.1)
-        print_log(f'10 percent of data used for validation, num data points = {num_valid}', level='WARN')
-    else:
-        num_valid = 10000
-    train_dataset = processed_data[:-num_valid]
-    valid_dataset = processed_data[-num_valid:]
+    # from random import shuffle
+    # shuffle(processed_data)
+    # if len(processed_data)*0.1 < 10000:
+    #     num_valid = int(len(processed_data)*0.1)
+    #     print_log(f'10 percent of data used for validation, num data points = {num_valid}', level='WARN')
+    # else:
+    #     num_valid = 10000
+    # train_dataset = processed_data[:-num_valid]
+    # valid_dataset = processed_data[-num_valid:]
 
-    database_out_train = os.path.join(args.out_dir, f'QBioLiP_{args.task}_train.pkl')
-    print_log(f'Obtained {len(processed_data)} data after filtering')
-    print_log(f'Saving {len(train_dataset)} to {database_out_train} ...')
-    with open(database_out_train, 'wb') as f:
-        pickle.dump(train_dataset, f)
+    # database_out_train = os.path.join(args.out_dir, f'QBioLiP_{args.task}_train.pkl')
+    # print_log(f'Obtained {len(processed_data)} data after filtering')
+    # print_log(f'Saving {len(train_dataset)} to {database_out_train} ...')
+    # with open(database_out_train, 'wb') as f:
+    #     pickle.dump(train_dataset, f)
 
-    database_out_valid = os.path.join(args.out_dir, f'QBioLiP_{args.task}_valid.pkl')
-    print_log(f'Saving {len(valid_dataset)} to {database_out_valid} ...')
-    with open(database_out_valid, 'wb') as f:
-        pickle.dump(valid_dataset, f)
+    # database_out_valid = os.path.join(args.out_dir, f'QBioLiP_{args.task}_valid.pkl')
+    # print_log(f'Saving {len(valid_dataset)} to {database_out_valid} ...')
+    # with open(database_out_valid, 'wb') as f:
+    #     pickle.dump(valid_dataset, f)
 
-    print_log('Finished!')
+    print_log(f'Finished! Processed {len(processed_data)} items. Saved to {args.out_dir}')
 
 if __name__ == '__main__':
     main(parse())

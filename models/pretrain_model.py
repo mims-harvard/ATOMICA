@@ -11,7 +11,6 @@ from torch_scatter import scatter_mean, scatter_sum
 from data.pdb_utils import VOCAB
 from .tools import BlockEmbedding, KNNBatchEdgeConstructor
 from .InteractNN.encoder import InteractNNEncoder, AttentionPooling
-from .get import GET
 from .tools import CrossAttention
 from .InteractNN.utils import batchify
 
@@ -20,7 +19,7 @@ ReturnValue = namedtuple(
     'ReturnValue',
     ['unit_repr', 'block_repr', 'graph_repr', 'batch_id', 'block_id', 
      'loss', 'atom_loss', 'atom_base', 'tor_loss', 'tor_base', 'rotation_loss', 
-     'translation_loss', 'rotation_base', 'translation_base'],
+     'translation_loss', 'rotation_base', 'translation_base', 'masked_loss', 'pred_blocks'],
     )
 
 
@@ -82,8 +81,8 @@ class DenoisePretrainModel(nn.Module):
 
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size=16, k_neighbors=9, n_layers=3,
                  dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None,
-                 atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, 
-                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1) -> None:
+                 atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, num_masked_block_classes=None, 
+                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1, mask_weight=1) -> None:
         super().__init__()
 
         # model parameters
@@ -113,6 +112,7 @@ class DenoisePretrainModel(nn.Module):
         self.translation_weight = translation_weight
         self.rotation_weight = rotation_weight
         self.torsion_weight = torsion_weight
+        self.mask_weight = mask_weight
         self.mse_loss = nn.MSELoss()
 
         self.global_block_id = VOCAB.symbol_to_idx(VOCAB.GLB)
@@ -173,6 +173,21 @@ class DenoisePretrainModel(nn.Module):
                 nn.Dropout(dropout),
                 nn.Linear(block_hidden_size, 1, bias=False)
             )
+        if num_masked_block_classes is not None:
+            self.masked_ffn = nn.Sequential(
+                nn.ReLU(),
+                nn.Linear(self.hidden_size, self.hidden_size),
+                nn.Dropout(self.dropout),
+                nn.ReLU(),
+                nn.Linear(self.hidden_size, num_masked_block_classes),
+                nn.Dropout(self.dropout),
+                nn.ReLU(),
+                nn.Linear(num_masked_block_classes, num_masked_block_classes),
+                nn.Dropout(self.dropout),
+            )
+            self.masking_objective = True
+        else:
+            self.masking_objective = False
 
     def get_edges(self, B, batch_id, segment_ids, Z, block_id, global_message_passing, top):
         intra_edges, inter_edges, global_global_edges, global_normal_edges = construct_edges(
@@ -199,8 +214,8 @@ class DenoisePretrainModel(nn.Module):
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, 
                 receptor_segment=None, atom_score=None, atom_eps=None, tr_score=None, 
                 tr_eps=None, rot_score=None,tor_edges=None, tor_score=None, tor_batch=None,
+                masked_blocks=None, masked_labels=None,
                 ) -> ReturnValue:
-        # batch_id and block_id
         with torch.no_grad():
             assert tor_edges.shape[1] == tor_score.shape[0], f"tor_edges {tor_edges.shape} and tor_score {tor_score.shape} should have the same length"
             assert self.atom_noise or self.translation_noise or self.rotation_noise or self.torsion_noise, 'At least one type of noise should be enabled, otherwise the model is not denoising'
@@ -311,6 +326,15 @@ class DenoisePretrainModel(nn.Module):
             wloss = torch.tensor(0.0)
             rotation_base = torch.tensor(0.0)
         
+        # Masking loss
+        if self.masking_objective:
+            logits = self.masked_ffn(block_repr[masked_blocks])
+            masked_loss = F.cross_entropy(logits, masked_labels)
+            noise_loss += masked_loss * self.mask_weight
+            pred_blocks = F.softmax(logits, dim=1)
+        else:
+            masked_loss = torch.tensor(0.0)
+            pred_blocks = None
 
         return ReturnValue(
             # representations
@@ -336,4 +360,7 @@ class DenoisePretrainModel(nn.Module):
 
             translation_loss=tloss,
             translation_base=translation_base,
+
+            masked_loss=masked_loss,
+            pred_blocks=pred_blocks,
         )
