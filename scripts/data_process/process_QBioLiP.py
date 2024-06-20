@@ -55,7 +55,7 @@ def pmap_multi(pickleable_fn, data, n_jobs=None, verbose=1, desc=None, **kwargs)
     n_jobs = cpu_count() - 1
 
   results = Parallel(n_jobs=n_jobs, verbose=verbose, timeout=None)(
-    delayed(pickleable_fn)(*d, **kwargs) for i, d in tqdm(enumerate(data),desc=desc,total=len(data))
+    delayed(pickleable_fn)(*d, **kwargs) for i, d in tqdm(enumerate(data),desc=desc)
   )
 
   return results
@@ -236,7 +236,7 @@ def filter_complex_indexes(args):
     else:
         exclude_protein_file_names = []
     complex_file_names = []
-    for _, row in complex_indexes.iterrows():
+    for _, row in tqdm(complex_indexes.iterrows(), total=len(complex_indexes), desc="Filtering complexes"):
         rec_file_name, ligand_file_name = row[0], row[1]
         if rec_file_name not in raw_protein_file_names:
             print_log(f"Missing file: {rec_file_name}.pdb", level="ERROR")
