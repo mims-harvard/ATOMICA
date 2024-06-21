@@ -8,6 +8,7 @@ from tqdm import tqdm
 import numpy as np
 import pandas as pd
 import itertools
+import multiprocessing
 
 PROJ_DIR = os.path.join(
     os.path.split(os.path.abspath(__file__))[0],
@@ -214,7 +215,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
 
 
 
-def filter_PP_indexes(args):
+def filter_PP_indexes(args, start, end):
     protein_indexes = pd.read_csv(args.index_path, sep=',')
     raw_protein_file_names = set(f[:-len(".pdb")] for f in os.listdir(args.data_dir_rec))
     if args.exclude_path is not None:
@@ -224,7 +225,7 @@ def filter_PP_indexes(args):
     else:
         exclude_protein_file_names = []
     protein_file_names = []
-    for _, row in protein_indexes.iterrows():
+    for _, row in protein_indexes[start:end].iterrows():
         file_name = row[0]
         if file_name not in raw_protein_file_names:
             print_log(f"Missing file: {file_name}.pdb", level="ERROR")
@@ -238,7 +239,7 @@ def filter_PP_indexes(args):
     return protein_file_names
 
 
-def filter_complex_indexes(args):
+def filter_complex_indexes(args, start, end):
     if args.task == 'PL' and args.fragment is not None:
         ccd_df = pd.read_csv(args.ccd_dictionary, sep='\t', names=['smiles', 'ccd', 'name'])
 
@@ -252,7 +253,7 @@ def filter_complex_indexes(args):
     else:
         exclude_protein_file_names = []
     complex_file_names = []
-    for _, row in tqdm(complex_indexes.iterrows(), total=len(complex_indexes), desc="Filtering complexes"):
+    for _, row in tqdm(complex_indexes[start:end].iterrows(), total=end-start, desc="Filtering complexes"):
         rec_file_name, ligand_file_name = row[0], row[1]
         if rec_file_name not in raw_protein_file_names:
             print_log(f"Missing file: {rec_file_name}.pdb", level="ERROR")
@@ -282,13 +283,15 @@ def filter_complex_indexes(args):
     return complex_file_names
 
 
-def main(args):
+def process_shard(params):
+    args, start, end, shard_idx = params
+    print_log(f'Shard {shard_idx}: Filtering start={start}, end={end} indexes...')
     if args.task == "PP":
-        complex_file_names = filter_PP_indexes(args)
+        complex_file_names = filter_PP_indexes(args, start, end)
     else:
-        complex_file_names = filter_complex_indexes(args)
+        complex_file_names = filter_complex_indexes(args, start, end)
 
-    print_log(f'Preprocessing {len(complex_file_names)} protein files...')
+    print_log(f'Shard {shard_idx}: Preprocessing {len(complex_file_names)} protein files...')
     processed_data = []
     cnt = 0
 
@@ -297,16 +300,9 @@ def main(args):
     else:
         process_one = process_one_complex
 
-    result_list = pmap_multi(process_one, zip(complex_file_names), 
-                             data_dir_rec=args.data_dir_rec,
-                             data_dir_lig=args.data_dir_lig,
-                             interface_dist_th=args.interface_dist_th, 
-                             n_jobs=args.num_workers, desc='check BioLiP data validity')
-
-    for item in tqdm(result_list, desc="Processing complexes"):
-        if item == '':  # annotation
-            continue
+    for complex_file_name in tqdm(complex_file_names, desc=f"Processing complexes, shard {shard_idx}"):
         cnt += 1
+        item = process_one(complex_file_name, args.data_dir_rec, args.data_dir_lig, args.interface_dist_th)
         if item is None:
             continue
         if isinstance(item, list):
@@ -317,31 +313,33 @@ def main(args):
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
     
-    with open(os.path.join(args.out_dir, f'QBioLiP_{args.task}.pkl'), 'wb') as f:
+    with open(os.path.join(args.out_dir, f'QBioLiP_{args.task}_{shard_idx}.pkl'), 'wb') as f:
         pickle.dump(processed_data, f)
+    
+    print_log(f'Finished shard={shard_idx}! Processed {len(processed_data)} items. Saved to {args.out_dir}')
 
-    # from random import shuffle
-    # shuffle(processed_data)
-    # if len(processed_data)*0.1 < 10000:
-    #     num_valid = int(len(processed_data)*0.1)
-    #     print_log(f'10 percent of data used for validation, num data points = {num_valid}', level='WARN')
-    # else:
-    #     num_valid = 10000
-    # train_dataset = processed_data[:-num_valid]
-    # valid_dataset = processed_data[-num_valid:]
 
-    # database_out_train = os.path.join(args.out_dir, f'QBioLiP_{args.task}_train.pkl')
-    # print_log(f'Obtained {len(processed_data)} data after filtering')
-    # print_log(f'Saving {len(train_dataset)} to {database_out_train} ...')
-    # with open(database_out_train, 'wb') as f:
-    #     pickle.dump(train_dataset, f)
 
-    # database_out_valid = os.path.join(args.out_dir, f'QBioLiP_{args.task}_valid.pkl')
-    # print_log(f'Saving {len(valid_dataset)} to {database_out_valid} ...')
-    # with open(database_out_valid, 'wb') as f:
-    #     pickle.dump(valid_dataset, f)
+def main(args):
+    complex_indexes = pd.read_csv(args.index_path, sep=',')
+    num_shards = args.num_workers
+    shard_size = len(complex_indexes) // num_shards
+    shard_start = [i * shard_size for i in range(num_shards)]
+    shard_end = shard_start[1:] + [len(complex_indexes)]
 
-    print_log(f'Finished! Processed {len(processed_data)} items. Saved to {args.out_dir}')
+    with multiprocessing.Pool(num_shards) as pool:
+        params = [
+            (
+                args,
+                shard_start[worker_id],
+                shard_end[worker_id],
+                worker_id,
+            )
+            for worker_id in range(num_shards)
+        ]
+        list(pool.imap_unordered(process_shard, params))
+
+
 
 if __name__ == '__main__':
     main(parse())
