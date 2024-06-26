@@ -121,7 +121,7 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
                 if isinstance(data[key], np.ndarray):
                     data[key] = data[key].tolist()
             item = {}
-            item['id'] = protein_file_name[:-len(".pdb")]
+            item['id'] = protein_file_name[:-len(".pdb")] + "_" + "_".join(set(x.split("_")[0] for x in pdb_indexes_map.values()))
             item['affinity'] = { 'neglog_aff': -1.0 }
             item['data'] = data
 
