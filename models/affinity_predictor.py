@@ -25,6 +25,17 @@ class AffinityPredictor(PredictionModel):
             nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, 1)
         )
+        # self.energy_ffn1 = nn.Sequential(
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, 1)
+        # )
     
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
@@ -36,11 +47,19 @@ class AffinityPredictor(PredictionModel):
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
+        # rec_block_energy = self.energy_ffn(return_value.block_repr[segment_ids == 0]).squeeze(-1)
+        # lig_block_energy = self.energy_ffn1(return_value.block_repr[segment_ids == 1]).squeeze(-1)
+        # if not self.global_message_passing: # ignore global blocks
+        #     rec_block_energy[B[segment_ids == 0] == self.global_block_id] = 0
+        #     lig_block_energy[B[segment_ids == 1] == self.global_block_id] = 0
+        # pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[segment_ids == 0])
+        # pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[segment_ids == 1])
+        # pred_energy = pred_energy_rec + pred_energy_lig
         block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
             block_energy[B == self.global_block_id] = 0
         pred_energy = scatter_sum(block_energy, return_value.batch_id)
-        return F.mse_loss(-pred_energy, label), -pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
+        return F.mse_loss(pred_energy, label), pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
 
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -50,13 +69,21 @@ class AffinityPredictor(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         )
+        # rec_block_energy = self.energy_ffn(return_value.block_repr[batch['segment_ids'] == 0]).squeeze(-1)
+        # lig_block_energy = self.energy_ffn1(return_value.block_repr[batch['segment_ids'] == 1]).squeeze(-1)
+        # if not self.global_message_passing: # ignore global blocks
+        #     rec_block_energy[batch['B'][batch['segment_ids'] == 0] == self.global_block_id] = 0
+        #     lig_block_energy[batch['B'][batch['segment_ids'] == 1] == self.global_block_id] = 0
+        # pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[batch['segment_ids'] == 0])
+        # pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[batch['segment_ids'] == 1])
+        # pred_energy = pred_energy_rec + pred_energy_lig
         block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
             block_energy[batch['B'] == self.global_block_id] = 0
         pred_energy = scatter_sum(block_energy, return_value.batch_id)
         if extra_info:
-            return -pred_energy, return_value
-        return -pred_energy
+            return pred_energy, return_value
+        return pred_energy
     
 
 class AffinityPredictorNoisyNodes(PredictionModel):
@@ -76,17 +103,17 @@ class AffinityPredictorNoisyNodes(PredictionModel):
             nn.Dropout(self.dropout),
             nn.Linear(self.hidden_size, 1)
         )
-        self.energy_ffn1 = nn.Sequential(
-            nonlinearity(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nonlinearity(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nonlinearity(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, 1)
-        )
+        # self.energy_ffn1 = nn.Sequential(
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, 1)
+        # )
     
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
@@ -134,21 +161,21 @@ class AffinityPredictorNoisyNodes(PredictionModel):
                 tr_eps, rot_score, tor_edges, tor_score, tor_batch, label) -> PredictionReturnValue:
         return_value = DenoisePretrainModel.forward(self, Z, B, A, block_lengths, lengths, segment_ids, receptor_segment, atom_score, atom_eps, tr_score, 
                 tr_eps, rot_score, tor_edges, tor_score, tor_batch) # use DenoisePretrainModel.forward()
-        # block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
-        # if not self.global_message_passing: # ignore global blocks
-        #     block_energy[B == self.global_block_id] = 0
-        # pred_energy = scatter_sum(block_energy[segment_ids == 1], return_value.batch_id[segment_ids == 1])
-
-        rec_block_energy = self.energy_ffn(return_value.block_repr[segment_ids == 0]).squeeze(-1)
-        lig_block_energy = self.energy_ffn1(return_value.block_repr[segment_ids == 1]).squeeze(-1)
+        block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
-            rec_block_energy[B[segment_ids == 0] == self.global_block_id] = 0
-            lig_block_energy[B[segment_ids == 1] == self.global_block_id] = 0
-        pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[segment_ids == 0])
-        pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[segment_ids == 1])
-        pred_energy = pred_energy_rec + pred_energy_lig
-        pred_loss = F.mse_loss(-pred_energy, label)
-        return pred_loss, self.noisy_nodes_weight*return_value.loss, -pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
+            block_energy[B == self.global_block_id] = 0
+        pred_energy = scatter_sum(block_energy, return_value.batch_id)
+
+        # rec_block_energy = self.energy_ffn(return_value.block_repr[segment_ids == 0]).squeeze(-1)
+        # lig_block_energy = self.energy_ffn1(return_value.block_repr[segment_ids == 1]).squeeze(-1)
+        # if not self.global_message_passing: # ignore global blocks
+        #     rec_block_energy[B[segment_ids == 0] == self.global_block_id] = 0
+        #     lig_block_energy[B[segment_ids == 1] == self.global_block_id] = 0
+        # pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[segment_ids == 0])
+        # pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[segment_ids == 1])
+        # pred_energy = pred_energy_rec + pred_energy_lig
+        pred_loss = F.mse_loss(pred_energy, label)
+        return pred_loss, self.noisy_nodes_weight*return_value.loss, pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
     
     def _toggle_noise(self, return_noise: bool):
         self.encoder.return_noise = return_noise
@@ -164,15 +191,19 @@ class AffinityPredictorNoisyNodes(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         ) # use PredictionModel.forward()
-        rec_block_energy = self.energy_ffn(return_value.block_repr[batch['segment_ids'] == 0]).squeeze(-1)
-        lig_block_energy = self.energy_ffn1(return_value.block_repr[batch['segment_ids'] == 1]).squeeze(-1)
+        # rec_block_energy = self.energy_ffn(return_value.block_repr[batch['segment_ids'] == 0]).squeeze(-1)
+        # lig_block_energy = self.energy_ffn1(return_value.block_repr[batch['segment_ids'] == 1]).squeeze(-1)
+        # if not self.global_message_passing: # ignore global blocks
+        #     rec_block_energy[batch['B'][batch['segment_ids'] == 0] == self.global_block_id] = 0
+        #     lig_block_energy[batch['B'][batch['segment_ids'] == 1] == self.global_block_id] = 0
+        # pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[batch['segment_ids'] == 0])
+        # pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[batch['segment_ids'] == 1])
+        # pred_energy = pred_energy_rec + pred_energy_lig
+        block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
-            rec_block_energy[batch['B'][batch['segment_ids'] == 0] == self.global_block_id] = 0
-            lig_block_energy[batch['B'][batch['segment_ids'] == 1] == self.global_block_id] = 0
-        pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[batch['segment_ids'] == 0])
-        pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[batch['segment_ids'] == 1])
-        pred_energy = pred_energy_rec + pred_energy_lig
+            block_energy[B == self.global_block_id] = 0
+        pred_energy = scatter_sum(block_energy, return_value.batch_id)
         self._toggle_noise(True)
         if extra_info:
-            return -pred_energy, return_value
-        return -pred_energy
+            return pred_energy, return_value
+        return pred_energy
