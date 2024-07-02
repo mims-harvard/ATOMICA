@@ -92,7 +92,7 @@ class DDGTrainer(Trainer):
         with torch.no_grad():
             t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
-                label_arr.append(batch[-1].cpu().numpy())
+                label_arr.append(batch[1].cpu().numpy())
                 batch = self.to_device(batch, device)
                 metric, pred = self.valid_step(batch, self.valid_global_step)
                 pred_arr.append(pred.cpu().numpy())

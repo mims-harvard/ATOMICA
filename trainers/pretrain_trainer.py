@@ -141,6 +141,13 @@ class PretrainTrainer(Trainer):
                     wandb.log({f'train_translation_base': loss_obj.translation_base.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_rotation_base': loss_obj.rotation_base.detach().cpu().item()}, step=self.global_step)
                     wandb.log({f'train_torsion_base': loss_obj.tor_base.detach().cpu().item()}, step=self.global_step)
+                    total_norm = 0.0
+                    for p in self.model.parameters():
+                        if p.grad is not None:
+                            param_norm = p.grad.detach().data.norm(2)
+                            total_norm += param_norm.item() ** 2
+                    total_norm_rms = total_norm ** 0.5
+                    wandb.log({f'param_grad_norm': total_norm_rms}, step=self.global_step)
                     if batch_idx % 500 == 0 and batch_idx > 0:
                         start_idx = max(0, len(metric_dict["loss"]) - 500)
                         wandb.log({f'train_last500_loss': np.mean(metric_dict["loss"][start_idx:])}, step=self.global_step)

@@ -341,7 +341,7 @@ class MutationDataset(torch.utils.data.Dataset):
             [1]
         ]
         '''
-        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float) 
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float), torch.tensor(self.data[idx]["mt_block_indexes"], dtype=torch.long)
         #torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
 
     @classmethod
@@ -349,8 +349,10 @@ class MutationDataset(torch.utils.data.Dataset):
         wt = [item[0] for item in batch]
         mt = [item[1] for item in batch]
         label = [item[2] for item in batch]
+        cumsum_block_lengths = torch.cumsum(torch.tensor([0] + [len(mt_item['B']) for mt_item in mt], dtype=torch.long), dim=0)
+        mt_block_indexes = torch.cat([item[3] + cumsum_block_lengths[i] for i, item in enumerate(batch)])
         batch = cls.collate_fn_(wt+mt)
-        return batch, torch.tensor(label, dtype=torch.float)
+        return batch, torch.tensor(label, dtype=torch.float), mt_block_indexes
 
     @classmethod
     def collate_fn_(cls, batch):

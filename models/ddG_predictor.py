@@ -69,7 +69,7 @@ class DDGPredictor(PredictionModel):
             model.ddg_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def get_pred(self, B, top_Z, esm_embeddings, lengths, segment_ids):
+    def get_pred(self, B, top_Z, esm_embeddings, lengths, segment_ids, mt_block_indexes):
         with torch.no_grad():
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
             batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
@@ -79,46 +79,56 @@ class DDGPredictor(PredictionModel):
         top_H_0 = self.block_embedding.block_embedding(B)
         esm_embeddings_proj1 = self.esm_projector1(esm_embeddings)
         top_H_0 = self.esm_and_block_projector1(torch.cat([top_H_0, esm_embeddings_proj1], dim=1))
-        perturb_block_mask = None
         
         #top level 
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id)
-        global_mask = B != self.global_block_id if not self.global_message_passing else None
-        block_repr, _ = self.top_encoder(top_H_0, top_Z, batch_id, perturb_block_mask, edges, edge_attr, global_mask=global_mask)
-        # esm_embeddings_proj2 = self.esm_projector2(esm_embeddings)
-        # block_repr = self.esm_and_block_projector2(torch.cat([block_repr, esm_embeddings_proj2], dim=1))
-        graph_repr = scatter_sum(block_repr, batch_id, dim=0)
-        graph_repr = F.normalize(graph_repr, dim=-1)
-        # block_energy = self.energy_ffn(block_repr).squeeze(-1)
-        # if not self.global_message_passing: # ignore global blocks
-        #     block_energy[B == self.global_block_id] = 0
-        # pred_energy = scatter_sum(block_energy, batch_id)
-        
+        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
+                                          self.global_message_passing, top=True)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
+        num_items = block_repr.shape[0]//2
+        diff = block_repr[:num_items] - block_repr[num_items:]  # mt-wt, wt-mt
+
+        mut_batch_id = batch_id[mt_block_indexes]
+        mut_block_repr = diff[mt_block_indexes]
+        forward_pred = self.ddg_ffn(mut_block_repr)
+        output = scatter_sum(forward_pred, mut_batch_id, dim=0).squeeze(dim=1)
+        print("Pred DDG: ", output)
+        return output
+
+        # # esm_embeddings_proj2 = self.esm_projector2(esm_embeddings)
+        # # block_repr = self.esm_and_block_projector2(torch.cat([block_repr, esm_embeddings_proj2], dim=1))
+        # graph_repr = scatter_sum(block_repr, batch_id, dim=0)
+        # graph_repr = F.normalize(graph_repr, dim=-1)
+        # # block_energy = self.energy_ffn(block_repr).squeeze(-1)
+        # # if not self.global_message_passing: # ignore global blocks
+        # #     block_energy[B == self.global_block_id] = 0
+        # # pred_energy = scatter_sum(block_energy, batch_id)
+
         num_items = graph_repr.shape[0]//2
         diff = graph_repr[:num_items] - graph_repr[num_items:]  # mt-wt, wt-mt
         forward_pred = self.ddg_ffn(diff).squeeze(dim=1)
         # reverse_pred = self.ddg_ffn(-diff).squeeze(dim=1)
         return forward_pred #, reverse_pred
     
-    def forward(self, data, ddg) -> PredictionReturnValue:
+    def forward(self, data, ddg, mt_block_indexes) -> PredictionReturnValue:
         B = data['B']
         top_Z = data['Z_block']
         lengths = data['lengths']
         esm_embeddings = data['esm_embeddings']
         segment_ids = data['segment_ids']
-        forward_pred = self.get_pred(B, top_Z, esm_embeddings, lengths, segment_ids)
+        forward_pred = self.get_pred(B, top_Z, esm_embeddings, lengths, segment_ids, mt_block_indexes)
         loss = F.mse_loss(forward_pred, ddg) # .mse_loss((forward_pred-reverse_pred)/2, ddg) + F.l1_loss(forward_pred, -reverse_pred)
         return loss, forward_pred # return only forward values
     
     def infer(self, batch):
         self.eval()
-        data, _ = batch
+        data, _, mt_block_indexes = batch
         forward_pred = self.get_pred(
             B = data['B'],
             top_Z = data['Z_block'],
             esm_embeddings = data['esm_embeddings'],
             lengths = data['lengths'],
             segment_ids = data['segment_ids'],
+            mt_block_indexes = mt_block_indexes,
         )
         return forward_pred
