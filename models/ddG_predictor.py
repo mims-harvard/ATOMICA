@@ -21,7 +21,7 @@ class DDGPredictor(PredictionModel):
             nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
             nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, 1, bias=False),
+            nn.Linear(self.hidden_size, 1),
         )
         self.esm_projector1 = nn.Sequential(
             nn.Linear(2560, 2560),
@@ -88,11 +88,13 @@ class DDGPredictor(PredictionModel):
         num_items = block_repr.shape[0]//2
         diff = block_repr[:num_items] - block_repr[num_items:]  # mt-wt, wt-mt
 
-        mut_batch_id = batch_id[mt_block_indexes]
-        mut_block_repr = diff[mt_block_indexes]
-        forward_pred = self.ddg_ffn(mut_block_repr)
-        output = scatter_sum(forward_pred, mut_batch_id, dim=0).squeeze(dim=1)
-        print("Pred DDG: ", output)
+        # mut_batch_id = batch_id[mt_block_indexes]
+        # mut_block_repr = diff[mt_block_indexes]
+        # forward_pred = self.ddg_ffn(mut_block_repr)
+        # output = scatter_sum(forward_pred, mut_batch_id, dim=0).squeeze(dim=1)
+
+        forward_pred = self.ddg_ffn(diff).squeeze(dim=1)
+        output = scatter_sum(forward_pred, batch_id[:num_items], dim=0)
         return output
 
         # # esm_embeddings_proj2 = self.esm_projector2(esm_embeddings)
