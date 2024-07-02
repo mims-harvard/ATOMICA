@@ -28,7 +28,7 @@ class MaskedNodeModel(PredictionModel):
             edge_size=pretrained_model.edge_size,
             k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
-            dropout=pretrained_model.dropout,
+            dropout=kwargs.get('dropout', pretrained_model.dropout),
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
             num_layers=kwargs['num_layers'],
