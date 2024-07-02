@@ -24,7 +24,7 @@ class AffinityTrainer(Trainer):
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
         return optimizer
 
     def get_scheduler(self, optimizer):

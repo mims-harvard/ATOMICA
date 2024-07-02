@@ -42,6 +42,7 @@ def create_model(args):
                 'bottom_global_message_passing': args.bottom_global_message_passing,
                 'global_message_passing': args.global_message_passing,
                 'k_neighbors': args.k_neighbors,
+                'dropout': args.dropout,
             }
             model = AffinityPredictorNoisyNodes.load_from_pretrained(args.pretrain_ckpt, noisy_nodes_weight=args.noisy_nodes_weight, **add_params)
         else:
@@ -94,6 +95,7 @@ def create_model(args):
                     'bottom_global_message_passing': args.bottom_global_message_passing,
                     'global_message_passing': args.global_message_passing,
                     'k_neighbors': args.k_neighbors,
+                    'dropout': args.dropout,
                 })
             model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
             print(f"Model size: {sum(p.numel() for p in model.parameters())}")
