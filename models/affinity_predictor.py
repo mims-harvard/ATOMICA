@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_sum
+from torch_scatter import scatter_sum, scatter_mean
 import torch
 
 from .prediction_model import PredictionModel, PredictionReturnValue
@@ -84,6 +84,81 @@ class AffinityPredictor(PredictionModel):
         if extra_info:
             return pred_energy, return_value
         return pred_energy
+
+
+class BlockAffinityPredictor(PredictionModel):
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        nonlinearity = nn.ReLU
+        self.energy_ffn = nn.Sequential(
+            nonlinearity(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nonlinearity(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nonlinearity(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size, 1)
+        )
+        # self.energy_ffn1 = nn.Sequential(
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, self.hidden_size),
+        #     nonlinearity(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.hidden_size, 1)
+        # )
+    
+    @classmethod
+    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
+        model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.energy_ffn.requires_grad_(requires_grad=True)
+        return model
+    
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
+        # batch_id and block_id
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids)  # [Nb]
+            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+            block_id = torch.zeros_like(A) # [Nu]
+            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+
+        # embedding
+        top_H_0 = self.block_embedding.block_embedding(B)
+        top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
+        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
+                                          self.global_message_passing, top=True)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
+        block_energy = self.energy_ffn(block_repr).squeeze(-1)
+        if not self.global_message_passing: # ignore global blocks
+            block_energy[B == self.global_block_id] = 0
+        pred_energy = scatter_sum(block_energy, batch_id)
+        return F.mse_loss(pred_energy, label), pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)
+
+
+    def infer(self, batch, extra_info=False):
+        self.eval()
+        loss, pred = self.forward(
+            Z=batch['X'], B=batch['B'], A=batch['A'],
+            block_lengths=batch['block_lengths'],
+            lengths=batch['lengths'],
+            segment_ids=batch['segment_ids'],
+            label=batch['label'],
+        )
+        if extra_info:
+            raise NotImplementedError
+        return pred
     
 
 class AffinityPredictorNoisyNodes(PredictionModel):

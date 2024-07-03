@@ -279,7 +279,7 @@ def set_noise(dataset, args):
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
-    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel]:
+    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel, models.BlockAffinityPredictor]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
         if model.masking_objective:

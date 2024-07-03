@@ -1,7 +1,7 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
 from .pretrain_model import DenoisePretrainModel
-from .affinity_predictor import AffinityPredictor, AffinityPredictorNoisyNodes
+from .affinity_predictor import AffinityPredictor, AffinityPredictorNoisyNodes, BlockAffinityPredictor
 from .ddG_predictor import DDGPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
 from .prediction_model import PredictionModel
@@ -69,8 +69,10 @@ def create_model(args):
         return model
     else:
         add_params = {}
-        if args.task in {'PLA', 'PPA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN'}:
+        if args.task in {'PLA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN'}:
             Model = AffinityPredictor
+        elif args.task == 'PPA':
+            Model = BlockAffinityPredictor
         elif args.task == 'regression':
             Model = RegressionPredictor
         elif args.task == 'DDG':
@@ -89,7 +91,7 @@ def create_model(args):
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
         if args.pretrain_ckpt:
-            if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor]:
+            if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'bottom_global_message_passing': args.bottom_global_message_passing,
