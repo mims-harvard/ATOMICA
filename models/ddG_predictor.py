@@ -94,8 +94,12 @@ class DDGPredictor(PredictionModel):
         # output = scatter_sum(forward_pred, mut_batch_id, dim=0).squeeze(dim=1)
 
         forward_pred = self.ddg_ffn(diff).squeeze(dim=1)
-        output = scatter_sum(forward_pred, batch_id[:num_items], dim=0)
-        return output
+        forward_output = scatter_sum(forward_pred, batch_id[:num_items], dim=0)
+
+        # reverse_pred = self.ddg_ffn(-diff).squeeze(dim=1)
+        # reverse_output = scatter_sum(reverse_pred, batch_id[:num_items], dim=0)
+        
+        return forward_output #, reverse_output
 
         # # esm_embeddings_proj2 = self.esm_projector2(esm_embeddings)
         # # block_repr = self.esm_and_block_projector2(torch.cat([block_repr, esm_embeddings_proj2], dim=1))
@@ -119,7 +123,7 @@ class DDGPredictor(PredictionModel):
         esm_embeddings = data['esm_embeddings']
         segment_ids = data['segment_ids']
         forward_pred = self.get_pred(B, top_Z, esm_embeddings, lengths, segment_ids, mt_block_indexes)
-        loss = F.mse_loss(forward_pred, ddg) # .mse_loss((forward_pred-reverse_pred)/2, ddg) + F.l1_loss(forward_pred, -reverse_pred)
+        loss = F.mse_loss(forward_pred, ddg) #+ F.mse_loss(-reverse_pred, ddg) + F.mse_loss(forward_pred, -reverse_pred) # .mse_loss((forward_pred-reverse_pred)/2, ddg) + F.l1_loss(forward_pred, -reverse_pred)
         return loss, forward_pred # return only forward values
     
     def infer(self, batch):

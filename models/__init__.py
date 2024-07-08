@@ -69,7 +69,7 @@ def create_model(args):
         return model
     else:
         add_params = {}
-        if args.task in {'PLA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN'}:
+        if args.task in {'PLA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN', 'PPA-atom'}:
             Model = AffinityPredictor
         elif args.task == 'PPA':
             Model = BlockAffinityPredictor

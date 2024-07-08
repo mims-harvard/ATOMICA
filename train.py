@@ -30,7 +30,7 @@ def parse():
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
                         choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
-                                 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression'],
+                                 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
@@ -46,7 +46,7 @@ def parse():
     parser.add_argument('--pretrain', action='store_true', help='pretraining mode')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--final_lr', type=float, default=1e-4, help='final learning rate')
-    parser.add_argument('--warmup_steps', type=int, default=0, help='linear learning rate warmup steps')
+    parser.add_argument('--warmup_epochs', type=int, default=0, help='Number of epochs where validation loss is not used for early stopping')
     parser.add_argument('--warmup_start_lr', type=float, default=1e-5, help='linear learning rate warmup start lr')
     parser.add_argument('--warmup_end_lr', type=float, default=1e-3, help='linear learning rate warmup end lr')
     parser.add_argument('--dropout', type=float, default=0.0, help='dropout rate')
@@ -113,7 +113,7 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         if path2 is not None:  # add protein dataset
             dataset2 = BlockGeoAffDataset(path2)
             dataset = MixDatasetWrapper(dataset, dataset2)
-    elif task == 'PPA':
+    elif task == 'PPA' or task == 'PPA-atom':
         dataset = BlockGeoAffDataset(path)
         if path2 is not None:  # add small molecule dataset
             dataset2 = LBADataset(path2, fragment=fragment)
@@ -345,7 +345,7 @@ def main(args):
     config = trainers.TrainConfig(
         args.save_dir, args.lr, args.max_epoch,
         cycle_steps=args.cycle_steps,
-        warmup_steps=args.warmup_steps,
+        warmup_epochs=args.warmup_epochs,
         warmup_start_lr=args.warmup_start_lr,
         warmup_end_lr=args.warmup_end_lr,
         patience=args.patience,

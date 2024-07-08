@@ -104,11 +104,12 @@ class DDGTrainer(Trainer):
         # judge
         pred_arr = np.concatenate(pred_arr)
         label_arr = np.concatenate(label_arr)
-        valid_metric = np.mean(metric_arr)
+        valid_loss = np.mean(metric_arr)
+        valid_metric = np.sqrt(np.mean(np.square(pred_arr - label_arr)))
         if self.use_wandb and self._is_main_proc():
             wandb.log({
-                'val_loss': valid_metric.item(),
-                'val_RMSELoss': np.sqrt(np.mean(np.square(pred_arr - label_arr))),
+                'val_loss': valid_loss,
+                'val_RMSELoss': valid_metric,
                 'val_pearson': np.corrcoef(pred_arr, label_arr)[0, 1],
                 'val_spearman': spearmanr(pred_arr, label_arr).statistic,
             }, step=self.global_step)

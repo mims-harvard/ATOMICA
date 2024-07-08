@@ -103,11 +103,11 @@ class AffinityTrainer(Trainer):
         # judge
         pred_arr = np.concatenate(pred_arr)
         label_arr = np.concatenate(label_arr)
-        valid_metric = np.mean(metric_arr)
+        valid_metric = np.sqrt(np.mean(np.square(pred_arr - label_arr))) 
         if self.use_wandb and self._is_main_proc():
             wandb.log({
-                'val_loss': valid_metric.item(),
-                'val_RMSELoss': np.sqrt(np.mean(np.square(pred_arr - label_arr))),
+                'val_loss': np.mean(metric_arr),
+                'val_RMSELoss': valid_metric,
                 'val_pearson': np.corrcoef(pred_arr, label_arr)[0, 1],
                 'val_spearman': spearmanr(pred_arr, label_arr).statistic,
             }, step=self.global_step)
@@ -117,7 +117,7 @@ class AffinityTrainer(Trainer):
             torch.save(module_to_save, save_path)
             self._maintain_topk_checkpoint(valid_metric, save_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
-        if self._metric_better(valid_metric):
+        if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience
         else:
             self.patience -= 1

@@ -62,7 +62,7 @@ class PredictionModel(DenoisePretrainModel):
         return model
 
     ########## overload ##########
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, return_graph_repr=True) -> PredictionReturnValue:
         # batch_id and block_id
         with torch.no_grad():
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
@@ -104,11 +104,14 @@ class PredictionModel(DenoisePretrainModel):
 
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
         block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
-        if self.global_message_passing:
-            graph_repr = self.attention_pooling(block_repr, batch_id)
+        if return_graph_repr:
+            if self.global_message_passing:
+                graph_repr = self.attention_pooling(block_repr, batch_id)
+            else:
+                global_mask = B != self.global_block_id if not self.global_message_passing else None
+                graph_repr = self.attention_pooling(block_repr[global_mask], batch_id[global_mask])
         else:
-            global_mask = B != self.global_block_id if not self.global_message_passing else None
-            graph_repr = self.attention_pooling(block_repr[global_mask], batch_id[global_mask])
+            graph_repr = None
 
 
         return PredictionReturnValue(

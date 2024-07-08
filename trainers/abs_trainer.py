@@ -17,14 +17,14 @@ import wandb
 
 class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch,
-                 warmup_steps=0, warmup_start_lr=1e-5, warmup_end_lr=1e-4,
+                 warmup_epochs=0, warmup_start_lr=1e-5, warmup_end_lr=1e-4,
                  metric_min_better=True, patience=3, cycle_steps=1,
                  grad_clip=None, save_topk=-1, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr
         self.max_epoch = max_epoch
-        self.warmup_steps = warmup_steps
+        self.warmup_epochs = warmup_epochs
         self.warmup_start_lr = warmup_start_lr
         self.warmup_end_lr = warmup_end_lr
         self.metric_min_better = metric_min_better
@@ -218,7 +218,7 @@ class Trainer:
             torch.save(module_to_save, save_path)
             self._maintain_topk_checkpoint(valid_metric, save_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
-        if self._metric_better(valid_metric):
+        if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience
         else:
             self.patience -= 1
