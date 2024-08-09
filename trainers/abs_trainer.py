@@ -99,6 +99,7 @@ class Trainer:
         self.valid_global_step = 0
         self.epoch = 0
         self.last_valid_metric = None
+        self.best_valid_metric = float('inf') if self.config.metric_min_better else -float('inf')
         self.topk_ckpt_map = []  # smaller index means better ckpt
         self.patience = self.config.patience
 
@@ -223,6 +224,8 @@ class Trainer:
         else:
             self.patience -= 1
         self.last_valid_metric = valid_metric
+        if self.epoch > self.config.warmup_epochs:
+            self.best_valid_metric = min(self.best_valid_metric, valid_metric) if self.config.metric_min_better else max(self.best_valid_metric, valid_metric)
         # write valid_metric
         for name in self.writer_buffer:
             value = np.mean(self.writer_buffer[name])
@@ -230,7 +233,7 @@ class Trainer:
         self.writer_buffer = {}
     
     def _metric_better(self, new):
-        old = self.last_valid_metric
+        old = self.best_valid_metric
         if old is None:
             return True
         if self.config.metric_min_better:

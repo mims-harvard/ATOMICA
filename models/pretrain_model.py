@@ -258,8 +258,11 @@ class DenoisePretrainModel(nn.Module):
         edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
                                           self.global_message_passing, top=True)
 
-        atom_mask = A != VOCAB.get_atom_global_idx() # no global message passing for atoms
-        batched_bottom_block_repr, _ = batchify(bottom_block_repr[atom_mask], block_id[atom_mask])
+        if self.bottom_global_message_passing:
+            batched_bottom_block_repr, _ = batchify(bottom_block_repr, block_id)
+        else:
+            atom_mask = A != VOCAB.get_atom_global_idx()
+            batched_bottom_block_repr, _ = batchify(bottom_block_repr[atom_mask], block_id[atom_mask])
 
         block_repr_from_bottom = self.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
         top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
@@ -271,7 +274,7 @@ class DenoisePretrainModel(nn.Module):
         if self.global_message_passing:
             graph_repr = self.attention_pooling(block_repr, batch_id)
         else:
-            global_mask = B != self.global_block_id if not self.global_message_passing else None
+            global_mask = B != self.global_block_id
             graph_repr = self.attention_pooling(block_repr[global_mask], batch_id[global_mask])
         
         noise_loss = torch.tensor(0.0).cuda()
@@ -320,7 +323,7 @@ class DenoisePretrainModel(nn.Module):
             rot_noise_scale_top = self.top_rotation_scale_ffn(graph_repr)
             rot_noise = rot_noise * rot_noise_scale_top
             wloss = self.mse_loss(rot_noise, rot_score)
-            rotation_base = (rot_score**2).mean() # [1], 2 for bottom and top level
+            rotation_base = (rot_score**2).mean() # [1]
             noise_loss += self.rotation_weight * wloss
         else:
             wloss = torch.tensor(0.0)

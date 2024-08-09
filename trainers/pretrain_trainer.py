@@ -253,11 +253,13 @@ class PretrainTrainer(Trainer):
             torch.save(self._get_training_state(), training_save_path)
             print_log(f'Training state save path: {training_save_path}')
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
-        if self._metric_better(valid_metric):
+        if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience
         else:
             self.patience -= 1
         self.last_valid_metric = valid_metric
+        if self.epoch > self.config.warmup_epochs:
+            self.best_valid_metric = min(self.best_valid_metric, valid_metric) if self.config.metric_min_better else max(self.best_valid_metric, valid_metric)
         # write valid_metric
         for name in self.writer_buffer:
             value = np.mean(self.writer_buffer[name])

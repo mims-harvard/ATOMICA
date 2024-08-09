@@ -121,7 +121,10 @@ class AffinityTrainer(Trainer):
             self.patience = self.config.patience
         else:
             self.patience -= 1
+        print_log(f"Patience: {self.patience}")
         self.last_valid_metric = valid_metric
+        if self.epoch > self.config.warmup_epochs:
+            self.best_valid_metric = min(self.best_valid_metric, valid_metric) if self.config.metric_min_better else max(self.best_valid_metric, valid_metric)
         # write valid_metric
         for name in self.writer_buffer:
             value = np.mean(self.writer_buffer[name])
