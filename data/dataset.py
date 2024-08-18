@@ -309,9 +309,11 @@ class MutationDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
         self.indexes = [ {'id': item['id'], 'label': item['ddG'] } for item in self.data ]  # to satify the requirements of inference.py
-        for item in self.data:
-            item['wt']["esm_embeddings"] = item["wt_esm_block_embeddings"]
-            item['mt']["esm_embeddings"] = item["mt_esm_block_embeddings"]
+        if "wt_esm_block_embeddings" in item[0] and "mt_esm_block_embeddings" in item[0]:
+            for item in self.data:
+                item['wt']["esm_embeddings"] = item["wt_esm_block_embeddings"]
+                item['mt']["esm_embeddings"] = item["mt_esm_block_embeddings"]
+    
     def __len__(self):
         return len(self.data)
     
@@ -356,7 +358,9 @@ class MutationDataset(torch.utils.data.Dataset):
 
     @classmethod
     def collate_fn_(cls, batch):
-        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids', "esm_embeddings"]
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
+        if 'esm_embeddings' in batch[0]:
+            keys.append('esm_embeddings')
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
         res = {}
         for key, _type in zip(keys, types):
@@ -591,7 +595,7 @@ class MixDatasetWrapper(torch.utils.data.Dataset):
 
 
 class DynamicBatchWrapper(torch.utils.data.Dataset):
-    def __init__(self, dataset, max_n_vertex_per_batch, max_n_vertex_per_item=None) -> None:
+    def __init__(self, dataset, max_n_vertex_per_batch, max_n_vertex_per_item=None, shuffle=True) -> None:
         super().__init__()
         self.dataset = dataset
         self.indexes = [i for i in range(len(dataset))]
@@ -601,12 +605,13 @@ class DynamicBatchWrapper(torch.utils.data.Dataset):
         self.max_n_vertex_per_item = max_n_vertex_per_item
         self.total_size = None
         self.batch_indexes = []
+        self.shuffle = shuffle
         self._form_batch()
 
     ########## overload with your criterion ##########
     def _form_batch(self):
-
-        np.random.shuffle(self.indexes)
+        if self.shuffle:
+            np.random.shuffle(self.indexes)
         last_batch_indexes = self.batch_indexes
         self.batch_indexes = []
 

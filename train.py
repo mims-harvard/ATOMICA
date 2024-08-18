@@ -99,6 +99,12 @@ def parse():
     parser.add_argument('--pretrain_state', type=str, default=None, help='path of the pretrained training state to load for resuming training')
     parser.add_argument('--partial_finetune', action="store_true", default=False, help='only finetune energy head')
 
+    # for affinity prediction
+    parser.add_argument('--affinity_pred_dropout', type=float, default=0.0, help='dropout rate for affinity prediction')
+    parser.add_argument('--affinity_pred_nonlinearity', type=str, default='relu', choices=['relu', 'gelu', 'elu'], help='nonlinearity for affinity prediction')
+    parser.add_argument('--num_affinity_pred_layers', type=int, default=2, help='number of layers for affinity prediction')
+    parser.add_argument('--affinity_pred_hidden_size', type=int, default=32, help='hidden size for affinity prediction')
+
     # logging
     parser.add_argument('--use_wandb', action="store_true", default=False, help='log to Weights and Biases')
     parser.add_argument('--run_name', type=str, default="test", help='model run name for logging')
@@ -334,9 +340,9 @@ def main(args):
     if args.max_n_vertex_per_gpu is not None:
         if args.valid_max_n_vertex_per_gpu is None:
             args.valid_max_n_vertex_per_gpu = args.max_n_vertex_per_gpu
-        train_set = DynamicBatchWrapper(train_set, args.max_n_vertex_per_gpu, args.max_n_vertex_per_item)
+        train_set = DynamicBatchWrapper(train_set, args.max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=args.shuffle)
         if valid_set is not None:
-            valid_set = DynamicBatchWrapper(valid_set, args.valid_max_n_vertex_per_gpu, args.max_n_vertex_per_item)
+            valid_set = DynamicBatchWrapper(valid_set, args.valid_max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=False)
         args.batch_size, args.valid_batch_size = 1, 1
         args.num_workers = 1
 
@@ -381,11 +387,13 @@ def main(args):
                               num_workers=args.num_workers,
                               shuffle=(args.shuffle and train_sampler is None),
                               sampler=train_sampler,
-                              collate_fn=train_set.collate_fn)
+                              collate_fn=train_set.collate_fn,
+                              worker_init_fn=lambda x: np.random.seed(args.seed + x))
     if valid_set is not None:
         valid_loader = DataLoader(valid_set, batch_size=args.valid_batch_size,
                                   num_workers=args.num_workers,
-                                  collate_fn=valid_set.collate_fn)
+                                  collate_fn=valid_set.collate_fn,
+                                  shuffle=False)
     else:
         valid_loader = None
     trainer = create_trainer(model, train_loader, valid_loader, config, 

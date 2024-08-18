@@ -67,11 +67,41 @@ def create_model(args):
                 dropout=args.dropout,
             )
         return model
+    elif args.task in {'PLA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN', 'PPA-atom'}:
+        add_params = {
+            "num_affinity_pred_layers": args.num_affinity_pred_layers,
+            "affinity_pred_dropout": args.affinity_pred_dropout,
+            'affinity_pred_hidden_size': args.affinity_pred_hidden_size,
+            'bottom_global_message_passing': args.bottom_global_message_passing,
+            'global_message_passing': args.global_message_passing,
+            'k_neighbors': args.k_neighbors,
+            'dropout': args.dropout,
+        }
+        if args.affinity_pred_nonlinearity == 'relu':
+            add_params["nonlinearity"] = torch.nn.ReLU()
+        elif args.affinity_pred_nonlinearity == 'gelu':
+            add_params["nonlinearity"] = torch.nn.GELU()
+        elif args.affinity_pred_nonlinearity == 'elu':
+            add_params["nonlinearity"] = torch.nn.ELU()
+        else:
+            raise NotImplementedError(f"Nonlinearity {args.affinity_pred_nonlinearity} not implemented")
+        if args.pretrain_ckpt:
+            add_params["partial_finetune"] = args.partial_finetune
+            model = AffinityPredictor.load_from_pretrained(args.pretrain_ckpt, **add_params)
+        else:
+            model = AffinityPredictor(
+                atom_hidden_size=args.atom_hidden_size,
+                block_hidden_size=args.block_hidden_size,
+                edge_size=args.edge_size,
+                n_layers=args.n_layers,
+                fragmentation_method=args.fragmentation_method,
+                **add_params
+            )
+        return model
+        
     else:
         add_params = {}
-        if args.task in {'PLA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN', 'PPA-atom'}:
-            Model = AffinityPredictor
-        elif args.task == 'PPA':
+        if args.task == 'PPA':
             Model = BlockAffinityPredictor
         elif args.task == 'regression':
             Model = RegressionPredictor

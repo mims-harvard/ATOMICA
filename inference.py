@@ -43,7 +43,7 @@ def main(args):
     test_set = create_dataset(args.task, args.test_set, fragment=args.fragment)
     test_loader = DataLoader(test_set, batch_size=args.batch_size,
                              num_workers=args.num_workers,
-                             collate_fn=test_set.collate_fn)
+                             collate_fn=test_set.collate_fn, shuffle=False)
     items = test_set.indexes
     
     # save path
