@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 from .pretrain_model import DenoisePretrainModel
 from .affinity_predictor import AffinityPredictor, AffinityPredictorNoisyNodes, BlockAffinityPredictor
-from .ddG_predictor import DDGPredictor
+from .ddG_predictor import DDGPredictor, GLOFPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
 from .prediction_model import PredictionModel
 from .masking_model import MaskedNodeModel
@@ -107,6 +107,8 @@ def create_model(args):
             Model = RegressionPredictor
         elif args.task == 'DDG':
             Model = DDGPredictor
+        elif args.task == 'GLOF':
+            Model = GLOFPredictor
         elif args.task == 'binary_classifier':
             Model = ClassifierModel
         elif args.task == 'multiclass_classifier':
@@ -121,7 +123,7 @@ def create_model(args):
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
         if args.pretrain_ckpt:
-            if Model in [AffinityPredictor, DDGPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor]:
+            if Model in [AffinityPredictor, DDGPredictor, GLOFPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'bottom_global_message_passing': args.bottom_global_message_passing,

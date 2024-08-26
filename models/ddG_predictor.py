@@ -6,7 +6,8 @@ from torch_scatter import scatter_sum
 import torch
 
 from .prediction_model import PredictionModel, PredictionReturnValue
-
+from data.pdb_utils import VOCAB
+from .InteractNN.utils import batchify
 
 class DDGPredictor(PredictionModel):
 
@@ -137,4 +138,70 @@ class DDGPredictor(PredictionModel):
             segment_ids = data['segment_ids'],
             mt_block_indexes = mt_block_indexes,
         )
+        return forward_pred
+
+class GLOFPredictor(PredictionModel):
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self.glof_ffn = nn.Sequential(
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size*2, self.hidden_size*2),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size*2, self.hidden_size*2),
+            nn.ReLU(),
+            nn.Dropout(self.dropout),
+            nn.Linear(self.hidden_size*2, 1),
+        )
+
+    @classmethod
+    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
+        model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.glof_ffn.requires_grad_(requires_grad=True)
+        return model
+    
+    def get_pred(self, B, top_Z, lengths, segment_ids, mt_block_indexes):
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids)  # [Nb]
+            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+        top_H_0 = self.block_embedding.block_embedding(B)
+        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
+                                          self.global_message_passing, top=True)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
+        num_items = block_repr.shape[0]//2
+        diff = torch.cat([block_repr[:num_items], block_repr[num_items:]], dim=1)
+
+        diff = self.glof_ffn(diff).squeeze(dim=1)
+        forward_output = scatter_sum(diff, batch_id[:num_items], dim=0)
+
+        return forward_output 
+
+    
+    def forward(self, data, labels, mt_block_indexes) -> PredictionReturnValue:
+        B = data['B']
+        top_Z = data['Z_block']
+        lengths = data['lengths']
+        segment_ids = data['segment_ids']
+        forward_pred = self.get_pred(B, top_Z, lengths, segment_ids, mt_block_indexes)
+        loss = F.binary_cross_entropy_with_logits(forward_pred, labels)
+        return loss, forward_pred
+    
+    def infer(self, batch):
+        self.eval()
+        data, _, mt_block_indexes = batch
+        forward_pred = self.get_pred(
+            B = data['B'],
+            top_Z = data['Z_block'],
+            lengths = data['lengths'],
+            segment_ids = data['segment_ids'],
+            mt_block_indexes = mt_block_indexes,
+        )
+        forward_pred = torch.sigmoid(forward_pred)
         return forward_pred

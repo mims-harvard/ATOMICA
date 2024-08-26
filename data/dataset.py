@@ -308,8 +308,12 @@ class MutationDataset(torch.utils.data.Dataset):
     def __init__(self, data_file):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
-        self.indexes = [ {'id': item['id'], 'label': item['ddG'] } for item in self.data ]  # to satify the requirements of inference.py
-        if "wt_esm_block_embeddings" in item[0] and "mt_esm_block_embeddings" in item[0]:
+        if 'ddG' in self.data[0]:
+            self.label_key = 'ddG'
+        else:
+            self.label_key = 'label'
+        self.indexes = [ {'id': item['id'], 'label': item[self.label_key] } for item in self.data ]  # to satify the requirements of inference.py
+        if "wt_esm_block_embeddings" in self.data[0] and "mt_esm_block_embeddings" in self.data[0]:
             for item in self.data:
                 item['wt']["esm_embeddings"] = item["wt_esm_block_embeddings"]
                 item['mt']["esm_embeddings"] = item["mt_esm_block_embeddings"]
@@ -339,11 +343,13 @@ class MutationDataset(torch.utils.data.Dataset):
                 'block_lengths': [Natom]
                 'segment_ids': [Nblock]
             },
+            # mt_block_indexes
+            [Nmtblock],
             # label
             [1]
         ]
         '''
-        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx]['ddG'], dtype=torch.float), torch.tensor(self.data[idx]["mt_block_indexes"], dtype=torch.long)
+        return self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx][self.label_key], dtype=torch.float), torch.tensor(self.data[idx]["mt_block_indexes"], dtype=torch.long)
         #torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
 
     @classmethod

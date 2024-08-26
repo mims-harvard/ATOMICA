@@ -3,5 +3,5 @@
 from .abs_trainer import TrainConfig
 from .pretrain_trainer import PretrainTrainer, PretrainMaskingNoisingTrainer
 from .affinity_trainer import AffinityTrainer, AffinityNoisyNodesTrainer
-from .ddG_trainer import DDGTrainer
+from .ddG_trainer import DDGTrainer, GLOFTrainer
 from .masking_trainer import MaskingTrainer
