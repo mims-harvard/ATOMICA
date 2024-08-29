@@ -13,7 +13,7 @@ from utils.random_seed import setup_seed, SEED
 ########### Import your packages below ##########
 from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset
 from data.distributed_sampler import DistributedSamplerResume
-from data.atom3d_dataset import LEPDataset, LBADataset
+from data.atom3d_dataset import LEPDataset, LBADataset, MSPDataset
 from data.dataset_ec import ECDataset
 import models
 import trainers
@@ -29,7 +29,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP',
                                  'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
                                  'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom'],
                         help='PPA: protein-protein affinity, ' + \
@@ -153,6 +153,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = MutationDataset(path)
     elif task == 'LEP':
         dataset = LEPDataset(path, fragment=fragment)
+    elif task == 'MSP':
+        dataset = MSPDataset(path)
     elif task == 'pretrain_torsion':
         from data.dataset_pretrain import PretrainTorsionDataset
         dataset1 = PretrainTorsionDataset(path)
@@ -307,8 +309,8 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.GLOFPredictor:
         trainer = trainers.GLOFTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.LEPPredictor:
-        trainer = trainers.LEPTrainer(model, train_loader, valid_loader, config)
+    elif model_type == models.BinaryPredictor:
+        trainer = trainers.BinaryPredictorTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.AffinityPredictorNoisyNodes:
         trainer = trainers.AffinityNoisyNodesTrainer(model, train_loader, valid_loader, config)
     else:

@@ -85,7 +85,67 @@ class LEPDataset(BlockGeoAffDataset):
             lengths.append(len(item[1]['B']))
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
+
+
+class MSPDataset(BlockGeoAffDataset):
+    # binary classification
+
+    def __init__(self, data_file, database=None, dist_th=6, n_cpu=4):
+        suffix = '' # no fragmentation as these are protein-protein interfaces
+        super().__init__(data_file, database, dist_th, n_cpu, suffix)
+
+    def _load_data_file(self):
+        return LMDBDataset(self.data_file)
     
+    def _post_process(self, items, processed_data):
+        indexes = [{'id': item['id'], 'label': item['label'] } for item in processed_data if item is not None]
+        data = [item for item in processed_data if item is not None]
+        return indexes, data
+    
+    def _preprocess(self, item):
+        result = {}
+        if item['label'] == '1':
+            activate = 1
+        elif item['label'] == '0':
+            activate = 0
+        else:
+            raise ValueError(f'Activation label {item["label"]} not recognized.')
+        result['id'] = item['id']
+        result['label'] = activate
+        for i, name in enumerate(['original_atoms', 'mutated_atoms']):
+            chain1 = list(item['id'].split("_")[1])
+            chain2 = list(item['id'].split("_")[2])
+            df = item[name]
+            blocks1_df = df[df['chain'].isin(chain1)]
+            blocks2_df = df[df['chain'].isin(chain2)]
+            blocks1 = df_to_blocks(blocks1_df, key_atom_name='name')
+            blocks2 = df_to_blocks(blocks2_df, key_atom_name='name')
+            blocks1, blocks2 = blocks_interface(blocks1, blocks2, self.dist_th)  # blocks2 (small molecule) need to be included as a whole
+            if len(blocks1) == 0 or len(blocks2) == 0:
+                return None
+            result[i] = blocks_to_data(blocks1, blocks2)
+        result['len'] = len(result[0]['B']) + len(result[1]['B'])
+        return result
+    
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[0][key], dtype=_type))
+                val.append(torch.tensor(item[1][key], dtype=_type))
+            res[key] = torch.cat(val, dim=0)
+        res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
+        lengths = []
+        for item in batch:
+            lengths.append(len(item[0]['B']))
+            lengths.append(len(item[1]['B']))
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
+
 
 class LBADataset(BlockGeoAffDataset):
 
