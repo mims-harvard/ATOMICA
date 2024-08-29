@@ -267,6 +267,7 @@ def batchify(tensor, batch_ids):
         output[batch_id, :sequence.size(0)] = sequence
         batchify_mask[batch_id, :sequence.size(0)] = True
     
+    # output is of shape (num_batches, max_seq_len, dim)
     return output, batchify_mask
 
 def unbatchify(batchified_tensor, batchify_mask):

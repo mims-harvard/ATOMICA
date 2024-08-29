@@ -49,7 +49,7 @@ def get_chain_sequences(pdb_file, mutations):
             if mutations is not None and resnum in mutations:
                 wt_aa, mut_aa = mutations[resnum]
                 if resname != wt_aa:
-                    print(f"WARNING: Residue mismatch: {resname} != {wt_aa}. PDB={pdb_file}. Chain={chain_id}. Resnum={resnum}. Mut_aa={mut_aa}.")
+                    print(f"WARNING: Residue mismatch: {resname} != {wt_aa}. PDB={pdb_file}. Chain={chain.id}. Resnum={resnum}. Mut_aa={mut_aa}.")
                 seq.append(mut_aa)
             else:
                 seq.append(resname)

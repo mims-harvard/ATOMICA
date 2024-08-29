@@ -9,7 +9,7 @@ import os
 from tqdm import tqdm
 import numpy as np
 from scipy.stats import spearmanr
-
+from sklearn.metrics import roc_auc_score, precision_recall_curve, auc
 from utils.logger import print_log
 
 ########### Import your packages below ##########
@@ -221,9 +221,16 @@ class GLOFTrainer(Trainer):
         pred_arr = np.concatenate(pred_arr)
         label_arr = np.concatenate(label_arr)
         valid_loss = F.binary_cross_entropy_with_logits(torch.tensor(pred_arr), torch.tensor(label_arr)).item()
+        auroc = roc_auc_score(label_arr, pred_arr)
+        precision, recall, _ = precision_recall_curve(label_arr, pred_arr)
+        auprc = auc(recall, precision)
+        delta_auprc = auprc - np.mean(label_arr)
         if self.use_wandb and self._is_main_proc():
             wandb.log({
                 'val_loss': valid_loss,
+                'val_auroc': auroc,
+                'val_auprc': auprc,
+                'val_delta_auprc': delta_auprc,
             }, step=self.global_step)
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')

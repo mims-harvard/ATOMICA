@@ -72,20 +72,7 @@ class AffinityPredictor(PredictionModel):
         return model
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
-        # print("unused parameters")
-        # param_idx = [78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95,96,97,98,99,100,101,102,103]
-        # named_params = list(self.named_parameters())
-        # for idx in param_idx:
-        #     print(named_params[idx])
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids, return_graph_repr=False)
-        # rec_block_energy = self.energy_ffn(return_value.block_repr[segment_ids == 0]).squeeze(-1)
-        # lig_block_energy = self.energy_ffn1(return_value.block_repr[segment_ids == 1]).squeeze(-1)
-        # if not self.global_message_passing: # ignore global blocks
-        #     rec_block_energy[B[segment_ids == 0] == self.global_block_id] = 0
-        #     lig_block_energy[B[segment_ids == 1] == self.global_block_id] = 0
-        # pred_energy_rec = scatter_sum(rec_block_energy, return_value.batch_id[segment_ids == 0])
-        # pred_energy_lig = scatter_sum(lig_block_energy, return_value.batch_id[segment_ids == 1])
-        # pred_energy = pred_energy_rec + pred_energy_lig
         block_energy = self.energy_ffn(return_value.block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
             block_energy[B == self.global_block_id] = 0

@@ -7,7 +7,7 @@ import torch
 
 from .prediction_model import PredictionModel, PredictionReturnValue
 from data.pdb_utils import VOCAB
-from .InteractNN.utils import batchify
+from .InteractNN.utils import batchify, unbatchify
 
 class DDGPredictor(PredictionModel):
 
@@ -144,6 +144,20 @@ class GLOFPredictor(PredictionModel):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.num_attn_layers = 8
+        num_heads = 4
+        self.attn_layers = nn.ModuleList([
+            nn.MultiheadAttention(self.hidden_size*2, num_heads, dropout=self.dropout)
+            for _ in range(self.num_attn_layers)
+        ])
+        self.norm_layers = nn.ModuleList([
+            nn.LayerNorm(self.hidden_size*2)
+            for _ in range(self.num_attn_layers)
+        ])
+        self.dropout_layers = nn.ModuleList([
+            nn.Dropout(self.dropout)
+            for _ in range(self.num_attn_layers)
+        ])
         self.glof_ffn = nn.Sequential(
             nn.ReLU(),
             nn.Dropout(self.dropout),
@@ -176,12 +190,24 @@ class GLOFPredictor(PredictionModel):
                                           self.global_message_passing, top=True)
         block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
         num_items = block_repr.shape[0]//2
-        diff = torch.cat([block_repr[:num_items], block_repr[num_items:]], dim=1)
 
-        diff = self.glof_ffn(diff).squeeze(dim=1)
-        forward_output = scatter_sum(diff, batch_id[:num_items], dim=0)
+        # concat the wt and mt block representations
+        wt_mt_block_repr = torch.cat([block_repr[:num_items], block_repr[num_items:]], dim=1)
 
-        return forward_output 
+        # apply multihead attention
+        wt_mt_block_repr, batch_mask = batchify(wt_mt_block_repr, batch_id[:num_items]) # (num_batches, max_seq_len, dim)
+        wt_mt_block_repr = wt_mt_block_repr.transpose(0, 1) # (max_seq_len, num_batches, dim)
+        for i in range(self.num_attn_layers):
+            attn_output, _ = self.attn_layers[i](wt_mt_block_repr, wt_mt_block_repr, wt_mt_block_repr)
+            attn_output = self.dropout_layers[i](attn_output)
+            wt_mt_block_repr = self.norm_layers[i](wt_mt_block_repr + attn_output)
+        wt_mt_block_repr = wt_mt_block_repr.transpose(0, 1) # (num_batches, max_seq_len, dim)
+        wt_mt_block_repr = unbatchify(wt_mt_block_repr, batch_mask) # (num_items, dim)
+
+        # predict the label
+        pred = self.glof_ffn(wt_mt_block_repr[mt_block_indexes]).squeeze(dim=1)
+        output = scatter_sum(pred, batch_id[:num_items][mt_block_indexes], dim=0)
+        return output 
 
     
     def forward(self, data, labels, mt_block_indexes) -> PredictionReturnValue:

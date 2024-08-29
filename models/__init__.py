@@ -6,6 +6,7 @@ from .ddG_predictor import DDGPredictor, GLOFPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
 from .prediction_model import PredictionModel
 from .masking_model import MaskedNodeModel
+from .lep_predictor import LEPPredictor
 import torch
 
 def create_model(args):
@@ -103,6 +104,8 @@ def create_model(args):
         add_params = {}
         if args.task == 'PPA':
             Model = BlockAffinityPredictor
+        elif args.task == 'LEP':
+            Model = LEPPredictor
         elif args.task == 'regression':
             Model = RegressionPredictor
         elif args.task == 'DDG':
@@ -123,7 +126,8 @@ def create_model(args):
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
         if args.pretrain_ckpt:
-            if Model in [AffinityPredictor, DDGPredictor, GLOFPredictor, ClassifierModel, MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor]:
+            if Model in [AffinityPredictor, LEPPredictor, DDGPredictor, GLOFPredictor, ClassifierModel, 
+                         MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'bottom_global_message_passing': args.bottom_global_message_passing,

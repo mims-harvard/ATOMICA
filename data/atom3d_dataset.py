@@ -69,7 +69,7 @@ class LEPDataset(BlockGeoAffDataset):
     
     @classmethod
     def collate_fn(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
         res = {}
         for key, _type in zip(keys, types):
@@ -78,13 +78,12 @@ class LEPDataset(BlockGeoAffDataset):
                 val.append(torch.tensor(item[0][key], dtype=_type))
                 val.append(torch.tensor(item[1][key], dtype=_type))
             res[key] = torch.cat(val, dim=0)
-        res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.long)
+        res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = []
         for item in batch:
             lengths.append(len(item[0]['B']))
             lengths.append(len(item[1]['B']))
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        res['X'] = res['X'].unsqueeze(-2)  # number of channel is 1
         return res
     
 

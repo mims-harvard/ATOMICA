@@ -109,7 +109,7 @@ def main(args):
             'AUROC': roc_auc_score,
             'AUPRC': average_precision_score
         }
-        y_pred = [ preds[_id][1][1] for _id in cover_ids ]  # probability of label == 1
+        y_pred = [ preds[_id] for _id in cover_ids ]  # probability of label == 1
     else:
         raise NotImplementedError(f'Evaluation for task {task} not implemented')
 
