@@ -90,8 +90,8 @@ class LEPDataset(BlockGeoAffDataset):
 class MSPDataset(BlockGeoAffDataset):
     # binary classification
 
-    def __init__(self, data_file, database=None, dist_th=6, n_cpu=4):
-        suffix = '' # no fragmentation as these are protein-protein interfaces
+    def __init__(self, data_file, database=None, dist_th=10, n_cpu=4):
+        suffix = f'_dist{dist_th}' # no fragmentation as these are protein-protein interfaces
         super().__init__(data_file, database, dist_th, n_cpu, suffix)
 
     def _load_data_file(self):
@@ -112,10 +112,16 @@ class MSPDataset(BlockGeoAffDataset):
             raise ValueError(f'Activation label {item["label"]} not recognized.')
         result['id'] = item['id']
         result['label'] = activate
+        mut_pos = int(item['id'].split("_")[-1][2:-1])
+        mut_chain = item['id'].split("_")[-1][1]
+        chain1 = list(item['id'].split("_")[1])
+        chain2 = list(item['id'].split("_")[2])
+        assert mut_chain in chain1 + chain2, "Mutation chain not found in available chains"
         for i, name in enumerate(['original_atoms', 'mutated_atoms']):
-            chain1 = list(item['id'].split("_")[1])
-            chain2 = list(item['id'].split("_")[2])
             df = item[name]
+            mut_loc = df[(df['chain'] == mut_chain) & (df['residue'] == mut_pos)][['x', 'y', 'z']].mean().values
+            df['dist_to_mut'] = np.linalg.norm(df[['x', 'y', 'z']].values - mut_loc, axis=1)
+            df = df[df['dist_to_mut'] <= self.dist_th]
             blocks1_df = df[df['chain'].isin(chain1)]
             blocks2_df = df[df['chain'].isin(chain2)]
             blocks1 = df_to_blocks(blocks1_df, key_atom_name='name')

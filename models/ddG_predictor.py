@@ -144,7 +144,7 @@ class GLOFPredictor(PredictionModel):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.num_attn_layers = 8
+        self.num_attn_layers = 4
         num_heads = 4
         self.attn_layers = nn.ModuleList([
             nn.MultiheadAttention(self.hidden_size*2, num_heads, dropout=self.dropout)

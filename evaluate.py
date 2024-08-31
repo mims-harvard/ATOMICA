@@ -104,7 +104,7 @@ def main(args):
             'min_RMSE': minimized_rmse
         }
         y_pred = [ preds[_id] for _id in cover_ids ]
-    elif task == 'LEP':
+    elif task == 'LEP'or task == 'MSP':
         metrics = {
             'AUROC': roc_auc_score,
             'AUPRC': average_precision_score

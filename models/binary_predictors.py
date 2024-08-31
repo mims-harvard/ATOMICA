@@ -43,6 +43,7 @@ class BinaryPredictor(PredictionModel):
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
+        model.attention_pooling.requires_grad_(requires_grad=False) # pooling is not used in finetuning
         partial_finetune = kwargs.get('partial_finetune', False)
         if partial_finetune:
             model.pred_ffn.requires_grad_(requires_grad=True)
