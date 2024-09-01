@@ -250,10 +250,10 @@ class SphericalHarmonicEdgeAttrs(nn.Module):
         return self.sh(edge_vec)
 
 
-def batchify(tensor, batch_ids):
+def batchify(tensor, batch_ids, max_seq_len=None):
     # Determine the number of batches and the maximum sequence length
     num_batches = batch_ids.max().item() + 1
-    max_seq_len = (batch_ids == torch.arange(num_batches, device=batch_ids.device).unsqueeze(1)).sum(dim=1).max().item()
+    max_seq_len = (batch_ids == torch.arange(num_batches, device=batch_ids.device).unsqueeze(1)).sum(dim=1).max().item() if max_seq_len is None else max_seq_len
     
     # Initialize the output tensor with the mask token
     _, dim = tensor.shape

@@ -62,12 +62,17 @@ class BinaryPredictorTrainer(Trainer):
     ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
+        batch0, batch1, label = batch
         loss, pred = self.model(
-            Z=batch['X'], B=batch['B'], A=batch['A'],
-            block_lengths=batch['block_lengths'],
-            lengths=batch['lengths'],
-            segment_ids=batch['segment_ids'],
-            label=batch['label'],
+            Z0=batch0['X'], B0=batch0['B'], A0=batch0['A'],
+            block_lengths0=batch0['block_lengths'],
+            lengths0=batch0['lengths'],
+            segment_ids0=batch0['segment_ids'],
+            Z1=batch1['X'], B1=batch1['B'], A1=batch1['A'],
+            block_lengths1=batch1['block_lengths'],
+            lengths1=batch1['lengths'],
+            segment_ids1=batch1['segment_ids'],
+            label=label,
         )
 
         log_type = 'Validation' if val else 'Train'
@@ -100,7 +105,7 @@ class BinaryPredictorTrainer(Trainer):
         with torch.no_grad():
             t_iter = tqdm(self.valid_loader) if self._is_main_proc() else self.valid_loader
             for batch in t_iter:
-                label_arr.append(batch['label'].cpu().numpy())
+                label_arr.append(batch[-1].cpu().numpy())
                 batch = self.to_device(batch, device)
                 metric, pred = self.valid_step(batch, self.valid_global_step)
                 pred_arr.append(pred.cpu().numpy())

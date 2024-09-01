@@ -71,20 +71,28 @@ class LEPDataset(BlockGeoAffDataset):
     def collate_fn(cls, batch):
         keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
-        res = {}
+        res0 = {}
+        res1 = {}
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
                 val.append(torch.tensor(item[0][key], dtype=_type))
+            res0[key] = torch.cat(val, dim=0)
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
                 val.append(torch.tensor(item[1][key], dtype=_type))
-            res[key] = torch.cat(val, dim=0)
-        res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
+            res1[key] = torch.cat(val, dim=0)
         lengths = []
         for item in batch:
             lengths.append(len(item[0]['B']))
+        res0['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        lengths = []
+        for item in batch:
             lengths.append(len(item[1]['B']))
-        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        return res
+        res1['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        label = torch.tensor([item['label'] for item in batch], dtype=torch.float)
+        return res0, res1, label
 
 
 class MSPDataset(BlockGeoAffDataset):
@@ -137,20 +145,28 @@ class MSPDataset(BlockGeoAffDataset):
     def collate_fn(cls, batch):
         keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
-        res = {}
+        res0 = {}
+        res1 = {}
         for key, _type in zip(keys, types):
             val = []
             for item in batch:
                 val.append(torch.tensor(item[0][key], dtype=_type))
+            res0[key] = torch.cat(val, dim=0)
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
                 val.append(torch.tensor(item[1][key], dtype=_type))
-            res[key] = torch.cat(val, dim=0)
-        res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
+            res1[key] = torch.cat(val, dim=0)
         lengths = []
         for item in batch:
             lengths.append(len(item[0]['B']))
+        res0['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        lengths = []
+        for item in batch:
             lengths.append(len(item[1]['B']))
-        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        return res
+        res1['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        label = torch.tensor([item['label'] for item in batch], dtype=torch.float)
+        return res0, res1, label
 
 
 class LBADataset(BlockGeoAffDataset):
