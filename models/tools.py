@@ -6,6 +6,7 @@ import torch.nn.functional as F
 from torch_scatter import scatter_sum, scatter_min, scatter_mean
 
 from utils.nn_utils import BatchEdgeConstructor, _knn_edges, print_cuda_memory
+from .InteractNN.utils import GaussianEmbedding
 
 
 def _unit_edges_from_block_edges(unit_block_id, block_src_dst, Z=None, k=None):
@@ -209,6 +210,7 @@ class CrossAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, query, key_value):
+        # Query (batch, num_seq1, dim_query), key_value (batch, num_seq2, dim_kv)
         # Project inputs to query, key, value spaces
         query = self.query_proj(query)
         key = self.key_proj(key_value)
@@ -228,7 +230,7 @@ class CrossAttention(nn.Module):
         value = value.transpose(1, 2)
         
         # Scaled dot-product attention
-        scores = torch.matmul(query, key.transpose(-2, -1)) * self.scale
+        scores = torch.matmul(query, key.transpose(-2, -1)) * self.scale # (batch, num_heads, num_seq1, num_seq2)
         attn_weights = self.softmax(scores)
         attn_weights = self.dropout(attn_weights)
         attn_output = torch.matmul(attn_weights, value)
@@ -242,3 +244,70 @@ class CrossAttention(nn.Module):
         output = self.dropout(output)
         
         return output
+    
+class CrossAttentionWithSpatialEncoding(nn.Module):
+    def __init__(self, dim_query, dim_kv, dim_out, num_heads, dropout):
+        super(CrossAttentionWithSpatialEncoding, self).__init__()
+        self.query_proj = nn.Linear(dim_query, dim_out)
+        self.key_proj = nn.Linear(dim_kv, dim_out)
+        self.value_proj = nn.Linear(dim_kv, dim_out)
+        self.num_heads = num_heads
+        self.dim_out = dim_out
+        self.scale = (dim_out // num_heads) ** -0.5
+        self.softmax = nn.Softmax(dim=-1)
+        self.output_proj = nn.Linear(dim_out, dim_out)
+        self.dropout = nn.Dropout(dropout)
+
+        self.spatial_embedding = GaussianEmbedding(start=0, stop=10, num_gaussians=32)
+        self.spatial_ffn = nn.Sequential(
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Linear(32, 32),
+            nn.ReLU(),
+            nn.Linear(32, num_heads),
+        )
+
+
+    def forward(self, query, key_value, pairwise_distance, pairwise_mask):
+        # Query (batch, num_seq1, dim_query), key_value (batch, num_seq2, dim_kv), 
+        # pairwise_distance (batch, num_seq1, num_seq2), pairwise_mask (batch, num_seq1, num_seq2)
+        # Project inputs to query, key, value spaces
+        query = self.query_proj(query)
+        key = self.key_proj(key_value)
+        value = self.value_proj(key_value)
+        
+        # Split into multiple heads
+        batch_size, num_seq1, _ = query.shape
+        _, num_seq2, _ = key.shape
+        
+        query = query.view(batch_size, num_seq1, self.num_heads, self.dim_out // self.num_heads)
+        key = key.view(batch_size, num_seq2, self.num_heads, self.dim_out // self.num_heads)
+        value = value.view(batch_size, num_seq2, self.num_heads, self.dim_out // self.num_heads)
+        
+        # Transpose for attention calculation: (batch, num_heads, seq_len, dim_out)
+        query = query.transpose(1, 2)
+        key = key.transpose(1, 2)
+        value = value.transpose(1, 2)
+        
+        # Scaled dot-product attention
+        scores = torch.matmul(query, key.transpose(-2, -1)) * self.scale # (batch, num_heads, num_seq1, num_seq2)
+        spatial_embedding = self.spatial_embedding(pairwise_distance.flatten()) # (batch*num_seq1*num_seq2, 32)
+        spatial_embedding = self.spatial_ffn(spatial_embedding) # (batch*num_seq1*num_seq2, num_heads)
+        spatial_embedding = spatial_embedding.view(batch_size, num_seq1, num_seq2, self.num_heads) # (batch, num_seq1, num_seq2, num_heads)
+        spatial_embedding = spatial_embedding.permute(0, 3, 1, 2) # (batch, num_heads, num_seq1, num_seq2)
+        scores = scores + spatial_embedding
+        pairwise_mask = pairwise_mask.unsqueeze(1).repeat(1, self.num_heads, 1, 1)
+        scores[~pairwise_mask] = -1e9
+        attn_weights = self.softmax(scores)
+        attn_weights = self.dropout(attn_weights)
+        attn_output = torch.matmul(attn_weights, value) # (batch, num_heads, num_seq1, dim_out // num_heads)
+
+        # Concatenate multiple heads
+        attn_output = attn_output.transpose(1, 2).contiguous() # (batch, num_seq1, num_heads, dim_out // num_heads)
+        attn_output = attn_output.view(batch_size, num_seq1, self.dim_out) # (batch, num_seq1, dim_out)
+        
+        # Final linear projection
+        output = self.output_proj(attn_output)
+        output = self.dropout(output)
+        
+        return output # (batch, num_seq1, dim_out)

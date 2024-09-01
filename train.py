@@ -309,7 +309,7 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.GLOFPredictor:
         trainer = trainers.GLOFTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.BinaryPredictor:
+    elif model_type == models.BinaryPredictor or model_type == models.BinaryPredictorMSP:
         trainer = trainers.BinaryPredictorTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.AffinityPredictorNoisyNodes:
         trainer = trainers.AffinityNoisyNodesTrainer(model, train_loader, valid_loader, config)

@@ -6,7 +6,7 @@ from .ddG_predictor import DDGPredictor, GLOFPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
 from .prediction_model import PredictionModel
 from .masking_model import MaskedNodeModel
-from .binary_predictors import BinaryPredictor
+from .binary_predictors import BinaryPredictor, BinaryPredictorMSP
 import torch
 
 def create_model(args):
@@ -104,8 +104,10 @@ def create_model(args):
         add_params = {}
         if args.task == 'PPA':
             Model = BlockAffinityPredictor
-        elif args.task == 'LEP' or args.task == 'MSP':
+        elif args.task == 'LEP':
             Model = BinaryPredictor
+        elif args.task == 'MSP':
+            Model = BinaryPredictorMSP
         elif args.task == 'regression':
             Model = RegressionPredictor
         elif args.task == 'DDG':
