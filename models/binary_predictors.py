@@ -212,17 +212,33 @@ class BinaryPredictorMSP(nn.Module):
         self.block_hidden_size = block_hidden_size
         self.attn_layers0 = nn.ModuleList([
             CrossAttentionWithSpatialEncoding(dim_query=self.block_hidden_size, dim_kv=self.block_hidden_size, dim_out=self.block_hidden_size, num_heads=num_heads, dropout=dropout)
-            for _ in range(self.num_attn_layers)
+            for _ in range(self.num_attn_layers*2)
         ])
         self.norm_layers0 = nn.ModuleList([
             nn.LayerNorm(self.block_hidden_size)
-            for _ in range(self.num_attn_layers)
+            for _ in range(self.num_attn_layers*2)
         ])
         self.attn_layers1 = nn.ModuleList([
             CrossAttentionWithSpatialEncoding(dim_query=self.block_hidden_size, dim_kv=self.block_hidden_size, dim_out=self.block_hidden_size, num_heads=num_heads, dropout=dropout)
-            for _ in range(self.num_attn_layers)
+            for _ in range(self.num_attn_layers*2)
         ])
         self.norm_layers1 = nn.ModuleList([
+            nn.LayerNorm(self.block_hidden_size)
+            for _ in range(self.num_attn_layers*2)
+        ])
+        self.atom_attn_layers0 = nn.ModuleList([
+            CrossAttentionWithSpatialEncoding(dim_query=self.block_hidden_size, dim_kv=self.block_hidden_size, dim_out=self.block_hidden_size, num_heads=num_heads, dropout=dropout)
+            for _ in range(self.num_attn_layers)
+        ])
+        self.atom_norm_layers0 = nn.ModuleList([
+            nn.LayerNorm(self.block_hidden_size)
+            for _ in range(self.num_attn_layers)
+        ])
+        self.atom_attn_layers1 = nn.ModuleList([
+            CrossAttentionWithSpatialEncoding(dim_query=self.block_hidden_size, dim_kv=self.block_hidden_size, dim_out=self.block_hidden_size, num_heads=num_heads, dropout=dropout)
+            for _ in range(self.num_attn_layers)
+        ])
+        self.atom_norm_layers1 = nn.ModuleList([
             nn.LayerNorm(self.block_hidden_size)
             for _ in range(self.num_attn_layers)
         ])
@@ -280,10 +296,8 @@ class BinaryPredictorMSP(nn.Module):
             model.pred_ffn.requires_grad_(requires_grad=True)
             model.attn_layers0.requires_grad_(requires_grad=True)
             model.norm_layers0.requires_grad_(requires_grad=True)
-            model.dropout_layers0.requires_grad_(requires_grad=True)
             model.attn_layers1.requires_grad_(requires_grad=True)
             model.norm_layers1.requires_grad_(requires_grad=True)
-            model.dropout_layers1.requires_grad_(requires_grad=True)
         if pretrained_model.global_message_passing is False and model.encoder0.global_message_passing is True:
             model.encoder0.edge_embedding_top.requires_grad_(requires_grad=True)
             model.encoder1.edge_embedding_top.requires_grad_(requires_grad=True)
@@ -294,7 +308,7 @@ class BinaryPredictorMSP(nn.Module):
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
     
-    def forward_one_encoder_bottom(self, Z, B, A, block_lengths, lengths, segment_ids, encoder_id):
+    def forward_one_encoder_bottom(self, Z, B, A, atom_repr, block_lengths, lengths, segment_ids, encoder_id):
         if encoder_id == 0:
             encoder = self.encoder0
         elif encoder_id == 1:
@@ -319,7 +333,6 @@ class BinaryPredictorMSP(nn.Module):
             bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
 
         # embedding
-        bottom_H_0 = encoder.block_embedding.atom_embedding(A)
         top_H_0 = encoder.block_embedding.block_embedding(B)
 
         # bottom level message passing
@@ -327,7 +340,7 @@ class BinaryPredictorMSP(nn.Module):
                                           Z, bottom_block_id, encoder.bottom_global_message_passing, 
                                           top=False)
         bottom_block_repr = encoder.encoder(
-            bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr, 
+            atom_repr, Z, bottom_batch_id, None, edges, edge_attr, 
         )
         
         # top level message passing
@@ -357,8 +370,63 @@ class BinaryPredictorMSP(nn.Module):
     
     def forward(self, Z0, B0, A0, block_lengths0, lengths0, segment_ids0, 
                 Z1, B1, A1, block_lengths1, lengths1, segment_ids1, label):
-        block_repr0, top_Z0, batch_id0, edges0, edge_attr0 = self.forward_one_encoder_bottom(Z0, B0, A0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
-        block_repr1, top_Z1, batch_id1, edges1, edge_attr1 = self.forward_one_encoder_bottom(Z1, B1, A1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
+        
+        atom_repr0 = self.encoder0.block_embedding.atom_embedding(A0)
+        atom_repr1 = self.encoder1.block_embedding.atom_embedding(A1)
+
+        # apply cross attention on the bottom level
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids0)  # [Nb]
+            batch_id[torch.cumsum(lengths0, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+            block_id = torch.zeros_like(A0) # [Nu]
+            block_id[torch.cumsum(block_lengths0, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+            # transform blocks to single units
+            bottom_batch_id0 = batch_id[block_id]  # [Nu]
+
+            batch_id = torch.zeros_like(segment_ids1)  # [Nb]
+            batch_id[torch.cumsum(lengths1, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+            block_id = torch.zeros_like(A1) # [Nu]
+            block_id[torch.cumsum(block_lengths1, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+            # transform blocks to single units
+            bottom_batch_id1 = batch_id[block_id]  # [Nu]
+
+        atom_repr0, attn_batch0 = batchify(atom_repr0, bottom_batch_id0) # (num_batches, max_seq_len0, dim), (num_items, max_seq_len0)
+        Z0_batched, _ = batchify(Z0, bottom_batch_id0) # (num_batches, max_seq_len0, 3)
+        atom_repr1, attn_batch1 = batchify(atom_repr1, bottom_batch_id1) # (num_batches, max_seq_len1, dim), (num_items, max_seq_len0)
+        Z1_batched, _ = batchify(Z1, bottom_batch_id1) # (num_batches, max_seq_len1, 3)
+        
+        expanded_Z0 = Z0_batched.unsqueeze(2)  # Shape: (num_batches, max_seq_len0, 1, dim)
+        expanded_Z1 = Z1_batched.unsqueeze(1)  # Shape: (num_batches, 1, max_seq_len1, dim)
+        atom_pairwise_distances0 = torch.sqrt((expanded_Z0 - expanded_Z1).pow(2).sum(dim=-1)) # (num_batches, max_seq_len0, max_seq_len1)
+        atom_pairwise_distances1 = atom_pairwise_distances0.transpose(1, 2) # (num_batches, max_seq_len1, max_seq_len0)
+        atom_pairwise_mask0 = attn_batch0.unsqueeze(2) * attn_batch1.unsqueeze(1) # (num_batches, max_seq_len0, max_seq_len1)
+        atom_pairwise_mask1 = attn_batch1.unsqueeze(2) * attn_batch0.unsqueeze(1) # (num_batches, max_seq_len1, max_seq_len0)
+        
+
+        attn_atom_repr0 = atom_repr0.clone()
+        attn_atom_repr1 = atom_repr1.clone()
+
+        for i in range(self.num_attn_layers):
+            attn_output = self.atom_attn_layers0[i](attn_atom_repr0, atom_repr1, atom_pairwise_distances0, atom_pairwise_mask0) # Q, KV, pdist
+            attn_atom_repr0 = self.atom_norm_layers0[i](attn_atom_repr0 + attn_output)
+        attn_atom_repr0 = unbatchify(attn_atom_repr0, attn_batch0) # (num_items, dim)
+
+        for i in range(self.num_attn_layers):
+            attn_output = self.atom_attn_layers1[i](attn_atom_repr1, atom_repr0, atom_pairwise_distances1, atom_pairwise_mask1) # Q, KV, pdist
+            attn_atom_repr1 = self.atom_norm_layers1[i](attn_atom_repr1 + attn_output)
+        attn_atom_repr1 = unbatchify(attn_atom_repr1, attn_batch1) # (num_items, dim)
+
+        atom_repr0, atom_repr1 = attn_atom_repr0, attn_atom_repr1
+
+
+        block_repr0, top_Z0, batch_id0, edges0, edge_attr0 = self.forward_one_encoder_bottom(Z0, B0, A0, atom_repr0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
+        block_repr1, top_Z1, batch_id1, edges1, edge_attr1 = self.forward_one_encoder_bottom(Z1, B1, A1, atom_repr1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
+
+        # TODO: add cross attention after the message passing
 
 
         # apply multihead cross attention with spatial encoding
@@ -396,12 +464,12 @@ class BinaryPredictorMSP(nn.Module):
         attn_block_repr0 = block_repr0.clone()
         attn_block_repr1 = block_repr1.clone()
 
-        for i in range(self.num_attn_layers):
+        for i in range(self.num_attn_layers, self.num_attn_layers*2):
             attn_output = self.attn_layers0[i](attn_block_repr0, block_repr1, pairwise_distances0, pairwise_mask0) # Q, KV, pdist
             attn_block_repr0 = self.norm_layers0[i](attn_block_repr0 + attn_output)
         attn_block_repr0 = unbatchify(attn_block_repr0, attn_batch0) # (num_items, dim)
 
-        for i in range(self.num_attn_layers):
+        for i in range(self.num_attn_layers, self.num_attn_layers*2):
             attn_output = self.attn_layers1[i](attn_block_repr1, block_repr0, pairwise_distances1, pairwise_mask1) # Q, KV, pdist
             attn_block_repr1 = self.norm_layers1[i](attn_block_repr1 + attn_output)
         attn_block_repr1 = unbatchify(attn_block_repr1, attn_batch1) # (num_items, dim)

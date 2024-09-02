@@ -6,7 +6,7 @@ from functools import partial
 
 import numpy as np
 from scipy.stats import pearsonr, spearmanr
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, precision_recall_curve, auc
 from sklearn.linear_model import LinearRegression
 
 
@@ -41,6 +41,14 @@ def continuous_auroc(y_true, y_pred):
     y_true = y_true > 0
     return roc_auc_score(y_true, y_pred)
 
+def auprc(y_true, y_pred):
+    precision, recall, _ = precision_recall_curve(y_true, y_pred)
+    return auc(recall, precision)
+
+def delta_auprc(y_true, y_pred):
+    precision, recall, _ = precision_recall_curve(y_true, y_pred)
+    auprc = auc(recall, precision)
+    return auprc - np.mean(y_true)
 
 def perstruct_corr(y_true, y_pred, struct_ids, _type='pearson'):
     assert len(y_pred) == len(struct_ids)
@@ -107,7 +115,9 @@ def main(args):
     elif task == 'LEP'or task == 'MSP':
         metrics = {
             'AUROC': roc_auc_score,
-            'AUPRC': average_precision_score
+            'Ave. Precision Recall': average_precision_score,
+            'AUPRC': auprc,
+            'Delta AUPRC': delta_auprc,
         }
         y_pred = [ preds[_id] for _id in cover_ids ]  # probability of label == 1
     else:
