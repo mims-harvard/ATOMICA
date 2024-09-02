@@ -121,11 +121,13 @@ class BinaryPredictor(nn.Module):
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
     
-    def forward_one_encoder(self, Z, B, A, block_lengths, lengths, segment_ids, encoder_id=0):
+    def forward_one_encoder(self, Z, B, A, block_lengths, lengths, segment_ids, encoder_id):
         if encoder_id == 0:
             encoder = self.encoder0
-        else:
+        elif encoder_id == 1:
             encoder = self.encoder1
+        else:
+            raise ValueError(f"Invalid encoder_id: {encoder_id}")
 
         return_value = encoder.forward(Z, B, A, block_lengths, lengths, segment_ids, return_graph_repr=False)
         block_repr = return_value.block_repr
@@ -136,8 +138,8 @@ class BinaryPredictor(nn.Module):
     
     def forward(self, Z0, B0, A0, block_lengths0, lengths0, segment_ids0, 
                 Z1, B1, A1, block_lengths1, lengths1, segment_ids1, label):
-        block_repr0, batch_id0 = self.forward_one_encoder(Z0, B0, A0, block_lengths0, lengths0, segment_ids0)
-        block_repr1, batch_id1 = self.forward_one_encoder(Z1, B1, A1, block_lengths1, lengths1, segment_ids1)
+        block_repr0, batch_id0 = self.forward_one_encoder(Z0, B0, A0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
+        block_repr1, batch_id1 = self.forward_one_encoder(Z1, B1, A1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
 
         # apply multihead cross attention
         num_batches = len(label)
@@ -292,11 +294,13 @@ class BinaryPredictorMSP(nn.Module):
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
     
-    def forward_one_encoder(self, Z, B, A, block_lengths, lengths, segment_ids, encoder_id=0):
+    def forward_one_encoder_bottom(self, Z, B, A, block_lengths, lengths, segment_ids, encoder_id):
         if encoder_id == 0:
             encoder = self.encoder0
-        else:
+        elif encoder_id == 1:
             encoder = self.encoder1
+        else:
+            raise ValueError(f"Invalid encoder_id: {encoder_id}")
 
         # batch_id and block_id
         with torch.no_grad():
@@ -339,30 +343,56 @@ class BinaryPredictorMSP(nn.Module):
         block_repr_from_bottom = encoder.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
         top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
         top_H_0 = encoder.atom_block_attn_norm(top_H_0)
+        return top_H_0, top_Z, batch_id, edges, edge_attr
 
-        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+    def forward_one_encoder_top(self, top_H_0, top_Z, batch_id, edges, edge_attr, encoder_id):
+        if encoder_id == 0:
+            encoder = self.encoder0
+        elif encoder_id == 1:
+            encoder = self.encoder1
+        else:
+            raise ValueError(f"Invalid encoder_id: {encoder_id}")
         block_repr = encoder.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
-
-        return block_repr, batch_id, top_Z
+        return block_repr, batch_id
     
     def forward(self, Z0, B0, A0, block_lengths0, lengths0, segment_ids0, 
                 Z1, B1, A1, block_lengths1, lengths1, segment_ids1, label):
-        block_repr0, batch_id0, top_Z0 = self.forward_one_encoder(Z0, B0, A0, block_lengths0, lengths0, segment_ids0)
-        block_repr1, batch_id1, top_Z1 = self.forward_one_encoder(Z1, B1, A1, block_lengths1, lengths1, segment_ids1)
+        block_repr0, top_Z0, batch_id0, edges0, edge_attr0 = self.forward_one_encoder_bottom(Z0, B0, A0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
+        block_repr1, top_Z1, batch_id1, edges1, edge_attr1 = self.forward_one_encoder_bottom(Z1, B1, A1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
+
 
         # apply multihead cross attention with spatial encoding
         block_repr0, attn_batch0 = batchify(block_repr0, batch_id0) # (num_batches, max_seq_len0, dim), (num_items, max_seq_len0)
-        top_Z0, _ = batchify(top_Z0, batch_id0) # (num_batches, max_seq_len0, 3)
+        top_Z0_batched, _ = batchify(top_Z0, batch_id0) # (num_batches, max_seq_len0, 3)
         block_repr1, attn_batch1 = batchify(block_repr1, batch_id1) # (num_batches, max_seq_len1, dim), (num_items, max_seq_len0)
-        top_Z1, _ = batchify(top_Z1, batch_id1) # (num_batches, max_seq_len1, 3)
+        top_Z1_batched, _ = batchify(top_Z1, batch_id1) # (num_batches, max_seq_len1, 3)
         
-        expanded_top_Z0 = top_Z0.unsqueeze(2)  # Shape: (num_batches, max_seq_len0, 1, dim)
-        expanded_top_Z1 = top_Z1.unsqueeze(1)  # Shape: (num_batches, 1, max_seq_len1, dim)
+        expanded_top_Z0 = top_Z0_batched.unsqueeze(2)  # Shape: (num_batches, max_seq_len0, 1, dim)
+        expanded_top_Z1 = top_Z1_batched.unsqueeze(1)  # Shape: (num_batches, 1, max_seq_len1, dim)
         pairwise_distances0 = torch.sqrt((expanded_top_Z0 - expanded_top_Z1).pow(2).sum(dim=-1)) # (num_batches, max_seq_len0, max_seq_len1)
         pairwise_distances1 = pairwise_distances0.transpose(1, 2) # (num_batches, max_seq_len1, max_seq_len0)
         pairwise_mask0 = attn_batch0.unsqueeze(2) * attn_batch1.unsqueeze(1) # (num_batches, max_seq_len0, max_seq_len1)
         pairwise_mask1 = attn_batch1.unsqueeze(2) * attn_batch0.unsqueeze(1) # (num_batches, max_seq_len1, max_seq_len0)
         
+        attn_block_repr0 = block_repr0.clone()
+        attn_block_repr1 = block_repr1.clone()
+
+        for i in range(self.num_attn_layers):
+            attn_output = self.attn_layers0[i](attn_block_repr0, block_repr1, pairwise_distances0, pairwise_mask0) # Q, KV, pdist
+            attn_block_repr0 = self.norm_layers0[i](attn_block_repr0 + attn_output)
+        attn_block_repr0 = unbatchify(attn_block_repr0, attn_batch0) # (num_items, dim)
+
+        for i in range(self.num_attn_layers):
+            attn_output = self.attn_layers1[i](attn_block_repr1, block_repr0, pairwise_distances1, pairwise_mask1) # Q, KV, pdist
+            attn_block_repr1 = self.norm_layers1[i](attn_block_repr1 + attn_output)
+        attn_block_repr1 = unbatchify(attn_block_repr1, attn_batch1) # (num_items, dim)
+
+        block_repr0, batch_id0 = self.forward_one_encoder_top(attn_block_repr0, top_Z0, batch_id0, edges0, edge_attr0, encoder_id=0)
+        block_repr1, batch_id1 = self.forward_one_encoder_top(attn_block_repr1, top_Z1, batch_id1, edges1, edge_attr1, encoder_id=1)
+
+        # apply multihead cross attention with spatial encoding
+        block_repr0, attn_batch0 = batchify(block_repr0, batch_id0) # (num_batches, max_seq_len0, dim), (num_items, max_seq_len0)
+        block_repr1, attn_batch1 = batchify(block_repr1, batch_id1) # (num_batches, max_seq_len1, dim), (num_items, max_seq_len0)
         attn_block_repr0 = block_repr0.clone()
         attn_block_repr1 = block_repr1.clone()
 
