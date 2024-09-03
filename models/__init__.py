@@ -106,14 +106,12 @@ def create_model(args):
             Model = BlockAffinityPredictor
         elif args.task == 'LEP':
             Model = BinaryPredictor
-        elif args.task == 'MSP':
+        elif args.task == 'MSP' or args.task == 'GLOF':
             Model = BinaryPredictorMSP
         elif args.task == 'regression':
             Model = RegressionPredictor
         elif args.task == 'DDG':
             Model = DDGPredictor
-        elif args.task == 'GLOF':
-            Model = GLOFPredictor
         elif args.task == 'binary_classifier':
             Model = ClassifierModel
         elif args.task == 'multiclass_classifier':

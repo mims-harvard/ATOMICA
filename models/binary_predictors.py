@@ -228,19 +228,19 @@ class BinaryPredictorMSP(nn.Module):
         ])
         self.atom_attn_layers0 = nn.ModuleList([
             CrossAttentionWithSpatialEncoding(dim_query=self.block_hidden_size, dim_kv=self.block_hidden_size, dim_out=self.block_hidden_size, num_heads=num_heads, dropout=dropout)
-            for _ in range(self.num_attn_layers*2)
+            for _ in range(self.num_attn_layers)
         ])
         self.atom_norm_layers0 = nn.ModuleList([
             nn.LayerNorm(self.block_hidden_size)
-            for _ in range(self.num_attn_layers*2)
+            for _ in range(self.num_attn_layers)
         ])
         self.atom_attn_layers1 = nn.ModuleList([
             CrossAttentionWithSpatialEncoding(dim_query=self.block_hidden_size, dim_kv=self.block_hidden_size, dim_out=self.block_hidden_size, num_heads=num_heads, dropout=dropout)
-            for _ in range(self.num_attn_layers*2)
+            for _ in range(self.num_attn_layers)
         ])
         self.atom_norm_layers1 = nn.ModuleList([
             nn.LayerNorm(self.block_hidden_size)
-            for _ in range(self.num_attn_layers*2)
+            for _ in range(self.num_attn_layers)
         ])
         self.pred_ffn = nn.Sequential(
             nn.ReLU(),
@@ -372,7 +372,7 @@ class BinaryPredictorMSP(nn.Module):
         else:
             atom_mask = A != VOCAB.get_atom_global_idx()
             batched_bottom_block_repr, _ = batchify(atom_repr[atom_mask], block_id[atom_mask])
-
+        
         block_repr_from_bottom = encoder.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
         top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
         top_H_0 = encoder.atom_block_attn_norm(top_H_0)
@@ -443,29 +443,8 @@ class BinaryPredictorMSP(nn.Module):
         atom_repr0, atom_repr1 = attn_atom_repr0, attn_atom_repr1
 
 
-        # TODO: add cross attention after the message passing
-
         atom_repr0 = self.forward_one_encoder_bottom(Z0, B0, A0, atom_repr0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
         atom_repr1 = self.forward_one_encoder_bottom(Z1, B1, A1, atom_repr1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
-
-        atom_repr0, attn_batch0 = batchify(atom_repr0, bottom_batch_id0) # (num_batches, max_seq_len0, dim), (num_items, max_seq_len0)
-        atom_repr1, attn_batch1 = batchify(atom_repr1, bottom_batch_id1) # (num_batches, max_seq_len1, dim), (num_items, max_seq_len0)
-        
-        attn_atom_repr0 = atom_repr0.clone()
-        attn_atom_repr1 = atom_repr1.clone()
-
-        for i in range(self.num_attn_layers, self.num_attn_layers*2):
-            attn_output = self.atom_attn_layers0[i](attn_atom_repr0, atom_repr1, atom_pairwise_distances0, atom_pairwise_mask0) # Q, KV, pdist
-            attn_atom_repr0 = self.atom_norm_layers0[i](attn_atom_repr0 + attn_output)
-        attn_atom_repr0 = unbatchify(attn_atom_repr0, attn_batch0) # (num_items, dim)
-
-        for i in range(self.num_attn_layers, self.num_attn_layers*2):
-            attn_output = self.atom_attn_layers1[i](attn_atom_repr1, atom_repr0, atom_pairwise_distances1, atom_pairwise_mask1) # Q, KV, pdist
-            attn_atom_repr1 = self.atom_norm_layers1[i](attn_atom_repr1 + attn_output)
-        attn_atom_repr1 = unbatchify(attn_atom_repr1, attn_batch1) # (num_items, dim)
-
-        atom_repr0, atom_repr1 = attn_atom_repr0, attn_atom_repr1
-
 
         block_repr0, top_Z0, batch_id0, edges0, edge_attr0 = self.forward_one_encoder_bottom_to_top(Z0, B0, A0, atom_repr0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
         block_repr1, top_Z1, batch_id1, edges1, edge_attr1 = self.forward_one_encoder_bottom_to_top(Z1, B1, A1, atom_repr1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
@@ -478,7 +457,6 @@ class BinaryPredictorMSP(nn.Module):
         pairwise_distances0 = torch.sqrt((expanded_top_Z0 - expanded_top_Z1).pow(2).sum(dim=-1)) # (num_batches, max_seq_len0, max_seq_len1)
         pairwise_distances1 = pairwise_distances0.transpose(1, 2) # (num_batches, max_seq_len1, max_seq_len0)
         
-
         # apply multihead cross attention with spatial encoding
         block_repr0, attn_batch0 = batchify(block_repr0, batch_id0) # (num_batches, max_seq_len0, dim), (num_items, max_seq_len0)
         block_repr1, attn_batch1 = batchify(block_repr1, batch_id1) # (num_batches, max_seq_len1, dim), (num_items, max_seq_len0)
@@ -519,10 +497,11 @@ class BinaryPredictorMSP(nn.Module):
             attn_output = self.attn_layers1[i](attn_block_repr1, block_repr0, pairwise_distances1, pairwise_mask1) # Q, KV, pdist
             attn_block_repr1 = self.norm_layers1[i](attn_block_repr1 + attn_output)
         attn_block_repr1 = unbatchify(attn_block_repr1, attn_batch1) # (num_items, dim)
+        block_repr0, block_repr1 = attn_block_repr0, attn_block_repr1
 
         # predict the label
-        graph_repr0 = scatter_sum(attn_block_repr0, batch_id0, dim=0)
-        graph_repr1 = scatter_sum(attn_block_repr1, batch_id1, dim=0)
+        graph_repr0 = scatter_sum(block_repr0, batch_id0, dim=0)
+        graph_repr1 = scatter_sum(block_repr1, batch_id1, dim=0)
         graph_repr = torch.cat([graph_repr0, graph_repr1], dim=1)
         pred = self.pred_ffn(graph_repr).squeeze(dim=1)
         loss = F.binary_cross_entropy_with_logits(pred, label)
