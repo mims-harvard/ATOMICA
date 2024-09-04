@@ -127,17 +127,37 @@ class MSPDataset(BlockGeoAffDataset):
         assert mut_chain in chain1 + chain2, "Mutation chain not found in available chains"
         for i, name in enumerate(['original_atoms', 'mutated_atoms']):
             df = item[name]
-            mut_loc = df[(df['chain'] == mut_chain) & (df['residue'] == mut_pos)][['x', 'y', 'z']].mean().values
+            mut_loc = df[(df['chain'] == mut_chain) & (df['residue'] == mut_pos) & (df['element'] != 'H')][['x', 'y', 'z']].mean().values
+            mut_resname = df[(df['chain'] == mut_chain) & (df['residue'] == mut_pos)]['resname'].values[0]
             df['dist_to_mut'] = np.linalg.norm(df[['x', 'y', 'z']].values - mut_loc, axis=1)
             df = df[df['dist_to_mut'] <= self.dist_th]
             blocks1_df = df[df['chain'].isin(chain1)]
             blocks2_df = df[df['chain'].isin(chain2)]
-            blocks1 = df_to_blocks(blocks1_df, key_atom_name='name')
-            blocks2 = df_to_blocks(blocks2_df, key_atom_name='name')
-            blocks1, blocks2 = blocks_interface(blocks1, blocks2, self.dist_th)  # blocks2 (small molecule) need to be included as a whole
+            blocks1, blocks1_seq = df_to_blocks(blocks1_df, key_atom_name='name', return_res_seq=True)
+            blocks2, blocks2_seq = df_to_blocks(blocks2_df, key_atom_name='name', return_res_seq=True)
+            mut_code = f'{mut_chain}_{mut_pos}'
+            mut_block_id = (blocks1_seq.index(mut_code), 1) if mut_code in blocks1_seq else (blocks2_seq.index(mut_code), 2)
+            blocks1, blocks2, indexes1, indexes2 = blocks_interface(blocks1, blocks2, self.dist_th, return_indexes=True)  # blocks2 (small molecule) need to be included as a whole
+            indexes1, indexes2 = indexes1.tolist(), indexes2.tolist()
+            if mut_block_id[1] == 1 and mut_block_id[0] in indexes1:
+                mut_block_interface_id = indexes1.index(mut_block_id[0])
+            elif mut_block_id[1] == 2 and mut_block_id[0] in indexes2:
+                mut_block_interface_id = indexes2.index(mut_block_id[0])
+            else:
+                print(f'Mutant block not found at interface')
+                return None
             if len(blocks1) == 0 or len(blocks2) == 0:
                 return None
-            result[i] = blocks_to_data(blocks1, blocks2)
+            res = blocks_to_data(blocks1, blocks2)
+            if mut_block_id[1] == 1:
+                res['mut_block_id'] = mut_block_interface_id + 1 # +1 for the global block
+            else:
+                res['mut_block_id'] = len(blocks1) + 1 + mut_block_interface_id + 1 # +1 for the global block
+            res_mut_resname = VOCAB.idx_to_abrv(res['B'][res['mut_block_id']])
+            assert res_mut_resname == mut_resname, f"Mutation residue name {mut_resname} does not match the residue name in the data {res_mut_resname}"
+            
+            result[i] = res
+
         result['len'] = len(result[0]['B']) + len(result[1]['B'])
         return result
     
@@ -158,13 +178,19 @@ class MSPDataset(BlockGeoAffDataset):
                 val.append(torch.tensor(item[1][key], dtype=_type))
             res1[key] = torch.cat(val, dim=0)
         lengths = []
+        mut_block_id0 = []
         for item in batch:
+            mut_block_id0.append(item[0]['mut_block_id'] + sum(lengths))
             lengths.append(len(item[0]['B']))
         res0['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        res0['mut_block_id'] = torch.tensor(mut_block_id0, dtype=torch.long)
         lengths = []
+        mut_block_id1 = []
         for item in batch:
+            mut_block_id1.append(item[1]['mut_block_id'] + sum(lengths))
             lengths.append(len(item[1]['B']))
         res1['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        res1['mut_block_id'] = torch.tensor(mut_block_id1, dtype=torch.long)
         label = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         return res0, res1, label
 

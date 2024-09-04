@@ -68,10 +68,12 @@ class BinaryPredictorTrainer(Trainer):
             block_lengths0=batch0['block_lengths'],
             lengths0=batch0['lengths'],
             segment_ids0=batch0['segment_ids'],
+            mut_block0=batch0['mut_block_id'],
             Z1=batch1['X'], B1=batch1['B'], A1=batch1['A'],
             block_lengths1=batch1['block_lengths'],
             lengths1=batch1['lengths'],
             segment_ids1=batch1['segment_ids'],
+            mut_block1=batch1['mut_block_id'],
             label=label,
         )
 

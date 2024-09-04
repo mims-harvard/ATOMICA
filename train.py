@@ -29,7 +29,7 @@ def parse():
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP',
+                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP', 'MSP2',
                                  'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
                                  'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom'],
                         help='PPA: protein-protein affinity, ' + \
@@ -153,7 +153,7 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = MutationDataset(path)
     elif task == 'LEP':
         dataset = LEPDataset(path, fragment=fragment)
-    elif task == 'MSP':
+    elif task == 'MSP' or task == 'MSP2':
         dataset = MSPDataset(path)
     elif task == 'pretrain_torsion':
         from data.dataset_pretrain import PretrainTorsionDataset
@@ -309,7 +309,7 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.GLOFPredictor:
         trainer = trainers.GLOFTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.BinaryPredictor or model_type == models.BinaryPredictorMSP:
+    elif model_type == models.BinaryPredictor or model_type == models.BinaryPredictorMSP or model_type == models.BinaryPredictorMSP2:
         trainer = trainers.BinaryPredictorTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.AffinityPredictorNoisyNodes:
         trainer = trainers.AffinityNoisyNodesTrainer(model, train_loader, valid_loader, config)

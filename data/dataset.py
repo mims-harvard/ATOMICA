@@ -131,9 +131,10 @@ def blocks_to_coords(blocks: List[Block]):
 
 
 def df_to_blocks(df, key_residue='residue', key_insertion_code='insertion_code', key_resname='resname',
-                     key_atom_name='atom_name', key_element='element', key_x='x', key_y='y', key_z='z') -> List[Block]:
-    last_res_id, last_res_symbol = None, None
-    blocks, units = [], []
+                     key_atom_name='atom_name', key_element='element', key_x='x', key_y='y', key_z='z', 
+                     key_chain='chain', return_res_seq=False) -> List[Block]:
+    last_res_id, last_res_symbol, last_residue = None, None, None
+    blocks, units, res_seq = [], [], []
     for row in df.itertuples():  # each row is an atom (unit)
         residue = getattr(row, key_residue)
         if key_insertion_code is None:
@@ -147,17 +148,23 @@ def df_to_blocks(df, key_residue='residue', key_insertion_code='insertion_code',
             #     print([str(a) for a in units])
             block = Block(last_res_symbol, units)
             blocks.append(block)
+            res_seq.append(last_residue)
             # clear
             units = []
             last_res_id = res_id
             last_res_symbol = VOCAB.abrv_to_symbol(getattr(row, key_resname))
+            last_residue = f'{getattr(row, key_chain)}_{residue}'
         atom = getattr(row, key_atom_name)
         element = getattr(row, key_element)
         if element == 'H':
             continue
         units.append(Atom(atom, [getattr(row, axis) for axis in [key_x, key_y, key_z]], element))
     blocks = blocks[1:]
+    res_seq = res_seq[1:]
     blocks.append(Block(last_res_symbol, units))
+    res_seq.append(last_residue)
+    if return_res_seq:
+        return blocks, res_seq
     return blocks
 
 
@@ -216,6 +223,7 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
                 print('Data not list, disable parallel processing')
                 from tqdm import tqdm
                 data = [self._preprocess(item) for i, item in enumerate(tqdm(items))]
+            data = [item for item in data if item is not None]
             self.indexes, self.data = self._post_process(items, data)
             with open(proc_file, 'wb') as fout:
                 pickle.dump((dist_th, self.indexes, self.data), fout)
@@ -313,7 +321,6 @@ class MutationDataset(torch.utils.data.Dataset):
             self.label_key = 'ddG'
         else:
             self.label_key = 'label'
-        self.indexes = [ {'id': item['id'], 'label': item[self.label_key] } for item in self.data ]  # to satify the requirements of inference.py
         if "wt_esm_block_embeddings" in self.data[0] and "mt_esm_block_embeddings" in self.data[0]:
             for item in self.data:
                 item['wt']["esm_embeddings"] = item["wt_esm_block_embeddings"]
@@ -327,6 +334,7 @@ class MutationDataset(torch.utils.data.Dataset):
             else:
                 removed_items += 1
         self.data = new_items
+        self.indexes = [ {'id': item['id'], 'label': item[self.label_key] } for item in self.data ]  # to satify the requirements of inference.py
         print(f"Removed {removed_items} items due to no atoms within the threshold of {self.dist_th} A to the mutation block")
     
     def _preprocess(self, item):
@@ -357,6 +365,7 @@ class MutationDataset(torch.utils.data.Dataset):
         global_blocks = torch.tensor(item['wt']['B'], dtype=torch.long) == VOCAB.symbol_to_idx(VOCAB.GLB)
         torch.logical_or(blocks_within_th, global_blocks, out=blocks_within_th)
         block_idxes = torch.nonzero(blocks_within_th).squeeze(1)
+        old_block_idxes_map = dict(zip(block_idxes.tolist(), range(len(block_idxes))))
 
         atoms_within_th = torch.isin(block_id, block_idxes)
         global_atoms = torch.tensor(item['wt']['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()
@@ -380,6 +389,10 @@ class MutationDataset(torch.utils.data.Dataset):
         Z_global0 = Z[torch.logical_and(segment0_atoms, atoms_within_th)].mean(dim=0).tolist()
         Z_global1 = Z[torch.logical_and(segment1_atoms, atoms_within_th)].mean(dim=0).tolist()
         
+        for mt_block in item["mt_block_indexes"]:
+            if mt_block not in old_block_idxes_map:
+                return None
+        mt_block_indexes = [old_block_idxes_map[mt_block] for mt_block in item["mt_block_indexes"]]
 
         wt = {
             'X': [item['wt']['X'][i] for i in atom_idxes],
@@ -387,6 +400,7 @@ class MutationDataset(torch.utils.data.Dataset):
             'A': [item['wt']['A'][i] for i in atom_idxes],
             'block_lengths': [item['wt']['block_lengths'][i] for i in block_idxes],
             'segment_ids': [item['wt']['segment_ids'][i] for i in block_idxes],
+            'mut_block_id': mt_block_indexes,
         }
 
         global_atoms_idxes = torch.nonzero(torch.tensor(wt['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()).squeeze(1)
@@ -410,6 +424,7 @@ class MutationDataset(torch.utils.data.Dataset):
             'A': [item['mt']['A'][i] for i in mt_atom_idxes],
             'block_lengths': [item['mt']['block_lengths'][i] for i in block_idxes],
             'segment_ids': [item['mt']['segment_ids'][i] for i in block_idxes],
+            'mut_block_id': mt_block_indexes,
         }
 
         global_atoms_idxes = torch.nonzero(torch.tensor(mt['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()).squeeze(1)
@@ -487,7 +502,13 @@ class MutationDataset(torch.utils.data.Dataset):
                 else:
                     val.append(item[key])
             res[key] = torch.cat(val, dim=0)
-        lengths = [len(item['B']) for item in batch]
+        lengths = []
+        mt_block_indexes = []
+        for item in batch:
+            for idx in item['mut_block_id']:
+                mt_block_indexes.append(idx + sum(lengths))
+            lengths.append(len(item['B']))
+        res['mut_block_id'] = torch.tensor(mt_block_indexes, dtype=torch.long)
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
 
         # block_id = torch.zeros_like(res['A']) # [Nu]

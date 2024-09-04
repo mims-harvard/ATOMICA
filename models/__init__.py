@@ -6,7 +6,7 @@ from .ddG_predictor import DDGPredictor, GLOFPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
 from .prediction_model import PredictionModel
 from .masking_model import MaskedNodeModel
-from .binary_predictors import BinaryPredictor, BinaryPredictorMSP
+from .binary_predictors import BinaryPredictor, BinaryPredictorMSP, BinaryPredictorMSP2
 import torch
 
 def create_model(args):
@@ -108,6 +108,8 @@ def create_model(args):
             Model = BinaryPredictor
         elif args.task == 'MSP' or args.task == 'GLOF':
             Model = BinaryPredictorMSP
+        elif args.task == 'MSP2':
+            Model = BinaryPredictorMSP2
         elif args.task == 'regression':
             Model = RegressionPredictor
         elif args.task == 'DDG':
@@ -127,7 +129,7 @@ def create_model(args):
         
         if args.pretrain_ckpt:
             if Model in [AffinityPredictor, BinaryPredictor, DDGPredictor, GLOFPredictor, ClassifierModel, 
-                         MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor]:
+                         MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor, BinaryPredictorMSP, BinaryPredictorMSP2]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'bottom_global_message_passing': args.bottom_global_message_passing,
