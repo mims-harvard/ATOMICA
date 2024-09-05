@@ -1,38 +1,42 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
-import torch.nn as nn
 import torch.nn.functional as F
-from .prediction_model import PredictionModel, PredictionReturnValue
 import torch
+from torch_scatter import scatter_mean
+
+from .pretrain_model import DenoisePretrainModel
+from data.pdb_utils import VOCAB
+from .InteractNN.utils import batchify
 
 
-class MaskedNodeModel(PredictionModel):
+class MaskedNodeModel(DenoisePretrainModel):
 
-    def __init__(self, num_nodes, num_layers=4,  **kwargs) -> None:
-        super().__init__(**kwargs)
-        layers = []
-        for _ in range(num_layers):
-            layers.append(nn.Linear(self.hidden_size, self.hidden_size))
-            layers.append(nn.ReLU())
-            layers.append(nn.Dropout(self.dropout))
-        layers.append(nn.Linear(self.hidden_size, num_nodes))
-        self.masked_ffn = nn.Sequential(*layers)
+    def __init__(self, atom_hidden_size, block_hidden_size, edge_size, k_neighbors,
+                 n_layers, num_masked_block_classes, dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None) -> None:
+        super().__init__(
+            atom_hidden_size=atom_hidden_size, block_hidden_size=block_hidden_size, edge_size=edge_size, 
+            k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
+            bottom_global_message_passing=bottom_global_message_passing, global_message_passing=global_message_passing,
+            atom_noise=False, translation_noise=False, rotation_noise=False, 
+            torsion_noise=False, fragmentation_method=fragmentation_method, num_masked_block_classes=num_masked_block_classes)
+        assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Masking model should not have any denoising heads'
 
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model = torch.load(pretrain_ckpt, map_location='cpu')
+        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
-            hidden_size=pretrained_model.hidden_size,
+            atom_hidden_size=pretrained_model.atom_hidden_size,
+            block_hidden_size=pretrained_model.hidden_size,
             edge_size=pretrained_model.edge_size,
             k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
             dropout=kwargs.get('dropout', pretrained_model.dropout),
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
+            bottom_global_message_passing=kwargs.get('bottom_global_message_passing', pretrained_model.bottom_global_message_passing),
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
-            num_layers=kwargs['num_layers'],
-            num_nodes=kwargs['num_nodes'],
+            num_masked_block_classes=kwargs['num_masked_block_classes'],
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
@@ -42,27 +46,73 @@ class MaskedNodeModel(PredictionModel):
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
 
         if pretrained_model.global_message_passing is False and model.global_message_passing is True:
-            model.edge_embedding.requires_grad_(requires_grad=True)
-            model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
-            model.top_encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
+            model.edge_embedding_top.requires_grad_(requires_grad=True)
             print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
+        
+        if pretrained_model.bottom_global_message_passing is False and model.bottom_global_message_passing is True:
+            model.edge_embedding_bottom.requires_grad_(requires_grad=True)
+            print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, label) -> PredictionReturnValue:
-        return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
-        logits = self.masked_ffn(return_value.block_repr[masked_blocks])
-        return F.cross_entropy(logits, label), F.softmax(logits, dim=1)
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, masked_labels):
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids)  # [Nb]
+            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+            block_id = torch.zeros_like(A) # [Nu]
+            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+
+            # transform blocks to single units
+            bottom_batch_id = batch_id[block_id]  # [Nu]
+            bottom_B = B[block_id]  # [Nu]
+            bottom_segment_ids = segment_ids[block_id]  # [Nu]
+            bottom_block_id = torch.arange(0, len(block_id), device=block_id.device)  #[Nu]
+
+
+        # embedding
+        bottom_H_0 = self.block_embedding.atom_embedding(A)
+        top_H_0 = self.block_embedding.block_embedding(B)
+
+        # bottom level message passing
+        edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
+                                          Z, bottom_block_id, self.bottom_global_message_passing, 
+                                          top=False)
+        bottom_block_repr = self.encoder(bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr)
+        
+        # top level message passing 
+        top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
+        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
+                                          self.global_message_passing, top=True)
+
+        if self.bottom_global_message_passing:
+            batched_bottom_block_repr, _ = batchify(bottom_block_repr, block_id)
+        else:
+            atom_mask = A != VOCAB.get_atom_global_idx()
+            batched_bottom_block_repr, _ = batchify(bottom_block_repr[atom_mask], block_id[atom_mask])
+
+        block_repr_from_bottom = self.atom_block_attn(top_H_0.unsqueeze(1), batched_bottom_block_repr)
+        top_H_0 = top_H_0 + block_repr_from_bottom.squeeze(1)
+        top_H_0 = self.atom_block_attn_norm(top_H_0)
+
+        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
+        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr) 
+        
+        logits = self.masked_ffn(block_repr[masked_blocks])
+        masked_loss = F.cross_entropy(logits, masked_labels)
+        pred_blocks = F.softmax(logits, dim=1)
+        return masked_loss, pred_blocks
     
-    def infer(self, batch, extra_info=False):
+    def infer(self, batch):
         self.eval()
-        return_value = super().forward(
+        loss, pred_blocks = self.forward(
             Z=batch['X'], B=batch['B'], A=batch['A'],
             block_lengths=batch['block_lengths'],
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
+            masked_blocks=batch['masked_blocks'],
+            masked_labels=batch['masked_labels']
         )
-        logits = self.masked_ffn(return_value.block_repr[batch['masked_blocks']])
-        pred_label = F.softmax(logits, dim=1)
-        if extra_info:
-            return pred_label, return_value
-        return pred_label
+        return pred_blocks

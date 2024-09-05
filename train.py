@@ -239,7 +239,7 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset_args = {
             "mask_proportion": 0,
             "mask_token": VOCAB.symbol_to_idx(VOCAB.MASK),
-            "vocab_to_mask": [VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas],
+            "vocab_to_mask": [VOCAB.symbol_to_idx(x[0]) for x in VOCAB.aas + VOCAB.bases + VOCAB.sms + VOCAB.frags],
             "atom_mask_token": VOCAB.get_atom_mask_idx(),
         }
         dataset = PretrainMaskedDataset(path, **dataset_args)
@@ -322,9 +322,7 @@ def main(args):
     setup_seed(args.seed)
     VOCAB.load_tokenizer(args.fragmentation_method)
     # torch.autograd.set_detect_anomaly(True)
-    if args.task == "masking":
-        args.num_nodes = len(VOCAB.aas)
-    elif args.task == "pretrain_torsion_masking":
+    if args.task == "pretrain_torsion_masking" or args.task == "masking":
         args.num_nodes = len(VOCAB.aas + VOCAB.bases + VOCAB.sms + VOCAB.frags)
     else:
         args.num_nodes = None

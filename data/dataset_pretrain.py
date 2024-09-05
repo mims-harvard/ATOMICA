@@ -22,12 +22,12 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
         missing_maskable_nodes = []
         for idx, item in enumerate(self.data):
             data = item["data"]
-            item["data"]["can_mask"] = np.where(
-                np.logical_and(np.isin(
-                    np.array(data['B']), np.array(self.vocab_to_mask)), 
+            can_mask0 = item["data"]["can_mask"] = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
                     np.array(data["segment_ids"])==0))[0].tolist()
-            # only mask amino acids in the pocket
-            if len(item["data"]["can_mask"]) == 0:
+            can_mask1 = item["data"]["can_mask"] = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
+                    np.array(data["segment_ids"])==1))[0].tolist()
+            item["data"]["can_mask"] = [can_mask0, can_mask1]
+            if len(can_mask0) == 0 or len(can_mask1) == 0:
                 missing_maskable_nodes.append(idx)
         print(f"Removed {len(missing_maskable_nodes)} items with no maskable nodes. Original={len(self.data)} Cleaned={len(self.data) - len(missing_maskable_nodes)}")
         self.data = [self.data[i] for i in range(len(self.data)) if i not in missing_maskable_nodes]
@@ -56,27 +56,34 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         data = copy.deepcopy(item['data'])
-        
         B = np.array(data['B'])
-        can_mask = data["can_mask"]
+        # mask blocks on the non-noisy side to not interfere with the noised torsion angles
+        can_mask = item["data"]["can_mask"][0] + item["data"]["can_mask"][1]
         num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
         selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
         masked_blocks = np.zeros_like(data['B'], dtype=bool)
         masked_blocks[selected_indices] = True
 
         block_ids = sum([block_len*[block_id] for block_id, block_len in enumerate(data['block_lengths'])], [])
-        block_centers = scatter_mean(torch.tensor(data['X'], dtype=torch.float), torch.tensor(block_ids, dtype=torch.long), dim=0)
+        block_centers = scatter_mean(torch.tensor(data['X'], dtype=torch.float), torch.tensor(block_ids, dtype=torch.long), dim=0).tolist()
         masked_A, masked_X = [], []
+        old_A_map = {}
         curr_block = 0
+        curr_A = 0
         for block_id in range(len(B)):
             block_len = data['block_lengths'][block_id]
             if masked_blocks[block_id]:
+                for A_i in range(block_len):
+                    old_A_map[curr_A+A_i] = len(masked_A)
                 masked_A.append(self.atom_mask_token)
                 masked_X.append(block_centers[block_id])
             else:
+                for A_i in range(block_len):
+                    old_A_map[curr_A+A_i] = len(masked_A) + A_i
                 masked_A.extend(data['A'][curr_block:curr_block+block_len])
                 masked_X.extend(data['X'][curr_block:curr_block+block_len])
             curr_block += block_len
+            curr_A += block_len
         data['A'] = masked_A
         data['X'] = masked_X
 
@@ -84,7 +91,7 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
         block_lengths[masked_blocks] = 1
         data['block_lengths'] = block_lengths.tolist()
 
-        data['label'] = [self.idx_to_mask_block[b] for b in B[masked_blocks].tolist()]
+        data['masked_labels'] = [self.idx_to_mask_block[b] for b in B[masked_blocks].tolist()]
         new_blocks = B
         new_blocks[masked_blocks] = self.mask_token
         data['B'] = new_blocks.tolist()
@@ -106,7 +113,7 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
             'label': [Nmasked_blocks]
         }        
         """
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'masked_blocks', 'label']
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'masked_blocks', 'masked_labels']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.bool, torch.long]
         res = {}
         for key, _type in zip(keys, types):
@@ -314,11 +321,11 @@ class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
 
         data['X'] = data['X'].tolist()
         B = np.array(data['B'])
-        # mask blocks on the non-noisy side to not interfere with the noised torsion angles
+        # mask blocks on the non noisy side
         if data['noisy_segment'] == 0:
-            can_mask = item["data"]["can_mask"][0]
-        else:
             can_mask = item["data"]["can_mask"][1]
+        else:
+            can_mask = item["data"]["can_mask"][0]
         num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
         selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
         masked_blocks = np.zeros_like(data['B'], dtype=bool)
