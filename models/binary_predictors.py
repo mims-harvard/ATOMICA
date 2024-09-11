@@ -253,28 +253,17 @@ class BinaryPredictorMSP(nn.Module):
             nn.Dropout(self.dropout),
             nn.Linear(self.block_hidden_size*2, 1),
         )
-        self.mut_residual_atom_ffn = nn.Sequential(
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.encoder1.atom_hidden_size, self.encoder1.atom_hidden_size),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.encoder1.atom_hidden_size, self.encoder1.atom_hidden_size),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.encoder1.atom_hidden_size, self.encoder1.atom_hidden_size),
-        )
-        self.mut_residual_block_ffn = nn.Sequential(
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.encoder1.hidden_size, self.encoder1.hidden_size),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.encoder1.hidden_size, self.encoder1.hidden_size),
-            nn.ReLU(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.encoder1.hidden_size, self.encoder1.hidden_size),
-        )
+        # self.mut_residual_block_ffn = nn.Sequential(
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.encoder1.hidden_size*2, self.encoder1.hidden_size*2),
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.encoder1.hidden_size*2, self.encoder1.hidden_size*2),
+        #     nn.ReLU(),
+        #     nn.Dropout(self.dropout),
+        #     nn.Linear(self.encoder1.hidden_size*2, self.encoder1.hidden_size),
+        # )
 
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
@@ -313,6 +302,7 @@ class BinaryPredictorMSP(nn.Module):
             model.atom_norm_layers0.requires_grad_(requires_grad=True)
             model.atom_attn_layers1.requires_grad_(requires_grad=True)
             model.atom_norm_layers1.requires_grad_(requires_grad=True)
+            # model.mut_residual_block_ffn.requires_grad_(requires_grad=True)
         if pretrained_model.global_message_passing is False and model.encoder0.global_message_passing is True:
             model.encoder0.edge_embedding_top.requires_grad_(requires_grad=True)
             model.encoder1.edge_embedding_top.requires_grad_(requires_grad=True)
@@ -429,8 +419,6 @@ class BinaryPredictorMSP(nn.Module):
             # transform blocks to single units
             bottom_batch_id1 = batch_id[block_id]  # [Nu]
         
-        atom_repr1 += self.mut_residual_atom_ffn(atom_repr1)
-        
         atom_repr0, attn_batch0 = batchify(atom_repr0, bottom_batch_id0) # (num_batches, max_seq_len0, dim), (num_items, max_seq_len0)
         Z0_batched, _ = batchify(Z0, bottom_batch_id0) # (num_batches, max_seq_len0, 3)
         atom_repr1, attn_batch1 = batchify(atom_repr1, bottom_batch_id1) # (num_batches, max_seq_len1, dim), (num_items, max_seq_len0)
@@ -464,7 +452,7 @@ class BinaryPredictorMSP(nn.Module):
 
         block_repr0, top_Z0, batch_id0, edges0, edge_attr0 = self.forward_one_encoder_bottom_to_top(Z0, B0, A0, atom_repr0, block_lengths0, lengths0, segment_ids0, encoder_id=0)
         block_repr1, top_Z1, batch_id1, edges1, edge_attr1 = self.forward_one_encoder_bottom_to_top(Z1, B1, A1, atom_repr1, block_lengths1, lengths1, segment_ids1, encoder_id=1)
-        block_repr1 += self.mut_residual_block_ffn(block_repr1)
+        # block_repr1[mut_block1] += self.mut_residual_block_ffn(torch.cat([block_repr1[mut_block1], block_repr0[mut_block0]], dim=1))
 
         top_Z0_batched, _ = batchify(top_Z0, batch_id0) # (num_batches, max_seq_len0, 3)
         top_Z1_batched, _ = batchify(top_Z1, batch_id1) # (num_batches, max_seq_len1, 3)

@@ -113,6 +113,6 @@ class MaskedNodeModel(DenoisePretrainModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
             masked_blocks=batch['masked_blocks'],
-            masked_labels=batch['masked_labels']
+            masked_labels=batch['masked_labels'],
         )
         return pred_blocks

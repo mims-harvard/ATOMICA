@@ -72,7 +72,8 @@ class MaskingTrainer(Trainer):
                 block_lengths=batch['block_lengths'],
                 lengths=batch['lengths'],
                 segment_ids=batch['segment_ids'],
-                masked_blocks=batch['masked_blocks'], label=batch['label']
+                masked_blocks=batch['masked_blocks'],
+                masked_labels=batch['masked_labels'],
             )
 
             if not val:
@@ -96,7 +97,7 @@ class MaskingTrainer(Trainer):
             else:
                 raise e
 
-    def _train_epoch(self, device, validation_freq=5000):
+    def _train_epoch(self, device):
         self._before_train_epoch_start()
         if self.train_loader.sampler is not None and self.local_rank != -1:  # distributed
             if self.resume_index > 0:
@@ -132,7 +133,7 @@ class MaskingTrainer(Trainer):
                     self.scheduler.step()
                 if self.use_wandb and self._is_main_proc():
                     wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
-                if batch_idx % validation_freq == 0 and batch_idx > 0:
+                if batch_idx == len(self.train_loader)//2:
                     print_log(f'validating ...') if self._is_main_proc() else 1
                     self._valid_epoch(device)
                     self._before_train_epoch_start()
@@ -192,7 +193,7 @@ class MaskingTrainer(Trainer):
                     continue # Out of memory
                 metric_dict["loss"].append(loss.detach().cpu().item())
                 metric_dict["pred"].extend(logits.detach().cpu().argmax(dim=1).tolist())
-                metric_dict["label"].extend(batch['label'].detach().cpu().tolist())
+                metric_dict["label"].extend(batch['masked_labels'].detach().cpu().tolist())
                 self.valid_global_step += 1
         self.model.train()
         # judge

@@ -25,8 +25,8 @@ ReturnValue = namedtuple(
 
 def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, complexity=-1):
     if complexity == -1:  # don't do splicing
-        intra_edges, inter_edges, global_global_edges, global_normal_edges, _ = edge_constructor(B, batch_id, segment_ids, X=X, block_id=block_id)
-        return intra_edges, inter_edges, global_global_edges, global_normal_edges
+        intra_edges, inter_edges, global_normal_edges, global_global_edges, _ = edge_constructor(B, batch_id, segment_ids, X=X, block_id=block_id)
+        return intra_edges, inter_edges, global_normal_edges, global_global_edges
     # do splicing
     offset, bs_id_start, bs_id_end = 0, 0, 0
     mini_intra_edges, mini_inter_edges, mini_global_global_edges, mini_global_normal_edges = [], [], [], []
@@ -48,7 +48,7 @@ def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, com
             B_mini, batch_id_mini, segment_ids_mini = B[block_is_in], batch_id[block_is_in], segment_ids[block_is_in]
             X_mini, block_id_mini = X[unit_is_in], block_id[unit_is_in]
 
-            intra_edges, inter_edges, global_global_edges, global_normal_edges, _ = edge_constructor(
+            intra_edges, inter_edges, global_normal_edges, global_global_edges, _ = edge_constructor(
                 B_mini, batch_id_mini - bs_id_start, segment_ids_mini, X=X_mini, block_id=block_id_mini - offset)
 
             if not hasattr(edge_constructor, 'given_intra_edges'):
@@ -74,8 +74,7 @@ def construct_edges(edge_constructor, B, batch_id, segment_ids, X, block_id, com
         if global_normal_edges is not None:
             global_normal_edges = torch.cat(mini_global_normal_edges, dim=1)
 
-    return intra_edges, inter_edges, global_global_edges, global_normal_edges
-
+    return intra_edges, inter_edges, global_normal_edges, global_global_edges
 
 class DenoisePretrainModel(nn.Module):
 
@@ -190,15 +189,15 @@ class DenoisePretrainModel(nn.Module):
             self.masking_objective = False
 
     def get_edges(self, B, batch_id, segment_ids, Z, block_id, global_message_passing, top):
-        intra_edges, inter_edges, global_global_edges, global_normal_edges = construct_edges(
+        intra_edges, inter_edges, global_normal_edges, global_global_edges = construct_edges(
                     self.edge_constructor, B, batch_id, segment_ids, Z, block_id, complexity=2000**2)
         if global_message_passing:
-            edges = torch.cat([intra_edges, inter_edges, global_global_edges, global_normal_edges], dim=1)
+            edges = torch.cat([intra_edges, inter_edges, global_normal_edges, global_global_edges], dim=1)
             edge_attr = torch.cat([
                 torch.zeros_like(intra_edges[0]),
                 torch.ones_like(inter_edges[0]),
-                torch.ones_like(global_global_edges[0]) * 2,
-                torch.ones_like(global_normal_edges[0]) * 3])
+                torch.ones_like(global_normal_edges[0]) * 2,
+                torch.ones_like(global_global_edges[0]) * 3])
         else:
             edges = torch.cat([intra_edges, inter_edges], dim=1)
             edge_attr = torch.cat([torch.zeros_like(intra_edges[0]), torch.ones_like(inter_edges[0])])

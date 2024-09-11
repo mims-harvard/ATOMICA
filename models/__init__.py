@@ -121,15 +121,14 @@ def create_model(args):
             add_params["num_classes"] = args.num_classifier_classes
         elif args.task == 'masking':
             Model = MaskedNodeModel
-            add_params["num_nodes"] = args.num_nodes
-            add_params['global_message_passing'] = args.global_message_passing
-            add_params['bottom_global_message_passing'] = args.bottom_global_message_passing
+            add_params['num_masked_block_classes'] = args.num_nodes
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
         if args.pretrain_ckpt:
             if Model in [AffinityPredictor, BinaryPredictor, DDGPredictor, GLOFPredictor, ClassifierModel, 
-                         MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor, BinaryPredictorMSP, BinaryPredictorMSP2]:
+                         MultiClassClassifierModel, RegressionPredictor, BlockAffinityPredictor, BinaryPredictorMSP, 
+                         BinaryPredictorMSP2, MaskedNodeModel]:
                 add_params.update({
                     'partial_finetune': args.partial_finetune,
                     'bottom_global_message_passing': args.bottom_global_message_passing,
