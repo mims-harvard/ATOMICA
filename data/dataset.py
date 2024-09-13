@@ -27,6 +27,10 @@ class Block:
     def __iter__(self):
         return iter(self.units)
 
+    @property
+    def coords(self):
+        return np.mean([unit.get_coord() for unit in self.units], axis=0)
+
     def to_data(self):
         b = VOCAB.symbol_to_idx(self.symbol)
         x, a, positions = [], [], []

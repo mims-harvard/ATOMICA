@@ -1,10 +1,14 @@
 import torch
 import numpy as np
 import copy
+from scipy.spatial import distance
 from scipy.spatial.transform import Rotation
 import math
 from torch.nn import functional as F
 from .torus import score as torus_score
+from data.dataset import data_to_blocks, blocks_to_data, VOCAB
+from utils.torsion import get_side_chain_torsion_mask_block, get_segment_torsion_mask
+
 
 def modify_conformer_torsion_angles(coords, rotateable_edges, mask_rotate, torsion_updates):
     coords = copy.deepcopy(coords)
@@ -72,6 +76,51 @@ def rigid_transform_Kabsch_3D(A, B):
     t = -R @ centroid_A + centroid_B
     return R, t
 
+class CropTransform:
+    def __init__(self, max_blocks, fragmentation_method):
+        self.max_blocks = max_blocks
+        self.fragmentation_method = fragmentation_method
+        self.top_k = 10 # closest blocks to crop around
+        self.residues = set([x[0] for x in VOCAB.aas] + [x[0] for x in VOCAB.bases])
+
+    def __call__(self, data):
+        segment0, segment1 = data_to_blocks(data, self.fragmentation_method)
+        segment0_coords = np.array([block.coords for block in segment0])
+        segment1_coords = np.array([block.coords for block in segment1])
+        cross_segment_distances = distance.cdist(segment0_coords, segment1_coords, 'euclidean')
+        top_k_indices = np.argsort(cross_segment_distances, axis=None)[:self.top_k]
+        # pick one of the closest k pairs of blocks as the center
+        segment0_center_index, segment1_center_index = np.unravel_index(np.random.choice(top_k_indices), cross_segment_distances.shape) 
+        # crop the segment to the center
+        segment0_distances = np.linalg.norm(segment0_coords - segment0_coords[segment0_center_index], axis=1)
+        segment1_distances = np.linalg.norm(segment1_coords - segment1_coords[segment1_center_index], axis=1)
+        keep_indices = np.argsort(np.concatenate([segment0_distances, segment1_distances]))[:self.max_blocks]
+        segment0_keep_indices = keep_indices[keep_indices < len(segment0)]
+        segment1_keep_indices = keep_indices[keep_indices >= len(segment0)] - len(segment0)
+        segment0_cropped = [segment0[i] for i in segment0_keep_indices]
+        segment1_cropped = [segment1[i] for i in segment1_keep_indices]
+        cropped_data = blocks_to_data(segment0_cropped, segment1_cropped)
+
+        kept_old_indices = np.concatenate([segment0_keep_indices+1, segment1_keep_indices+len(segment0)+2]).tolist()
+
+        # add back torsion mask
+        if 'torsion_mask' in data:
+            list_of_masks = []
+            for blocks in [segment0_cropped, segment1_cropped]:
+                block_ids = set([block.symbol for block in blocks])
+                rot_sidechains = len(block_ids.intersection(self.residues)) > 0
+                if rot_sidechains:
+                    # protein or nucleic acid
+                    edges, mask_rotate = get_side_chain_torsion_mask_block(blocks)
+                else:
+                    edges, mask_rotate = get_segment_torsion_mask(blocks)
+                list_of_masks.append({
+                    "type": 0 if rot_sidechains else 1,
+                    "edges": edges,
+                    "mask_rotate": mask_rotate,
+                })
+            cropped_data["torsion_mask"] = list_of_masks
+        return cropped_data, kept_old_indices
 
 class TorsionNoiseTransform:
     def __init__(self, tor_sigma):
@@ -252,7 +301,7 @@ def _score(exp, theta, sigma, L=2000):
         lo = np.sin(theta / 2)
         dlo = 1 / 2 * np.cos(theta / 2)
         dSigma += (2 * l + 1) * np.exp(-l * (l + 1) * sigma**2) * (lo * dhi - hi * dlo) / (lo ** 2)
-    return dSigma / exp #+ np.sin(theta) / (1 - np.cos(theta))
+    return dSigma / exp + np.sin(theta) / (1 - np.cos(theta))
 
 
 class GlobalRotationTransform:

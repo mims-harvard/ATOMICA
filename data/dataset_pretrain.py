@@ -3,8 +3,9 @@ import torch
 import numpy as np
 import copy
 from collections import defaultdict
-from utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform
+from utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform, CropTransform
 from torch_scatter import scatter_mean
+from tqdm import tqdm
 
 class PretrainMaskedDataset(torch.utils.data.Dataset):
     def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
@@ -16,6 +17,16 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
         self.atom_mask_token = atom_mask_token
         self.vocab_to_mask = vocab_to_mask # list of vocab indices that can be masked
         self.idx_to_mask_block = dict(zip(self.vocab_to_mask, range(len(self.vocab_to_mask))))
+        self.crop = None
+        self.preprocess()
+    
+    def set_crop(self, max_n_vertex_per_item, fragmentation_method):
+        self.crop = CropTransform(max_n_vertex_per_item-2, fragmentation_method) # 2 blocks are global blocks
+        for item in tqdm(self.data, desc="Preprocessing, cropping large items", total=len(self.data)):
+            data = item['data']
+            if len(data['B']) > self.crop.max_blocks:
+                data, keep_blocks = self.crop(data)
+                item['data'] = data
         self.preprocess()
 
     def preprocess(self):
@@ -131,8 +142,11 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         super().__init__()
         self.data = pickle.load(open(data_file, 'rb'))
         self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
-        self.tor, self.global_tr, self.global_rot = None, None, None
+        self.tor, self.global_tr, self.global_rot, self.crop = None, None, None, None
         # remove items with no torsion angles in either segment
+        self.preprocess()
+    
+    def preprocess(self):
         cleaned_data = []
         cleaned_indexes = []
         for item, index in zip(self.data, self.indexes):
@@ -155,6 +169,16 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     def set_rotation_noise(self, noise_level, max_theta):
         self.global_rot = GlobalRotationTransform(noise_level, max_theta)
+    
+    def set_crop(self, max_n_vertex_per_item, fragmentation_method):
+        # crop all items before training
+        self.crop = CropTransform(max_n_vertex_per_item-2, fragmentation_method) # 2 blocks are global blocks 
+        for item in tqdm(self.data, desc="Preprocessing, cropping large items", total=len(self.data)):
+            data = item['data']
+            if len(data['B']) > self.crop.max_blocks:
+                data, keep_blocks = self.crop(data)
+                item['data'] = data
+        self.preprocess()
 
     def __len__(self):
         return len(self.data)
@@ -292,7 +316,10 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 
 class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
     def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
-        super().__init__(data_file)
+        self.data_file = data_file
+        self.data = pickle.load(open(data_file, 'rb'))
+        self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
+        self.tor, self.global_tr, self.global_rot, self.crop = None, None, None, None
         self.mask_proportion = mask_proportion
         self.mask_token = mask_token
         self.atom_mask_token = atom_mask_token
@@ -301,31 +328,34 @@ class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
         self.preprocess()
 
     def preprocess(self):
+        super().preprocess()
         missing_maskable_nodes = []
         for idx, item in enumerate(self.data):
-            data = item["data"]
-            can_mask0 = item["data"]["can_mask"] = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
-                    np.array(data["segment_ids"])==0))[0].tolist()
-            can_mask1 = item["data"]["can_mask"] = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
-                    np.array(data["segment_ids"])==1))[0].tolist()
-            item["data"]["can_mask"] = [can_mask0, can_mask1]
+            item['data'] = self.get_mask_for_item(item['data'])
+            can_mask0, can_mask1 = item["data"]["can_mask"]
             if len(can_mask0) == 0 or len(can_mask1) == 0:
                 missing_maskable_nodes.append(idx)
         print(f"Removed {len(missing_maskable_nodes)} items with no maskable nodes. Original={len(self.data)} Cleaned={len(self.data) - len(missing_maskable_nodes)}")
         self.data = [self.data[i] for i in range(len(self.data)) if i not in missing_maskable_nodes]
         self.indexes = [self.indexes[i] for i in range(len(self.indexes)) if i not in missing_maskable_nodes]
     
+    def get_mask_for_item(self, data):
+        can_mask0 = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
+                np.array(data["segment_ids"])==0))[0].tolist()
+        can_mask1 = np.where(np.logical_and(np.isin(np.array(data['B']), np.array(self.vocab_to_mask)), 
+                np.array(data["segment_ids"])==1))[0].tolist()
+        data["can_mask"] = [can_mask0, can_mask1]
+        return data
+    
     def __getitem__(self, idx):
-        item = self.data[idx]
         data = super().__getitem__(idx)
-
         data['X'] = data['X'].tolist()
         B = np.array(data['B'])
         # mask blocks on the non noisy side
         if data['noisy_segment'] == 0:
-            can_mask = item["data"]["can_mask"][1]
+            can_mask = data["can_mask"][1]
         else:
-            can_mask = item["data"]["can_mask"][0]
+            can_mask = data["can_mask"][0]
         num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
         selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
         masked_blocks = np.zeros_like(data['B'], dtype=bool)
@@ -397,7 +427,14 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
 
     def set_rotation_noise(self, noise_level, max_theta):
         self.global_rot = GlobalRotationTransform(noise_level, max_theta)
-
+    
+    def set_crop(self, max_n_vertex_per_item, fragmentation_method):
+        self.crop = CropTransform(max_n_vertex_per_item-2, fragmentation_method) # 2 blocks are global blocks
+        for item in tqdm(self.data, desc="Preprocessing, cropping large items", total=len(self.data)):
+            data = item['data']
+            if len(data['B']) > self.crop.max_blocks:
+                data, keep_blocks = self.crop(data)
+                item['data'] = data
 
     def __len__(self):
         return len(self.data)

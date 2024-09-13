@@ -267,8 +267,9 @@ class Trainer:
             for metric, path in self.topk_ckpt_map:
                 fout.write(f'{metric}: {path}\n')
 
-    def train(self, device_ids, local_rank, use_wandb=False):
+    def train(self, device_ids, local_rank, use_wandb=False, use_raytune=False):
         self.use_wandb = use_wandb
+        self.use_raytune = use_raytune
         # set local rank
         self.local_rank = local_rank
         # init writer

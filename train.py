@@ -27,7 +27,6 @@ def parse():
     # data
     parser.add_argument('--train_set', type=str, required=True, help='path to train set')
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
-    parser.add_argument('--pdb_dir', type=str, default=None, help='directory to the complex pdbs (required if not preprocessed in advance)')
     parser.add_argument('--task', type=str, default=None,
                         choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP', 'MSP2',
                                  'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
@@ -44,7 +43,6 @@ def parse():
     parser.add_argument('--valid_set3', type=str, default=None, help='path to the third valid set')
 
     # training related
-    parser.add_argument('--pretrain', action='store_true', help='pretraining mode')
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
     parser.add_argument('--final_lr', type=float, default=1e-4, help='final learning rate')
     parser.add_argument('--warmup_epochs', type=int, default=0, help='Number of epochs where validation loss is not used for early stopping')
@@ -57,7 +55,7 @@ def parse():
     parser.add_argument('--batch_size', type=int, default=16, help='batch size')
     parser.add_argument('--valid_batch_size', type=int, default=None, help='batch size of validation, default set to the same as training batch size')
     parser.add_argument('--max_n_vertex_per_gpu', type=int, default=None, help='if specified, ignore batch_size and form batch with dynamic size constrained by the total number of vertexes')
-    parser.add_argument('--max_n_vertex_per_item', type=int, default=None, help='if max_n_vertex_per_gpu is specified, determines maximum number of nodes per item when forming batches with dynamic size constrained by the total number of vertexes')
+    parser.add_argument('--max_n_vertex_per_item', type=int, default=None, help='if max_n_vertex_per_gpu is specified, larger items will be randomly cropped')
     parser.add_argument('--valid_max_n_vertex_per_gpu', type=int, default=None, help='form batch with dynamic size constrained by the total number of vertexes')
     parser.add_argument('--patience', type=int, default=-1, help='patience before early stopping')
     parser.add_argument('--save_topk', type=int, default=-1, help='save topk checkpoint. -1 for saving all ckpt that has a better validation metric than its previous epoch')
@@ -108,6 +106,7 @@ def parse():
 
     # logging
     parser.add_argument('--use_wandb', action="store_true", default=False, help='log to Weights and Biases')
+    parser.add_argument('--use_raytune', action="store_true", default=False, help='log to RayTune')
     parser.add_argument('--run_name', type=str, default="test", help='model run name for logging')
 
     return parser.parse_args()
@@ -277,6 +276,8 @@ def set_noise(dataset, args):
             dataset.set_translation_noise(args.translation_noise)
         if args.rotation_noise != 0:
             dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
+        if args.max_n_vertex_per_item is not None:
+            dataset.set_crop(args.max_n_vertex_per_item, args.fragmentation_method)
         if type(dataset) in [PretrainTorsionDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset] and args.torsion_noise != 0:
             dataset.set_torsion_noise(args.torsion_noise)
         if type(dataset) == PretrainMaskedTorsionDataset:
@@ -284,8 +285,12 @@ def set_noise(dataset, args):
     elif type(dataset) == PretrainMaskedDataset:
         dataset.mask_proportion = args.mask_proportion
     elif type(dataset) == MixDatasetWrapper:
+        new_datasets = []
         for d in dataset.datasets:
-            set_noise(d, args)
+            d = set_noise(d, args)
+            new_datasets.append(d)
+        dataset = MixDatasetWrapper(*new_datasets) # update the mix dataset wrapper with new dataset lengths
+    return dataset
 
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
@@ -335,11 +340,11 @@ def main(args):
         train_task = args.task
     train_set = create_dataset(train_task, args.train_set, args.train_set2, args.train_set3, args.fragmentation_method)
     if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'PLA_noisy_nodes', 'pretrain_torsion_masking'}:
-        set_noise(train_set, args)
+        train_set = set_noise(train_set, args)
     if args.valid_set is not None:
         valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragmentation_method)
         if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'pretrain_torsion_masking'}:
-            set_noise(valid_set, args)
+            valid_set = set_noise(valid_set, args)
         print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
     else:
         valid_set = None
@@ -419,8 +424,18 @@ def main(args):
                 name=args.run_name,
                 config=vars(args),
             )
+        # if args.use_raytune:
+        #     from ray.air.integrations.wandb import setup_wandb
+        #     setup_wandb(
+        #         entity="ada-f",
+        #         dir=config.save_dir,
+        #         settings=wandb.Settings(start_method="fork"),
+        #         project=f"InteractNN-{args.task}-tune",
+        #         name=args.run_name,
+        #         config=vars(args),
+        #     )
     
-    trainer.train(args.gpus, args.local_rank, args.use_wandb)
+    trainer.train(args.gpus, args.local_rank, use_wandb=args.use_wandb, use_raytune=args.use_raytune)
     
     return trainer.topk_ckpt_map
 

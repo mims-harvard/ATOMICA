@@ -442,6 +442,10 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
             wandb.log({'val_torsion_loss': np.mean(metric_dict["torsion_loss"])}, step=self.global_step)
             wandb.log({'val_masked_loss': np.mean(metric_dict["masked_loss"])}, step=self.global_step)
             wandb.log({'val_mask_acc': accuracy_score(metric_dict["masked_labels"], metric_dict["pred_labels"])}, step=self.global_step)
+        if self.use_raytune:
+            from ray import train as ray_train
+            acc_score = accuracy_score(metric_dict["masked_labels"], metric_dict["pred_labels"])
+            ray_train.report({"val_mask_acc": acc_score, "epoch": self.epoch})
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
             module_to_save = self.model.module if self.local_rank == 0 else self.model

@@ -33,3 +33,9 @@ trainers/deprecated
 models/deprecated
 
 plip/
+
+# Force include the specific file
+!/data/tokenizer/vocabs/ps_vocab_300.txt
+!/data/tokenizer/vocabs/ps_vocab_500.txt
+!.p.npy
+!.score.npy
