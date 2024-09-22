@@ -30,7 +30,8 @@ def tune_with_setup(args):
     tuner = tune.Tuner(
         main_tune_with_resources,
         tune_config=tune.TuneConfig(
-            num_samples=50,
+            num_samples=-1,
+            time_budget_s=60*60*24*3,
             max_concurrent_trials=args.max_concurrent_trials, # update this to more than number of GPUs
             search_alg = OptunaSearch(
                 metric="val_mask_acc",
@@ -41,8 +42,8 @@ def tune_with_setup(args):
                 time_attr="epoch",
                 metric="val_mask_acc",
                 mode="max",
-                max_t=20,
-                grace_period=5,
+                max_t=50,
+                grace_period=10,
                 reduction_factor=2,
                 brackets=2,
             )
@@ -51,10 +52,12 @@ def tune_with_setup(args):
             stop={"time_total_s": 60*60*24}, 
             storage_path="/n/holyscratch01/mzitnik_lab/afang/GET/pretrain/models/InteractNN-tune"),
         param_space={
-            "translation_noise": tune.choice([0.5, 1, 1.5]),
-            "torsion_noise": tune.choice([0.25, 0.5, 1]),
-            "rotation_noise": tune.choice([0.25, 0.5, 1]),
-            "max_rotation": tune.choice([0.25, 0.5, 1]),
+            "dropout": tune.choice([0.00, 0.01, 0.05, 0.10]),
+            "k_neighbors": tune.choice([4, 8, 16]),
+            "edge_size": tune.choice([16, 24, 32]),
+            "n_layers": tune.choice([4, 6, 8]),
+            "atom_hidden_size": tune.choice([16, 24, 32]),
+            "block_hidden_size": tune.choice([16, 24, 32]),
         },
     )
     results = tuner.fit()
@@ -66,13 +69,13 @@ def main_tune(config):
     # Set up argparse arguments manually from the config (which is passed from the tuner)
     parser = argparse.ArgumentParser()
     
-    parser.add_argument("--translation_noise", type=float, default=config["translation_noise"])
-    parser.add_argument("--rotation_noise", type=float, default=config["rotation_noise"])
-    parser.add_argument("--torsion_noise", type=float, default=config["torsion_noise"])
+    parser.add_argument("--translation_noise", type=float, default=1)
+    parser.add_argument("--rotation_noise", type=float, default=0.25)
+    parser.add_argument("--torsion_noise", type=float, default=0.5)
     parser.add_argument("--tr_weight", type=float, default=1)
     parser.add_argument("--rot_weight", type=float, default=0.1)
     parser.add_argument("--tor_weight", type=float, default=1)
-    parser.add_argument("--max_rotation", type=float, default=config["max_rotation"])
+    parser.add_argument("--max_rotation", type=float, default=0.5)
     
     # Add other required arguments for the model training process
     parser.add_argument("--gpus", type=int, default=[0])
@@ -131,6 +134,9 @@ def main_tune(config):
     parser.add_argument('--affinity_pred_hidden_size', type=int, default=32, help='hidden size for affinity prediction')
 
     args = parser.parse_args([])  # Create a namespace from the config
+
+    for k, v in config.items():
+        setattr(args, k, v)
     main(args)
 
 

@@ -81,7 +81,9 @@ def parse_args():
                             chain1: chain of the protein delimited with '_', 
                             chain2: chain of the ligand delimited with '_', 
                             lig_code: ligand code if ligand, leave empty/None if the interface is chain 2. If lig, then chain2 must refer to the chain the ligand is on.
-                            lig_smiles: smiles for ligand, used for fragmentation of ligand into common chemical motifs.""")
+                            lig_smiles: smiles for ligand, used for fragmentation of ligand into common chemical motifs.
+                            label (optional): binding affinity label for the interaction, leave empty/None if not available.
+                        """)
     parser.add_argument('--out_path', type=str, required=True, help='Output path')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')
@@ -100,10 +102,16 @@ def main(args):
         smiles = row['lig_smiles']
         chain1 = chain1.split("_")
         chain2 = chain2.split("_")
+        if 'label' in row:
+            label = row['label']
+        else:
+            label = None
         if lig_code is None or lig_code == '' or pd.isna(lig_code):
             # For PP, PDNA, PRNA, Ppeptide interactions
             item = process_pdb(pdb_file, pdb_id, chain1, chain2, args.interface_dist_th) 
             if item is not None:
+                if label is not None:
+                    item['label'] = label
                 items.append(item)
             else:
                 print(f"WARNING: Invalid interface, no interface found. pdb={pdb_id}, chain1={''.join(chain1)}, chain2={''.join(chain2)}")
@@ -116,6 +124,9 @@ def main(args):
                 print(f"WARNING: Invalid interface, no interface found. pdb={pdb_id}, chain1={''.join(chain1)}, chain2={chain2}, lig_code={lig_code}")
             elif len(pl_items) > 1:
                 print(f"WARNING: Multiple ligands {len(pl_items)} that match the description, adding all of them. pdb={pdb_id}, chain1={''.join(chain1)}, chain2={chain2}, lig_code={lig_code}")
+            for item in pl_items:
+                if label is not None:
+                    item['label'] = label
             items.extend(pl_items)
     
     with open(args.out_path, 'wb') as f:

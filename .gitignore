@@ -18,6 +18,8 @@ __pycache__
 
 *.ckpt
 
+baselines
+
 datasets
 
 pretrain
@@ -37,5 +39,3 @@ plip/
 # Force include the specific file
 !/data/tokenizer/vocabs/ps_vocab_300.txt
 !/data/tokenizer/vocabs/ps_vocab_500.txt
-!.p.npy
-!.score.npy

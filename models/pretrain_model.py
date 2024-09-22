@@ -141,7 +141,7 @@ class DenoisePretrainModel(nn.Module):
         self.top_encoder = InteractNNEncoder(
             block_hidden_size, edge_size, n_layers=n_layers, dropout=dropout, max_edge_length=5
         )
-        self.atom_block_attn = CrossAttention(block_hidden_size, atom_hidden_size, block_hidden_size, 4, dropout)
+        self.atom_block_attn = CrossAttention(block_hidden_size, atom_hidden_size, block_hidden_size, num_heads=4, dropout=dropout)
         self.atom_block_attn_norm = nn.LayerNorm(block_hidden_size)
         self.attention_pooling = AttentionPooling(block_hidden_size, num_heads=4, dropout=dropout, num_layers=4)
 
