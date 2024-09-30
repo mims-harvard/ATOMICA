@@ -70,9 +70,12 @@ def create_model(args):
         return model
     elif args.task in {'PLA', 'AffMix', 'PDBBind', 'NL', 'PLA_frag', 'PN', 'PPA-atom'}:
         add_params = {
-            "num_affinity_pred_layers": args.num_affinity_pred_layers,
-            "affinity_pred_dropout": args.affinity_pred_dropout,
+            'num_affinity_pred_layers': args.num_affinity_pred_layers,
+            'affinity_pred_dropout': args.affinity_pred_dropout,
             'affinity_pred_hidden_size': args.affinity_pred_hidden_size,
+            'num_projector_layers': args.num_projector_layers,
+            'projector_dropout': args.projector_dropout,
+            'projector_hidden_size': args.projector_hidden_size,
             'bottom_global_message_passing': args.bottom_global_message_passing,
             'global_message_passing': args.global_message_passing,
             'k_neighbors': args.k_neighbors,

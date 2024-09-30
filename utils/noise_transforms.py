@@ -80,7 +80,7 @@ class CropTransform:
     def __init__(self, max_blocks, fragmentation_method):
         self.max_blocks = max_blocks
         self.fragmentation_method = fragmentation_method
-        self.top_k = 10 # closest blocks to crop around
+        self.top_k = 5 # closest blocks to crop around
         self.residues = set([x[0] for x in VOCAB.aas] + [x[0] for x in VOCAB.bases])
 
     def __call__(self, data):

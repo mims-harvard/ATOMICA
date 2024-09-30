@@ -74,7 +74,7 @@ def blocks_to_data(*blocks_list: List[List[Block]]):
         segment_ids.extend(cur_segment_ids)
 
     data = {
-        'X': np.array(X),   # [Natom, 2, 3]
+        'X': X,   # [Natom, 2, 3]
         'B': B,             # [Nb], block (residue) type
         'A': A,             # [Natom]
         'atom_positions': atom_positions,  # [Natom]
@@ -557,8 +557,12 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
 
     @classmethod
     def collate_fn(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
-        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long]
+        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long]
+        has_block_embeddings = 'block_embeddings' in batch[0]
+        if has_block_embeddings:
+            keys.append('block_embeddings')
+            types.append(torch.float)
         res = {}
         for key, _type in zip(keys, types):
             val = []
@@ -568,6 +572,8 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        if not has_block_embeddings:
+            res['block_embeddings'] = None
         return res
 
 
