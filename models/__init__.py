@@ -34,6 +34,7 @@ def create_model(args):
                 dropout=args.dropout,
                 num_masked_block_classes=args.num_nodes,
                 mask_weight=args.mask_weight,
+                modality_embedding=args.modality_embedding,
             )
         return model
     elif args.task == "PLA_noisy_nodes":
@@ -80,6 +81,7 @@ def create_model(args):
             'global_message_passing': args.global_message_passing,
             'k_neighbors': args.k_neighbors,
             'dropout': args.dropout,
+            'block_embedding_size': args.block_embedding_size,
         }
         if args.affinity_pred_nonlinearity == 'relu':
             add_params["nonlinearity"] = torch.nn.ReLU()

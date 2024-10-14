@@ -63,7 +63,6 @@ class PretrainTrainer(Trainer):
     def _before_train_epoch_start(self):
         # reform batch, with new random batches
         if type(self.train_loader.dataset).__name__ == 'DynamicBatchWrapper':
-            print("FORMING NEW BATCHES")
             self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 
@@ -85,6 +84,7 @@ class PretrainTrainer(Trainer):
                 tor_score=batch['tor_score'],
                 tor_edges=batch['tor_edges'],
                 tor_batch=batch['tor_batch'],
+                modality=batch['modality'],
             )
 
             if not val:
@@ -291,6 +291,7 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
                 tor_batch=batch['tor_batch'],
                 masked_blocks=batch['masked_blocks'], 
                 masked_labels=batch['masked_labels'],
+                modality=batch['modality'],
             )
 
             if not val:

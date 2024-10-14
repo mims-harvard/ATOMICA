@@ -10,11 +10,16 @@ from typing import List
 import numpy as np
 import torch
 from torch_scatter import scatter_mean, scatter_sum
+import numpy as np
+import biotite.structure as bs
+import biotite.structure.io.pdb as pdb
 
 from utils.logger import print_log
 
 ########## import your packages below ##########
 from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
+
+MODALITIES = {"PP":0, "PL":1, "Pion":2, "Ppeptide":3, "PRNA":4, "PDNA":5, "RNAL":6, "CSD":7}
 
 class Block:
     def __init__(self, symbol: str, units: List[Atom]) -> None:
@@ -62,7 +67,7 @@ def blocks_to_data(*blocks_list: List[List[Block]]):
             cur_atom_positions.extend(positions)
             cur_block_lengths.append(block_len)
         # update coordinates of the global node to the center
-        cur_X[0] = np.mean(cur_X[1:], axis=0)
+        cur_X[0] = np.mean(cur_X[1:], axis=0).tolist()
         cur_segment_ids = [i for _ in cur_B]
         
         # finish these blocks
@@ -190,6 +195,63 @@ def blocks_interface(blocks1, blocks2, dist_th, return_indexes=False):
     else:
         return blocks1, blocks2
 
+
+def item_to_pdb_file(item, output_pdb_file):
+    atoms_list = []
+    elements_list = []
+    chains_list = []
+    atom_names = []
+    res_ids = []
+    res_names = []
+    hetero_flags = []
+
+    start_atom = 0
+
+    for block_idx, block_length in enumerate(item['data']['block_lengths']):
+        if item['data']['B'][block_idx] == VOCAB.symbol_to_idx(VOCAB.GLB):
+            start_atom += block_length
+            continue
+        for atom_idx in range(start_atom, start_atom+block_length):
+            atoms_list.append(item['data']['X'][atom_idx])
+            elements_list.append(VOCAB.idx_to_atom(item['data']['A'][atom_idx]))
+            atom_pos = VOCAB.idx_to_atom_pos(item['data']['atom_positions'][atom_idx])
+            if atom_pos == 'sm':
+                atom_names.append(f"{VOCAB.idx_to_atom(item['data']['A'][atom_idx])}")
+            else:
+                atom_names.append(f"{VOCAB.idx_to_atom(item['data']['A'][atom_idx])}{atom_pos}")
+            if block_idx in item['block_to_pdb_indexes']:
+                res_ids.append(int(item['block_to_pdb_indexes'][block_idx].split("_")[1]))
+                res_names.append(VOCAB.idx_to_abrv(item['data']['B'][block_idx]))
+                chains_list.append(item['block_to_pdb_indexes'][block_idx].split("_")[0])
+                hetero_flags.append(False)
+            else:
+                res_ids.append(0)
+                res_names.append("UNK")
+                chains_list.append("X")
+                hetero_flags.append(True)
+        start_atom += block_length
+
+    coords = np.array(atoms_list)
+    elements = np.array(elements_list)
+    chains = np.array(chains_list)
+    atom_names = np.array(atom_names)
+    res_ids = np.array(res_ids)
+    res_names = np.array(res_names)
+    hetero_flags = np.array(hetero_flags)
+
+    atom_array = bs.AtomArray(coords.shape[0])
+    atom_array.coord = coords
+    atom_array.element = elements
+    atom_array.chain_id = chains
+    atom_array.atom_name = atom_names
+    atom_array.res_id = res_ids
+    atom_array.res_name = res_names
+    atom_array.hetero = hetero_flags
+
+    pdb_file = pdb.PDBFile()
+    pdb_file.set_structure(atom_array)
+    with open(output_pdb_file, "w") as file:
+        pdb_file.write(file)
 
 class BlockGeoAffDataset(torch.utils.data.Dataset):
 

@@ -92,6 +92,7 @@ def parse():
     parser.add_argument('--mask_proportion', type=float, default=0, help='block masking rate')
     parser.add_argument('--mask_weight', type=float, default=1.0, help='block masking rate')
     parser.add_argument('--noisy_nodes_weight', type=float, default=0, help='coefficient for denoising loss during finetuning')
+    parser.add_argument('--modality_embedding', action="store_true", default=False, help='add embedding for each modality')
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
@@ -106,6 +107,7 @@ def parse():
     parser.add_argument('--num_projector_layers', type=int, default=3, help='number of layers for projector')
     parser.add_argument('--projector_hidden_size', type=int, default=256, help='hidden size for projector')
     parser.add_argument('--projector_dropout', type=float, default=0.0, help='dropout rate for projector')
+    parser.add_argument('--block_embedding_size', type=int, default=None, help='embedding size for blocks')
 
     # logging
     parser.add_argument('--use_wandb', action="store_true", default=False, help='log to Weights and Biases')
@@ -427,17 +429,6 @@ def main(args):
                 name=args.run_name,
                 config=vars(args),
             )
-        # if args.use_raytune:
-        #     from ray.air.integrations.wandb import setup_wandb
-        #     setup_wandb(
-        #         entity="ada-f",
-        #         dir=config.save_dir,
-        #         settings=wandb.Settings(start_method="fork"),
-        #         project=f"InteractNN-{args.task}-tune",
-        #         name=args.run_name,
-        #         config=vars(args),
-        #     )
-    
     trainer.train(args.gpus, args.local_rank, use_wandb=args.use_wandb, use_raytune=args.use_raytune)
     
     return trainer.topk_ckpt_map

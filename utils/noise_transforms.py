@@ -120,6 +120,8 @@ class CropTransform:
                     "mask_rotate": mask_rotate,
                 })
             cropped_data["torsion_mask"] = list_of_masks
+        if 'modality' in data:
+            cropped_data['modality'] = data['modality']
         return cropped_data, kept_old_indices
 
 class TorsionNoiseTransform:

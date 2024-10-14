@@ -62,7 +62,7 @@ class AffinityTrainer(Trainer):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
             label=batch['label'],
-            block_embeddings=batch['block_embeddings'],
+            block_embeddings=batch.get('block_embeddings', None),
         )
 
         log_type = 'Validation' if val else 'Train'
@@ -113,6 +113,9 @@ class AffinityTrainer(Trainer):
                 'val_pearson': np.corrcoef(pred_arr, label_arr)[0, 1],
                 'val_spearman': spearmanr(pred_arr, label_arr).statistic,
             }, step=self.global_step)
+        if self.use_raytune:
+            from ray import train as ray_train
+            ray_train.report({'val_RMSELoss': float(valid_metric), "epoch": self.epoch})
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
             module_to_save = self.model.module if self.local_rank == 0 else self.model

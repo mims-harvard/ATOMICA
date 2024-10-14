@@ -6,6 +6,8 @@ from collections import defaultdict
 from utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform, CropTransform
 from torch_scatter import scatter_mean
 from tqdm import tqdm
+from .dataset import MODALITIES
+
 
 class PretrainMaskedDataset(torch.utils.data.Dataset):
     def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
@@ -207,6 +209,8 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         data = copy.deepcopy(item['data'])
+        if 'modality' in data.keys():
+            data['modality'] = MODALITIES[data['modality']]
         data['label'] = -1  # dummy label
 
         choices = []
@@ -308,6 +312,10 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         res['tor_batch'] = torch.tensor(res['tor_batch'], dtype=torch.long)
         assert res['tor_edges'].shape[1] == res['tor_score'].shape[0] == res['tor_batch'].shape[0], "mismatch in tor score and number of tor edges"
         res['label'] = torch.tensor([x['label'] for x in batch], dtype=torch.float)
+        if 'modality' in batch[0].keys():
+            res['modality'] = torch.tensor([x['modality'] for x in batch], dtype=torch.long)
+        else:
+            res['modality'] = None
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         res['atom_score'], res['atom_eps'] = None, None # no atom noise
@@ -351,11 +359,12 @@ class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
         data = super().__getitem__(idx)
         data['X'] = data['X'].tolist()
         B = np.array(data['B'])
-        # mask blocks on the non noisy side
-        if data['noisy_segment'] == 0:
-            can_mask = data["can_mask"][1]
-        else:
-            can_mask = data["can_mask"][0]
+        # # mask blocks on the non noisy side
+        # if data['noisy_segment'] == 0:
+        #     can_mask = data["can_mask"][1]
+        # else:
+        #     can_mask = data["can_mask"][0]
+        can_mask = data["can_mask"][0] + data["can_mask"][1]
         num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
         selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
         masked_blocks = np.zeros_like(data['B'], dtype=bool)

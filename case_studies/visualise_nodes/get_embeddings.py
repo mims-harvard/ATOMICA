@@ -29,7 +29,6 @@ def get_embeddings(dataset, model, out_dir):
     atom_embeddings = []
     atom_id = []
     graph_embeddings = []
-    graph_unit_embeddings = []
 
     for idx, batch in tqdm(enumerate(train_loader), total=len(train_loader), desc="Get embeddings"):
         try:
@@ -40,7 +39,6 @@ def get_embeddings(dataset, model, out_dir):
                 block_embedding = output.block_repr.detach().clone().cpu()
                 atom_embedding = output.unit_repr.detach().clone().cpu()
                 graph_embedding = output.graph_repr.detach().clone().cpu()
-                graph_unit_embedding = output.graph_unit_repr.detach().clone().cpu()
                 del output
                 # embedding = embedding[batch['B'].cpu() > 3] # remove special tokens
                 block_embeddings.append(block_embedding.numpy())
@@ -48,7 +46,6 @@ def get_embeddings(dataset, model, out_dir):
                 atom_embeddings.append(atom_embedding.numpy())
                 atom_id.append(batch['A'].cpu().numpy())
                 graph_embeddings.append(graph_embedding.numpy())
-                graph_unit_embeddings.append(graph_unit_embedding.numpy())
         except Exception as e:
             if "CUDA out of memory" in str(e):
                 print(f"Out of memory at {idx}, num_blocks: {batch['B'].shape}, num_atoms: {batch['A'].shape}")
@@ -66,7 +63,6 @@ def get_embeddings(dataset, model, out_dir):
     atom_embeddings = np.concatenate(atom_embeddings, axis=0)
     atom_id = np.concatenate(atom_id, axis=0)
     graph_embeddings = np.concatenate(graph_embeddings, axis=0)
-    graph_unit_embeddings = np.concatenate(graph_unit_embeddings, axis=0)
 
     os.makedirs(out_dir, exist_ok=True)
     with open(f"{out_dir}/block_embeddings.npy", "wb") as f:
@@ -79,8 +75,7 @@ def get_embeddings(dataset, model, out_dir):
         np.save(f, atom_id)
     with open(f"{out_dir}/graph_embeddings.npy", "wb") as f:
         np.save(f, graph_embeddings)
-    with open(f"{out_dir}/graph_unit_embeddings.npy", "wb") as f:
-        np.save(f, graph_unit_embeddings)
+
 
 def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
     model = model.to("cuda")
@@ -89,7 +84,6 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
     atom_embeddings = []
     atom_id = []
     graph_embeddings = []
-    graph_unit_embeddings = []
     graph_id = []
 
     for idx in tqdm(range(0, len(dataset), batch_size), total=len(dataset)//batch_size, desc="Get embeddings"):
@@ -103,7 +97,6 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
                 block_embedding = output.block_repr.detach().clone().cpu()
                 atom_embedding = output.unit_repr.detach().clone().cpu()
                 graph_embedding = output.graph_repr.detach().clone().cpu()
-                graph_unit_embedding = output.graph_unit_repr.detach().clone().cpu()
                 del output
                 # embedding = embedding[batch['B'].cpu() > 3] # remove special tokens
                 block_embeddings.append(block_embedding.numpy())
@@ -111,7 +104,6 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
                 atom_embeddings.append(atom_embedding.numpy())
                 atom_id.append(batch['A'].cpu().numpy())
                 graph_embeddings.append(graph_embedding.numpy())
-                graph_unit_embeddings.append(graph_unit_embedding.numpy())
         except Exception as e:
             if "CUDA out of memory" in str(e):
                 print(f"Out of memory at {idx}, num_blocks: {batch['B'].shape}, num_atoms: {batch['A'].shape}")
@@ -129,7 +121,6 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
     atom_embeddings = np.concatenate(atom_embeddings, axis=0)
     atom_id = np.concatenate(atom_id, axis=0)
     graph_embeddings = np.concatenate(graph_embeddings, axis=0)
-    graph_unit_embeddings = np.concatenate(graph_unit_embeddings, axis=0)
 
     os.makedirs(out_dir, exist_ok=True)
     with open(f"{out_dir}/block_embeddings.npy", "wb") as f:
@@ -142,8 +133,6 @@ def get_embeddings_with_graph_id(dataset, model, out_dir, batch_size=8):
         np.save(f, atom_id)
     with open(f"{out_dir}/graph_embeddings.npy", "wb") as f:
         np.save(f, graph_embeddings)
-    with open(f"{out_dir}/graph_unit_embeddings.npy", "wb") as f:
-        np.save(f, graph_unit_embeddings)
     with open(f"{out_dir}/graph_id.txt", "w") as f:
         for gid in graph_id:
             f.write(f"{gid}\n")

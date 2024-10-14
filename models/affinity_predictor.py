@@ -14,7 +14,7 @@ from .prediction_model import PredictionModel, PredictionReturnValue
 class AffinityPredictor(PredictionModel):
 
     def __init__(self, num_affinity_pred_layers, nonlinearity, affinity_pred_dropout, affinity_pred_hidden_size, 
-                 num_projector_layers, projector_hidden_size, projector_dropout, block_embedding_size=1536, # ESM3 embedding size
+                 num_projector_layers, projector_hidden_size, projector_dropout, block_embedding_size, # =1536 ESM3 embedding size
                    **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -22,20 +22,34 @@ class AffinityPredictor(PredictionModel):
         for _ in range(0, num_affinity_pred_layers-2):
             layers.extend([nonlinearity, nn.Dropout(affinity_pred_dropout), nn.Linear(affinity_pred_hidden_size, affinity_pred_hidden_size)])
         layers.extend([nonlinearity, nn.Dropout(affinity_pred_dropout), nn.Linear(affinity_pred_hidden_size, 1)])
-
-        projector_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]
-        for _ in range(0, num_projector_layers-2):
-            projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, projector_hidden_size)])
-        projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, self.hidden_size)])
-
-        mixing_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)]
-        for _ in range(0, num_projector_layers-2):
-            mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)])
-        mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, self.hidden_size)])
-
         self.energy_ffn = nn.Sequential(*layers)
-        self.projector = nn.Sequential(*projector_layers)
-        self.mixing_ffn = nn.Sequential(*mixing_layers)
+
+        self.block_embedding_size = block_embedding_size
+        if self.block_embedding_size:
+            projector_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]
+            for _ in range(0, num_projector_layers-2):
+                projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, projector_hidden_size)])
+            projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, self.hidden_size)])
+
+            mixing_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)]
+            for _ in range(0, num_projector_layers-2):
+                mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)])
+            mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, self.hidden_size)])
+
+            projector_layers2 = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]
+            for _ in range(0, num_projector_layers-2):
+                projector_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, projector_hidden_size)])
+            projector_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, self.hidden_size)])
+
+            mixing_layers2 = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)]
+            for _ in range(0, num_projector_layers-2):
+                mixing_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)])
+            mixing_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, self.hidden_size)])
+
+            self.projector = nn.Sequential(*projector_layers)
+            self.mixing_ffn = nn.Sequential(*mixing_layers)
+            self.projector2 = nn.Sequential(*projector_layers2)
+            self.mixing_ffn2 = nn.Sequential(*mixing_layers2)
 
         self.attention_pooling.requires_grad_(requires_grad=False) # pooling is not used in affinity prediction
     
@@ -61,6 +75,7 @@ class AffinityPredictor(PredictionModel):
             num_projector_layers=kwargs['num_projector_layers'],
             projector_dropout=kwargs['projector_dropout'],
             projector_hidden_size=kwargs['projector_hidden_size'],
+            block_embedding_size=kwargs['block_embedding_size'],
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
@@ -107,9 +122,9 @@ class AffinityPredictor(PredictionModel):
         # embedding
         bottom_H_0 = self.block_embedding.atom_embedding(A)
         top_H_0 = self.block_embedding.block_embedding(B)
-        if block_embeddings is not None:
-            block_embeddings = self.projector(block_embeddings)
-            top_H_0 = self.mixing_ffn(torch.cat([top_H_0, block_embeddings], dim=-1))
+        if self.block_embedding_size:
+            block_embeddings0 = self.projector(block_embeddings)
+            top_H_0 = self.mixing_ffn(torch.cat([top_H_0, block_embeddings0], dim=-1))
 
         # bottom level message passing
         edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
@@ -136,6 +151,10 @@ class AffinityPredictor(PredictionModel):
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
         block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
 
+        if self.block_embedding_size:
+            block_embeddings2 = self.projector2(block_embeddings)
+            block_repr = self.mixing_ffn2(torch.cat([block_repr, block_embeddings2], dim=-1))
+
         block_energy = self.energy_ffn(block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
             block_energy[B == self.global_block_id] = 0
@@ -150,7 +169,7 @@ class AffinityPredictor(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
             label=batch['label'],
-            block_embeddings=batch['block_embeddings'],
+            block_embeddings=batch.get('block_embeddings', None),
         )
         return pred_energy
 

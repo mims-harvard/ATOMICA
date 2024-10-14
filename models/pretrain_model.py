@@ -9,6 +9,7 @@ import torch.nn.functional as F
 from torch_scatter import scatter_mean, scatter_sum
 
 from data.pdb_utils import VOCAB
+from data.dataset import MODALITIES
 from .tools import BlockEmbedding, KNNBatchEdgeConstructor
 from .InteractNN.encoder import InteractNNEncoder, AttentionPooling
 from .tools import CrossAttention
@@ -81,7 +82,7 @@ class DenoisePretrainModel(nn.Module):
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size=16, k_neighbors=9, n_layers=3,
                  dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None,
                  atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, num_masked_block_classes=None, 
-                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1, mask_weight=1) -> None:
+                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1, mask_weight=1, modality_embedding=False) -> None:
         super().__init__()
 
         # model parameters
@@ -123,6 +124,10 @@ class DenoisePretrainModel(nn.Module):
             block_embed_size=block_hidden_size,
             no_block_embedding=False,
         )
+
+        self.use_modality_embedding = modality_embedding
+        if self.use_modality_embedding:
+            self.modality_embedding = nn.Embedding(len(MODALITIES), block_hidden_size)
 
         self.edge_constructor = KNNBatchEdgeConstructor(
             k_neighbors=k_neighbors,
@@ -213,7 +218,7 @@ class DenoisePretrainModel(nn.Module):
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, 
                 receptor_segment=None, atom_score=None, atom_eps=None, tr_score=None, 
                 tr_eps=None, rot_score=None,tor_edges=None, tor_score=None, tor_batch=None,
-                masked_blocks=None, masked_labels=None,
+                masked_blocks=None, masked_labels=None, modality=None,
                 ) -> ReturnValue:
         with torch.no_grad():
             assert tor_edges.shape[1] == tor_score.shape[0], f"tor_edges {tor_edges.shape} and tor_score {tor_score.shape} should have the same length"
@@ -238,7 +243,8 @@ class DenoisePretrainModel(nn.Module):
         # embedding
         bottom_H_0 = self.block_embedding.atom_embedding(A)
         top_H_0 = self.block_embedding.block_embedding(B)
-
+        if self.use_modality_embedding:
+            top_H_0[B == self.global_block_id] += self.modality_embedding(modality[batch_id[B == self.global_block_id]])
         # encoding
         perturb_block_mask = segment_ids == receptor_segment[batch_id]  # [Nb]
         perturb_mask = perturb_block_mask[block_id]  # [Nu]
