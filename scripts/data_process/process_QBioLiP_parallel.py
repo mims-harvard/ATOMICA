@@ -21,7 +21,7 @@ from utils.logger import print_log
 from data.pdb_utils import Residue, VOCAB
 from data.dataset import blocks_interface, blocks_to_data
 from data.converter.atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
-from data.converter.pdb_to_list_blocks import pdb_to_list_blocks
+from data.converter.pdb_to_list_blocks import pdb_to_list_blocks_and_atom_array
 from data.converter.mol2_to_blocks import mol2_to_blocks
 from data.converter.sm_pdb_to_blocks import sm_pdb_to_blocks
 from joblib import Parallel, delayed, cpu_count
@@ -103,7 +103,7 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
     items = []
     prot_fname = os.path.join(data_dir_rec, protein_file_name)
     try:
-        list_blocks, pdb_indexes = pdb_to_list_blocks(prot_fname, return_indexes=True)
+        list_blocks, atom_array, pdb_indexes = pdb_to_list_blocks_and_atom_array(prot_fname)
     except Exception as e:
         print_log(f'{protein_file_name} protein parsing failed: {e}', level='ERROR')
         return None
@@ -116,12 +116,14 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
     for i, j in pairs:
         blocks1, blocks2, indexes1, indexes2 = blocks_interface(list_blocks[i], list_blocks[j], interface_dist_th, return_indexes=True)
         if len(blocks1) >= 4 and len(blocks2) >= 4: # Minimum interface size
+            chain1 = pdb_indexes[i][indexes1[0]][0]
+            chain2 = pdb_indexes[j][indexes2[0]][0]
             data = blocks_to_data(blocks1, blocks2)
             for key in data:
                 if isinstance(data[key], np.ndarray):
                     data[key] = data[key].tolist()
             item = {}
-            item['id'] = protein_file_name[:-len(".pdb")] + "_" + "_".join(set(x.split("_")[0] for x in pdb_indexes_map.values()))
+            item['id'] = protein_file_name[:-len(".pdb")] + "_" + chain1 + "_" + chain2
             item['affinity'] = { 'neglog_aff': -1.0 }
             item['data'] = data
 
@@ -129,6 +131,9 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
             pdb_indexes_map.update(dict(zip(range(1,len(blocks1)+1), [pdb_indexes[i][idx] for idx in indexes1])))# map block index to pdb index, +1 for global block)
             pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), [pdb_indexes[j][idx] for idx in indexes2])))# map block index to pdb index, +1 for global block)
             item["block_to_pdb_indexes"] = pdb_indexes_map
+
+            item['atom_array1'] = atom_array[atom_array.chain_id == chain1]
+            item['atom_array2'] = atom_array[atom_array.chain_id == chain2]
 
             item['dist_th'] = interface_dist_th
             items.append(item)
@@ -145,7 +150,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
 
     try:
         is_rna = "_RNA_" in rec # for RNAL
-        list_blocks1, list_pdb_indexes1 = pdb_to_list_blocks(rec, is_rna=is_rna, return_indexes=True)
+        list_blocks1, atom_array1, list_pdb_indexes1 = pdb_to_list_blocks_and_atom_array(rec, is_rna=is_rna)
     except Exception as e:
         print_log(f'{rec} protein parsing failed: {e}', level='ERROR')
         return None
@@ -156,7 +161,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
             lig_type = "RNA"
     if lig_type in {"RNA", "DNA", "III"}:
         try:
-            list_of_blocks2, list_pdb_indexes2 = pdb_to_list_blocks(lig, is_rna=lig_type=="RNA", is_dna=lig_type=="DNA", return_indexes=True)
+            list_of_blocks2, atom_array2, list_pdb_indexes2 = pdb_to_list_blocks_and_atom_array(lig, is_rna=lig_type=="RNA", is_dna=lig_type=="DNA")
             blocks2 = sum(list_of_blocks2, [])
             pdb_indexes2 = sum(list_pdb_indexes2, [])
         except Exception as e:
@@ -164,6 +169,7 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
             return None
     else:
         try:
+            atom_array2 = None
             blocks2 = sm_pdb_to_blocks(lig, fragment=None)
             smiles, fragment = complex_file_name[2], complex_file_name[3]
             if smiles is not None and fragment is not None:
@@ -210,6 +216,8 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
         pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), pdb_indexes2)))# map block index to pdb index, +1 for global block)
     item["block_to_pdb_indexes"] = pdb_indexes_map
     item['dist_th'] = interface_dist_th
+    item['atom_array1'] = atom_array1
+    item['atom_array2'] = atom_array2
 
     return item
 
@@ -313,7 +321,7 @@ def process_shard(params):
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
     
-    with open(os.path.join(args.out_dir, f'QBioLiP_{args.task}_{shard_idx}.pkl'), 'wb') as f:
+    with open(os.path.join(args.out_dir, f'{args.task}_{shard_idx}.pkl'), 'wb') as f:
         pickle.dump(processed_data, f)
     
     print_log(f'Finished shard={shard_idx}! Processed {len(processed_data)} items. Saved to {args.out_dir}')

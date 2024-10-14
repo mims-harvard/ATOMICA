@@ -7,9 +7,9 @@ _periodic_table = GetPeriodicTable()
 
 def sm_pdb_to_blocks(ligand_path, fragment=None):
     if ligand_path.endswith(".pdb"):
-        pdb_mol = Chem.MolFromPDBFile(ligand_path, removeHs=True)
+        pdb_mol = Chem.MolFromPDBFile(ligand_path, removeHs=True, sanitize=False)
     else:
-        pdb_mol = Chem.SDMolSupplier(ligand_path, removeHs=True).__next__()
+        pdb_mol = Chem.SDMolSupplier(ligand_path, removeHs=True, sanitize=False).__next__()
     # ligand (each block is an atom)
     blocks2 = []
     conf = pdb_mol.GetConformer()
