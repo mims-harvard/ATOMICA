@@ -249,7 +249,6 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         data['tor_score'] = tor_score
         data['tor_edges'] = tor_edges
         data['noisy_segment'] = chosen_segment
-        
         # coord_change = np.linalg.norm(data["X"] - item["data"]["X"], axis=1)
         # print(f'Change in atomic position: mean {np.mean(coord_change):.2f}, max {np.max(coord_change):.2f}, min {np.min(coord_change):.2f}')
         return data
@@ -275,6 +274,18 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         """
         keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
+
+        has_block_embeddings = 'block_embeddings' in batch[0]
+        has_block_embeddings_separate = 'block_embeddings0' in batch[0] and 'block_embeddings1' in batch[0]
+        if has_block_embeddings:
+            keys.append('block_embeddings')
+            types.append(torch.float)
+        elif has_block_embeddings_separate:
+            keys.append('block_embeddings0')
+            keys.append('block_embeddings1')
+            types.append(torch.float)
+            types.append(torch.float)
+
         res = {}
         for key, _type in zip(keys, types):
             val = []
@@ -283,7 +294,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
                     item[key] = item[key].tolist()
                 val.append(torch.tensor(item[key], dtype=_type))
             res[key] = torch.cat(val, dim=0)
-
+        
         res['tor_score'] = []
         for item in batch:
             if item['tor_score'] is not None:
@@ -406,6 +417,23 @@ class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
         new_blocks[masked_blocks] = self.mask_token
         data['B'] = new_blocks.tolist()
         data['masked_blocks'] = masked_blocks.tolist()
+
+        if 'block_embeddings' in data:
+            block_embeddings = np.array(data['block_embeddings'])
+            masked_block_embeddings = np.zeros_like(block_embeddings[0])
+            block_embeddings[masked_blocks] = masked_block_embeddings
+            data['block_embeddings'] = block_embeddings.tolist()
+        elif 'block_embeddings0' in data and 'block_embeddings1' in data:
+            block_embeddings0 = np.array(data['block_embeddings0'])
+            block_embeddings1 = np.array(data['block_embeddings1'])
+            masked_block_embeddings0 = np.zeros_like(block_embeddings0[0])
+            masked_block_embeddings1 = np.zeros_like(block_embeddings1[0])
+            masked_blocks0 = np.logical_and(masked_blocks, np.array(data['segment_ids']) == 0)
+            masked_blocks1 = np.logical_and(masked_blocks, np.array(data['segment_ids']) == 1) - np.sum(np.array(data['segment_ids']) == 0)
+            block_embeddings0[masked_blocks0] = masked_block_embeddings0
+            block_embeddings1[masked_blocks1] = masked_block_embeddings1
+            data['block_embeddings0'] = block_embeddings0.tolist()
+            data['block_embeddings1'] = block_embeddings1.tolist()
         return data
 
     @classmethod

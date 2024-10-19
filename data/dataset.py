@@ -622,8 +622,14 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
         types = [torch.float, torch.long, torch.long, torch.long, torch.long]
         has_block_embeddings = 'block_embeddings' in batch[0]
+        has_block_embeddings_separate = 'block_embeddings0' in batch[0] and 'block_embeddings1' in batch[0]
         if has_block_embeddings:
             keys.append('block_embeddings')
+            types.append(torch.float)
+        elif has_block_embeddings_separate:
+            keys.append('block_embeddings0')
+            keys.append('block_embeddings1')
+            types.append(torch.float)
             types.append(torch.float)
         res = {}
         for key, _type in zip(keys, types):
@@ -634,8 +640,6 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
         res['label'] = torch.tensor([item['label'] for item in batch], dtype=torch.float)
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        if not has_block_embeddings:
-            res['block_embeddings'] = None
         return res
 
 

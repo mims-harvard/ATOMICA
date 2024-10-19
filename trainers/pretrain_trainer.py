@@ -69,6 +69,7 @@ class PretrainTrainer(Trainer):
     ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
+        print("BATCH KEYS:", batch.keys())
         try:
             loss = self.model(
                 Z=batch['X'], B=batch['B'], A=batch['A'],
@@ -85,6 +86,9 @@ class PretrainTrainer(Trainer):
                 tor_edges=batch['tor_edges'],
                 tor_batch=batch['tor_batch'],
                 modality=batch['modality'],
+                block_embeddings=batch.get('block_embeddings', None),
+                block_embeddings0=batch.get('block_embeddings0', None),
+                block_embeddings1=batch.get('block_embeddings1', None),
             )
 
             if not val:
@@ -167,7 +171,7 @@ class PretrainTrainer(Trainer):
                     self.scheduler.step()
                 if self.use_wandb and self._is_main_proc():
                     wandb.log({f'lr': self.optimizer.param_groups[-1]['lr']}, step=self.global_step)
-                if batch_idx == len(self.train_loader)//2:
+                if batch_idx == len(self.train_loader)//2 and len(self.train_loader) > 1000:
                     print_log(f'validating ...') if self._is_main_proc() else 1
                     self._valid_epoch(device)
                     self._before_train_epoch_start()
@@ -292,6 +296,9 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
                 masked_blocks=batch['masked_blocks'], 
                 masked_labels=batch['masked_labels'],
                 modality=batch['modality'],
+                block_embeddings=batch.get('block_embeddings', None),
+                block_embeddings0=batch.get('block_embeddings0', None),
+                block_embeddings1=batch.get('block_embeddings1', None),
             )
 
             if not val:

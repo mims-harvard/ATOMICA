@@ -122,6 +122,15 @@ class CropTransform:
             cropped_data["torsion_mask"] = list_of_masks
         if 'modality' in data:
             cropped_data['modality'] = data['modality']
+            
+        if 'block_embeddings' in data:
+            kept_blocks = sorted([0, len(segment0)+1] + kept_old_indices) # [0, len(segment0)+1] for the global blocks
+            cropped_data['block_embeddings'] = [data['block_embeddings'][i] for i in kept_blocks]
+        elif 'block_embeddings0' in data and 'block_embeddings1' in data:
+            kept_blocks0 = [0] + (segment0_keep_indices+1).tolist() # [0] for the global block
+            cropped_data['block_embeddings0'] = [data['block_embeddings0'][i] for i in kept_blocks0]
+            kept_blocks1 = [0] + (segment1_keep_indices+1).tolist() # [0] for the global block
+            cropped_data['block_embeddings1'] = [data['block_embeddings1'][i] for i in kept_blocks1]
         return cropped_data, kept_old_indices
 
 class TorsionNoiseTransform:

@@ -108,6 +108,8 @@ def parse():
     parser.add_argument('--projector_hidden_size', type=int, default=256, help='hidden size for projector')
     parser.add_argument('--projector_dropout', type=float, default=0.0, help='dropout rate for projector')
     parser.add_argument('--block_embedding_size', type=int, default=None, help='embedding size for blocks')
+    parser.add_argument('--block_embedding0_size', type=int, default=None, help='embedding size for blocks in segment0, block_embedding_size1 will be used for blocks in segment1')
+    parser.add_argument('--block_embedding1_size', type=int, default=None, help='embedding size for blocks in segment1, block_embedding_size0 will be used for blocks in segment0')
 
     # logging
     parser.add_argument('--use_wandb', action="store_true", default=False, help='log to Weights and Biases')
@@ -302,7 +304,7 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
     model_type = type(model)
     if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel, models.BlockAffinityPredictor]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.DenoisePretrainModel:
+    elif model_type == models.DenoisePretrainModel or model_type == models.DenoisePretrainModelWithBlockEmbedding:
         if model.masking_objective:
             trainer = trainers.PretrainMaskingNoisingTrainer(
                 model, train_loader, valid_loader, config, 

@@ -14,7 +14,8 @@ from .prediction_model import PredictionModel, PredictionReturnValue
 class AffinityPredictor(PredictionModel):
 
     def __init__(self, num_affinity_pred_layers, nonlinearity, affinity_pred_dropout, affinity_pred_hidden_size, 
-                 num_projector_layers, projector_hidden_size, projector_dropout, block_embedding_size, # =1536 ESM3 embedding size
+                 num_projector_layers, projector_hidden_size, projector_dropout, 
+                 block_embedding_size=None, block_embedding0_size=None, block_embedding1_size=None, # =1536 ESM3 embedding size
                    **kwargs) -> None:
         super().__init__(**kwargs)
 
@@ -24,35 +25,54 @@ class AffinityPredictor(PredictionModel):
         layers.extend([nonlinearity, nn.Dropout(affinity_pred_dropout), nn.Linear(affinity_pred_hidden_size, 1)])
         self.energy_ffn = nn.Sequential(*layers)
 
+        # same block embedding for all blocks
         self.block_embedding_size = block_embedding_size
         if self.block_embedding_size:
-            projector_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]
-            for _ in range(0, num_projector_layers-2):
-                projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, projector_hidden_size)])
-            projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, self.hidden_size)])
+            params = (nonlinearity, block_embedding_size, projector_dropout, projector_hidden_size, num_projector_layers)
+            block_projector, block_mixing = self.init_block_embedding(*params)
+            self.pre_projector = nn.Sequential(*block_projector)
+            self.pre_mixing_ffn = nn.Sequential(*block_mixing)
+            block_projector, block_mixing = self.init_block_embedding(*params)
+            self.post_projector = nn.Sequential(*block_projector)
+            self.post_mixing_ffn = nn.Sequential(*block_mixing)
 
-            mixing_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)]
-            for _ in range(0, num_projector_layers-2):
-                mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)])
-            mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, self.hidden_size)])
+        # different block embedidng for segment 0 and 1
+        self.block_embedding0_size = block_embedding0_size
+        self.block_embedding1_size = block_embedding1_size
+        if self.block_embedding0_size and self.block_embedding1_size:
+            params0 = (nonlinearity, block_embedding0_size, projector_dropout, projector_hidden_size, num_projector_layers)
+            params1 = (nonlinearity, block_embedding1_size, projector_dropout, projector_hidden_size, num_projector_layers)
 
-            projector_layers2 = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]
-            for _ in range(0, num_projector_layers-2):
-                projector_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, projector_hidden_size)])
-            projector_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, self.hidden_size)])
+            block_projector0, block_mixing0 = self.init_block_embedding(*params0)
+            self.pre_projector0 = nn.Sequential(*block_projector0)
+            self.pre_mixing_ffn0 = nn.Sequential(*block_mixing0)
 
-            mixing_layers2 = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)]
-            for _ in range(0, num_projector_layers-2):
-                mixing_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)])
-            mixing_layers2.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, self.hidden_size)])
+            block_projector1, block_mixing1 = self.init_block_embedding(*params1)
+            self.pre_projector1 = nn.Sequential(*block_projector1)
+            self.pre_mixing_ffn1 = nn.Sequential(*block_mixing1)
 
-            self.projector = nn.Sequential(*projector_layers)
-            self.mixing_ffn = nn.Sequential(*mixing_layers)
-            self.projector2 = nn.Sequential(*projector_layers2)
-            self.mixing_ffn2 = nn.Sequential(*mixing_layers2)
+            block_projector0, block_mixing0 = self.init_block_embedding(*params0)
+            self.post_projector0 = nn.Sequential(*block_projector0)
+            self.post_mixing_ffn0 = nn.Sequential(*block_mixing0)
+
+            block_projector1, block_mixing1 = self.init_block_embedding(*params1)
+            self.post_projector1 = nn.Sequential(*block_projector1)
+            self.post_mixing_ffn1 = nn.Sequential(*block_mixing1)
 
         self.attention_pooling.requires_grad_(requires_grad=False) # pooling is not used in affinity prediction
     
+    def init_block_embedding(self, nonlinearity: nn.Module, block_embedding_size: int, projector_dropout: float, projector_hidden_size: int, num_projector_layers: int):
+        projector_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]
+        for _ in range(0, num_projector_layers-2):
+            projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, projector_hidden_size)])
+        projector_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(projector_hidden_size, self.hidden_size)])
+
+        mixing_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)]
+        for _ in range(0, num_projector_layers-2):
+            mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, 2*self.hidden_size)])
+        mixing_layers.extend([nonlinearity, nn.Dropout(projector_dropout), nn.Linear(2*self.hidden_size, self.hidden_size)])
+        return projector_layers, mixing_layers
+
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
         pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
@@ -76,6 +96,8 @@ class AffinityPredictor(PredictionModel):
             projector_dropout=kwargs['projector_dropout'],
             projector_hidden_size=kwargs['projector_hidden_size'],
             block_embedding_size=kwargs['block_embedding_size'],
+            block_embedding0_size=kwargs['block_embedding0_size'],
+            block_embedding1_size=kwargs['block_embedding1_size'],
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
@@ -102,7 +124,7 @@ class AffinityPredictor(PredictionModel):
             model.energy_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings, block_embeddings0, block_embeddings1) -> PredictionReturnValue:
         # batch_id and block_id
         with torch.no_grad():
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
@@ -123,8 +145,14 @@ class AffinityPredictor(PredictionModel):
         bottom_H_0 = self.block_embedding.atom_embedding(A)
         top_H_0 = self.block_embedding.block_embedding(B)
         if self.block_embedding_size:
-            block_embeddings0 = self.projector(block_embeddings)
-            top_H_0 = self.mixing_ffn(torch.cat([top_H_0, block_embeddings0], dim=-1))
+            block_embeddings_all = self.pre_projector(block_embeddings)
+            top_H_0 = self.pre_mixing_ffn(torch.cat([top_H_0, block_embeddings_all], dim=-1))
+        elif self.block_embedding0_size and self.block_embedding1_size:
+            block_embeddings_segment0 = self.pre_projector0(block_embeddings0)
+            block_embeddings_segment1 = self.pre_projector1(block_embeddings1)
+            top_H_0_segment0 = self.pre_mixing_ffn0(torch.cat([top_H_0[segment_ids==0], block_embeddings_segment0], dim=-1))
+            top_H_0_segment1 = self.pre_mixing_ffn1(torch.cat([top_H_0[segment_ids==1], block_embeddings_segment1], dim=-1))
+            top_H_0 = torch.cat([top_H_0_segment0, top_H_0_segment1], dim=0)
 
         # bottom level message passing
         edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
@@ -152,8 +180,14 @@ class AffinityPredictor(PredictionModel):
         block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
 
         if self.block_embedding_size:
-            block_embeddings2 = self.projector2(block_embeddings)
-            block_repr = self.mixing_ffn2(torch.cat([block_repr, block_embeddings2], dim=-1))
+            block_embeddings_all = self.post_projector(block_embeddings)
+            block_repr = self.post_mixing_ffn(torch.cat([block_repr, block_embeddings_all], dim=-1))
+        elif self.block_embedding0_size and self.block_embedding1_size:
+            block_embeddings_segment0 = self.post_projector0(block_embeddings0)
+            block_embeddings_segment1 = self.post_projector1(block_embeddings1)
+            block_repr_segment0 = self.post_mixing_ffn0(torch.cat([block_repr[segment_ids==0], block_embeddings_segment0], dim=-1))
+            block_repr_segment1 = self.post_mixing_ffn1(torch.cat([block_repr[segment_ids==1], block_embeddings_segment1], dim=-1))
+            block_repr = torch.cat([block_repr_segment0, block_repr_segment1], dim=0)
 
         block_energy = self.energy_ffn(block_repr).squeeze(-1)
         if not self.global_message_passing: # ignore global blocks
@@ -170,6 +204,8 @@ class AffinityPredictor(PredictionModel):
             segment_ids=batch['segment_ids'],
             label=batch['label'],
             block_embeddings=batch.get('block_embeddings', None),
+            block_embeddings0=batch.get('block_embeddings0', None),
+            block_embeddings1=batch.get('block_embeddings1', None),
         )
         return pred_energy
 

@@ -1,6 +1,6 @@
 #!/usr/bin/python
 # -*- coding:utf-8 -*-
-from .pretrain_model import DenoisePretrainModel
+from .pretrain_model import DenoisePretrainModel, DenoisePretrainModelWithBlockEmbedding
 from .affinity_predictor import AffinityPredictor, AffinityPredictorNoisyNodes, BlockAffinityPredictor
 from .ddG_predictor import DDGPredictor, GLOFPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
@@ -11,31 +11,46 @@ import torch
 
 def create_model(args):
     if 'pretrain' in args.task.lower():
-        if args.pretrain_ckpt:
-            model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
+        params = {
+            "atom_hidden_size": args.atom_hidden_size,
+            "block_hidden_size": args.block_hidden_size,
+            "edge_size": args.edge_size,
+            "k_neighbors": args.k_neighbors,
+            "n_layers": args.n_layers,
+            "atom_noise": args.atom_noise != 0,
+            "translation_noise": args.translation_noise != 0,
+            "rotation_noise": args.rotation_noise != 0,
+            "torsion_noise": args.torsion_noise != 0,
+            "bottom_global_message_passing": args.bottom_global_message_passing,
+            "global_message_passing": args.global_message_passing,
+            "fragmentation_method": args.fragmentation_method,
+            "atom_weight": args.atom_weight,
+            "translation_weight": args.tr_weight,
+            "rotation_weight": args.rot_weight,
+            "torsion_weight": args.tor_weight,
+            "dropout": args.dropout,
+            "num_masked_block_classes": args.num_nodes,
+            "mask_weight": args.mask_weight,
+            "modality_embedding": args.modality_embedding,
+        }
+        if args.block_embedding_size is None and args.block_embedding0_size is None and args.block_embedding1_size is None:
+            if args.pretrain_ckpt:
+                model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
+            else:
+                model = DenoisePretrainModel(**params)
         else:
-            model = DenoisePretrainModel(
-                atom_hidden_size=args.atom_hidden_size,
-                block_hidden_size=args.block_hidden_size,
-                edge_size=args.edge_size,
-                k_neighbors=args.k_neighbors,
-                n_layers=args.n_layers,
-                atom_noise=args.atom_noise != 0,
-                translation_noise=args.translation_noise != 0,
-                rotation_noise=args.rotation_noise != 0,
-                torsion_noise=args.torsion_noise != 0,
-                bottom_global_message_passing=args.bottom_global_message_passing,
-                global_message_passing=args.global_message_passing,
-                fragmentation_method=args.fragmentation_method,
-                atom_weight=args.atom_weight,
-                translation_weight=args.tr_weight,
-                rotation_weight=args.rot_weight,
-                torsion_weight=args.tor_weight,
-                dropout=args.dropout,
-                num_masked_block_classes=args.num_nodes,
-                mask_weight=args.mask_weight,
-                modality_embedding=args.modality_embedding,
-            )
+            params.update({
+                'num_projector_layers': args.num_projector_layers,
+                'projector_dropout': args.projector_dropout,
+                'projector_hidden_size': args.projector_hidden_size,
+                "block_embedding_size": args.block_embedding_size,
+                "block_embedding0_size": args.block_embedding0_size,
+                "block_embedding1_size": args.block_embedding1_size,
+            })
+            model = DenoisePretrainModelWithBlockEmbedding(**params)
+            if args.pretrain_ckpt:
+                pretrained_model: DenoisePretrainModelWithBlockEmbedding = torch.load(args.pretrain_ckpt, map_location='cpu')
+                model.load_state_dict(pretrained_model.state_dict(), strict=False)
         return model
     elif args.task == "PLA_noisy_nodes":
         if args.pretrain_ckpt:
@@ -82,6 +97,8 @@ def create_model(args):
             'k_neighbors': args.k_neighbors,
             'dropout': args.dropout,
             'block_embedding_size': args.block_embedding_size,
+            'block_embedding0_size': args.block_embedding0_size,
+            'block_embedding1_size': args.block_embedding1_size,
         }
         if args.affinity_pred_nonlinearity == 'relu':
             add_params["nonlinearity"] = torch.nn.ReLU()

@@ -6,9 +6,7 @@ import sys
 import math
 import pickle
 import argparse
-
 import numpy as np
-import pandas as pd
 
 PROJ_DIR = os.path.join(
     os.path.split(os.path.abspath(__file__))[0],
@@ -23,15 +21,18 @@ from utils.logger import print_log
 from data.pdb_utils import Complex, Residue, VOCAB
 from data.split import main as split
 from data.dataset import BlockGeoAffDataset
+from data.converter.pdb_to_list_blocks import pdb_to_list_blocks_and_atom_array
+from data.dataset import blocks_interface, blocks_to_data
 
-
+NUCLEOTIDES = set(x[1] for x in VOCAB.bases)
+AAS = set(x[1] for x in VOCAB.aas)
 
 def parse():
     parser = argparse.ArgumentParser(description='Process PDBbind')
     parser.add_argument('--index_file', type=str, required=True,
-                        help='Path to the index file: INDEX_general_PP.2020')
+                        help='Path to the index file: INDEX_general_PN.2020')
     parser.add_argument('--pdb_dir', type=str, required=True,
-                        help='Directory of pdbs: PP')
+                        help='Directory of pdbs: PN')
     parser.add_argument('--out_dir', type=str, required=True,
                         help='Output directory')
     parser.add_argument('--interface_dist_th', type=float, default=6.0,
@@ -96,66 +97,37 @@ def process_line(line, pdb_dir, interface_dist_th):
         'dG': kd_to_dg(aff, 25.0),   # regard as measured under the standard condition
         'neglog_aff': -math.log(aff, 10)  # pK = -log_10 (Kd)
     }
-
-    # fasta = url_get(f'http://www.pdbbind.org.cn/FASTA/{pdb}.txt')
-    # if fasta is None:
-    #     print_log(f'Failed to fetch fasta for {pdb}!', level='ERROR')
-    #     return None
-    # print(fasta.text)
-    # fasta = fasta.text.strip().split('\n')
-    # proteins = parse_fasta(fasta)
-    # if len(proteins) != 2:  # irregular fasta, cannot distinguish which chains composes one protein
-    #     print_log(f'{pdb} has {len(proteins)} chain sets!', level='ERROR')
-    #     return None
     
     pdb_file = os.path.join(pdb_dir, pdb + '.ent.pdb')
-    cplx = Complex.from_pdb(pdb_file, [], None)
-    rec_chains, lig_chains = [], []
-    rec_seqs, lig_seqs = [], []
-    for chain_name, chain in cplx:
-        if len(chain) * 2 == len(chain.seq):
-            lig_chains.append(chain_name)
-            lig_seqs.append(chain.seq[1::2])
-        else:
-            rec_chains.append(chain_name)
-            rec_seqs.append(chain.seq)
     
-    cplx.receptor_chains = rec_chains
-    cplx.ligand_chains = lig_chains
-    # print(cplx)
+    prot_blocks, prot_array, prot_residues = pdb_to_list_blocks_and_atom_array(pdb_file)
+    prot_blocks = sum(prot_blocks, [])
+    prot_residues = sum(prot_residues, [])
+    lig_blocks, lig_array, lig_residues = pdb_to_list_blocks_and_atom_array(pdb_file, is_rna=True, is_dna=True)
+    lig_blocks = sum(lig_blocks, [])
+    lig_residues = sum(lig_residues, [])
 
-    # write sequence
-    item['seq_protein1'] = rec_seqs
-    item['chains_protein1'] = rec_chains
-    item['seq_protein2'] = lig_seqs
-    item['chains_protein2'] = lig_chains
+    if len(prot_blocks) == 0 or len(lig_blocks) == 0:
+        print_log(f'{pdb} has no protein or ligand', level='ERROR')
+        return None
 
-    # construct pockets
-    interface1, interface2 = cplx.get_interacting_residues(dist_th=interface_dist_th)
-    if len(interface1) == 0:  # no interface (if len(interface1) == 0 then we must have len(interface2) == 0)
+    blocks1, blocks2, indexes1, indexes2 = blocks_interface(prot_blocks, lig_blocks, interface_dist_th, return_indexes=True)
+    if len(blocks1) == 0 or len(blocks2) == 0:  # no interface (if len(interface1) == 0 then we must have len(interface2) == 0)
         print_log(f'{pdb} has no interface', level='ERROR')
         return None
-    columns = ['chain', 'insertion_code', 'residue', 'resname', 'x', 'y', 'z', 'element', 'name']
-    for i, interface in enumerate([interface1, interface2]):
-        data = []
-        for chain, residue in interface:
-            data.extend(residue_to_pd_rows(chain, residue))
-        item[f'atoms_interface{i + 1}'] = pd.DataFrame(data, columns=columns)
-            
-    # construct DataFrame of coordinates
-    for i, details in enumerate([rec_chains, lig_chains]):
-        data = []
-        for chain in details:
-            chain_obj = cplx.get_chain(chain)
-            if chain_obj is None:
-                print_log(f'{chain} not in {pdb}: {cplx.get_chain_names()}. Skip this chain.', level='WARN')
-                continue
-            for residue in chain_obj:
-                data.extend(residue_to_pd_rows(chain, residue))                
-        item[f'atoms_protein{i + 1}'] = pd.DataFrame(data, columns=columns)
+    
+    pdb_indexes1 = [prot_residues[idx] for idx in indexes1]
+    pdb_indexes2 = [lig_residues[idx] for idx in indexes2]
+    data = blocks_to_data(blocks1, blocks2)
+    item['data'] = data
 
-    # if pdb == '1ytf':
-    #     aa
+    pdb_indexes_map = {}
+    pdb_indexes_map.update(dict(zip(range(1,len(blocks1)+1), pdb_indexes1)))# map block index to pdb index, +1 for global block)
+    pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), pdb_indexes2)))# map block index to pdb index, +1 for global block)
+    
+    item["block_to_pdb_indexes"] = pdb_indexes_map
+    item['atom_array1'] = prot_array
+    item['atom_array2'] = lig_array
     return item
 
 
@@ -178,21 +150,21 @@ def main(args):
         print_log(f'{item["id"]} succeeded, valid/processed={len(processed_pdbbind)}/{cnt}')
     if not os.path.exists(args.out_dir):
         os.makedirs(args.out_dir)
-    database_out = os.path.join(args.out_dir, 'PDBbind.pkl')
+    database_out = os.path.join(args.out_dir, 'PDBbind_PN.pkl')
     print_log(f'Obtained {len(processed_pdbbind)} data after filtering, saving to {database_out}...')
     with open(database_out, 'wb') as fout:
         pickle.dump(processed_pdbbind, fout)
 
-    idx = list(range(len(processed_pdbbind)))
-    np.random.seed(0)
-    np.random.shuffle(idx)
+    # idx = list(range(len(processed_pdbbind)))
+    # np.random.seed(0)
+    # np.random.shuffle(idx)
 
-    train_len = int(len(idx) * 0.9)
-    train = [processed_pdbbind[i] for i in idx[:train_len]]
-    val = [processed_pdbbind[i] for i in idx[train_len:]]
+    # train_len = int(len(idx) * 0.9)
+    # train = [processed_pdbbind[i] for i in idx[:train_len]]
+    # val = [processed_pdbbind[i] for i in idx[train_len:]]
 
-    pickle.dump(train, open(os.path.join(args.out_dir, 'train.pkl'), 'wb'))
-    pickle.dump(val, open(os.path.join(args.out_dir, 'valid.pkl'), 'wb'))
+    # pickle.dump(train, open(os.path.join(args.out_dir, 'train.pkl'), 'wb'))
+    # pickle.dump(val, open(os.path.join(args.out_dir, 'valid.pkl'), 'wb'))
     print_log('Finished!')
 
 

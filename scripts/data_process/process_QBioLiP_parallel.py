@@ -79,7 +79,10 @@ def parse():
     parser.add_argument('--ccd_dictionary', type=str, default=None, help='Path to SMILES for ligand CCD codes. Required for fragmentation of small molecules.')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')
-    parser.add_argument('--num_workers', type=int, default=16)
+    parser.add_argument('--num_workers', type=int, default=1)
+    parser.add_argument('--start', type=int, default=0)
+    parser.add_argument('--end', type=int, default=None)
+    parser.add_argument('--shard', type=int, default=0)
     return parser.parse_args()
 
 
@@ -335,18 +338,23 @@ def main(args):
     shard_start = [i * shard_size for i in range(num_shards)]
     shard_end = shard_start[1:] + [len(complex_indexes)]
 
-    with multiprocessing.Pool(num_shards) as pool:
-        params = [
-            (
-                args,
-                shard_start[worker_id],
-                shard_end[worker_id],
-                worker_id,
-            )
-            for worker_id in range(num_shards)
-        ]
-        list(pool.imap_unordered(process_shard, params))
-
+    if num_shards > 1:
+        with multiprocessing.Pool(num_shards) as pool:
+            params = [
+                (
+                    args,
+                    shard_start[worker_id],
+                    shard_end[worker_id],
+                    worker_id,
+                )
+                for worker_id in range(num_shards)
+            ]
+            list(pool.imap_unordered(process_shard, params))
+    else:
+        if args.end is None:
+            args.end = len(complex_indexes)
+        args.end = min(args.end, len(complex_indexes))
+        process_shard((args, args.start, args.end, args.shard))
 
 
 if __name__ == '__main__':

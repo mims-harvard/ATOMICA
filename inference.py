@@ -59,41 +59,48 @@ def main(args):
     for batch in tqdm(test_loader):
         with torch.no_grad():
             # move data
-            batch = Trainer.to_device(batch, device)
+            try:
+                batch = Trainer.to_device(batch, device)
 
-            # for attention visualization
-            # model.encoder.encoder.prefix = str(batch_id)
+                # for attention visualization
+                # model.encoder.encoder.prefix = str(batch_id)
 
-            results = model.infer(batch)
-            if type(results) == tuple:
-                results = (res.tolist() for res in results)
-                results = (res for res in zip(*results))
-            elif torch.numel(results) == 1:
-                results = [results.item()]
-            else:
-                results = results.tolist()
-            
-            for i, pred_label in enumerate(results):
-                item_id = items[idx]['id'] if 'id' in items[idx] else items[idx]
-                if args.task == 'DDG':
-                    gt = batch[-1][i].item()
+                results = model.infer(batch)
+                if type(results) == tuple:
+                    results = (res.tolist() for res in results)
+                    results = (res for res in zip(*results))
+                elif torch.numel(results) == 1:
+                    results = [results.item()]
                 else:
-                    if 'label' in items[idx]:
-                        gt = items[idx]['label']
-                    elif 'affinity' in items[idx]: 
-                        gt = items[idx]['affinity']['neglog_aff']
+                    results = results.tolist()
+                
+                for i, pred_label in enumerate(results):
+                    item_id = items[idx]['id'] if 'id' in items[idx] else items[idx]
+                    if args.task == 'DDG':
+                        gt = batch[-1][i].item()
                     else:
-                        gt = test_set[idx]['label']
-                out_dict = {
-                        'id': item_id,
-                        'label': pred_label,
-                        'task': args.task,
-                        'gt': gt
-                    }
-            
-                fout.write(json.dumps(out_dict) + '\n')
-                idx += 1
-            # batch_id += 1
+                        if 'label' in items[idx]:
+                            gt = items[idx]['label']
+                        elif 'affinity' in items[idx]: 
+                            gt = items[idx]['affinity']['neglog_aff']
+                        else:
+                            gt = test_set[idx]['label']
+                    out_dict = {
+                            'id': item_id,
+                            'label': pred_label,
+                            'task': args.task,
+                            'gt': gt
+                        }
+                
+                    fout.write(json.dumps(out_dict) + '\n')
+                    idx += 1
+                # batch_id += 1
+            except Exception as e:
+                if 'CUDA out of memory' in str(e):
+                    print('CUDA out of memory')
+                    continue
+                else:
+                    raise e
     
     fout.close()
 

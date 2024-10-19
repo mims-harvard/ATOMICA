@@ -121,9 +121,6 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
     return list_blocks
 
 
-# read pdb in as atom array
-# convert atom array to blocks
-# return list of blocks, atom array, and residue indexes
 def atoms_array_to_blocks(atoms_array: AtomArray) -> List[Block]:
     residue_starts = get_residue_starts(atoms_array)
     residue_starts = np.concatenate([residue_starts, [len(atoms_array)]])
@@ -149,6 +146,7 @@ def atoms_array_to_blocks(atoms_array: AtomArray) -> List[Block]:
         residues.append(Block(symbol, atoms))
     return residues
 
+
 def get_residues(atoms_array: AtomArray) -> Tuple[np.ndarray, List[Tuple[str, int, str, str]]]:
     # residues: (chain_id, res_id, res_name, ins_code)
     residue_starts = get_residue_starts(atoms_array)
@@ -161,8 +159,12 @@ def get_residues(atoms_array: AtomArray) -> Tuple[np.ndarray, List[Tuple[str, in
 def pdb_to_list_blocks_and_atom_array(pdb: str, selected_chains: Optional[List[str]]=None, 
                        is_rna: bool=False, is_dna: bool=False, 
                        use_model:int =None) -> Tuple[List[List[Block]], AtomArray, List[List[Tuple[str, int, str, str]]]]:
-    pdb_file = PDBFile.read(pdb)
-    atom_array = pdb_file.get_structure()[use_model if use_model is not None else 0]
+    try:
+        pdb_file = PDBFile.read(pdb)
+        atom_array = pdb_file.get_structure()[use_model if use_model is not None else 0]
+    except Exception as e:
+        print(f"Error reading pdb file {pdb}: {e}")
+        return [], None, []
     if is_rna or is_dna:
         atom_array = atom_array[bs.filter_nucleotides(atom_array)]
         if is_rna:
@@ -172,7 +174,7 @@ def pdb_to_list_blocks_and_atom_array(pdb: str, selected_chains: Optional[List[s
     else:
         atom_array = atom_array[bs.filter_amino_acids(atom_array)]
     if selected_chains is not None:
-        atom_array = atom_array[atom_array.chain_id.isin(selected_chains)]
+        atom_array = atom_array[np.isin(atom_array.chain_id, selected_chains)]
     
     list_blocks = []
     list_residues = []

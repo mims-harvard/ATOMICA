@@ -63,6 +63,8 @@ class AffinityTrainer(Trainer):
             segment_ids=batch['segment_ids'],
             label=batch['label'],
             block_embeddings=batch.get('block_embeddings', None),
+            block_embeddings0=batch.get('block_embeddings0', None),
+            block_embeddings1=batch.get('block_embeddings1', None),
         )
 
         log_type = 'Validation' if val else 'Train'
