@@ -86,9 +86,6 @@ class PretrainTrainer(Trainer):
                 tor_edges=batch['tor_edges'],
                 tor_batch=batch['tor_batch'],
                 modality=batch['modality'],
-                block_embeddings=batch.get('block_embeddings', None),
-                block_embeddings0=batch.get('block_embeddings0', None),
-                block_embeddings1=batch.get('block_embeddings1', None),
             )
 
             if not val:
@@ -296,9 +293,6 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
                 masked_blocks=batch['masked_blocks'], 
                 masked_labels=batch['masked_labels'],
                 modality=batch['modality'],
-                block_embeddings=batch.get('block_embeddings', None),
-                block_embeddings0=batch.get('block_embeddings0', None),
-                block_embeddings1=batch.get('block_embeddings1', None),
             )
 
             if not val:
@@ -477,3 +471,55 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
             value = np.mean(self.writer_buffer[name])
             self.log(name, value, self.epoch)
         self.writer_buffer = {}
+
+
+class PretrainMaskingNoisingTrainerWithBlockEmbedding(PretrainMaskingNoisingTrainer):
+    def __init__(self, model, train_loader, valid_loader, config, resume_state=None):
+        super().__init__(model, train_loader, valid_loader, config, resume_state)
+    
+    def share_step(self, batch, batch_idx, val=False):
+        try:
+            loss = self.model(
+                Z=batch['X'], B=batch['B'], A=batch['A'],
+                block_lengths=batch['block_lengths'],
+                lengths=batch['lengths'],
+                segment_ids=batch['segment_ids'],
+                receptor_segment=batch['noisy_segment'], 
+                atom_score=batch['atom_score'], 
+                atom_eps=batch['atom_eps'], 
+                tr_score=batch['tr_score'], 
+                tr_eps=batch['tr_eps'],
+                rot_score=batch['rot_score'],
+                tor_score=batch['tor_score'],
+                tor_edges=batch['tor_edges'],
+                tor_batch=batch['tor_batch'],
+                masked_blocks=batch['masked_blocks'], 
+                masked_labels=batch['masked_labels'],
+                modality=batch['modality'],
+                block_embeddings=batch.get('block_embeddings', None),
+                block_embeddings0=batch.get('block_embeddings0', None),
+                block_embeddings1=batch.get('block_embeddings1', None),
+            )
+
+            if not val:
+                lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
+                lr = lr[0]
+                self.log('lr', lr, batch_idx, val)
+
+            return loss
+        except RuntimeError as e:
+            if "out of memory" in str(e) and torch.cuda.is_available():
+                print_log(e, level='ERROR')
+                print_log(
+                    f"""Out of memory error, skipping batch {batch_idx}, num_nodes={batch['X'].shape[0]}, 
+                    num_blocks={batch['B'].shape[0]}, batch_size={batch['lengths'].shape[0]},
+                    max_item_block_size={batch['lengths'].max()}""", level='ERROR')
+                for p in self.model.parameters():
+                    if p.grad is not None:
+                        del p.grad  # free some memory
+                torch.cuda.empty_cache()
+                return None
+            else:
+                raise e
+    
+                        

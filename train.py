@@ -304,7 +304,7 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
     model_type = type(model)
     if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel, models.BlockAffinityPredictor]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.DenoisePretrainModel or model_type == models.DenoisePretrainModelWithBlockEmbedding:
+    elif model_type == models.DenoisePretrainModel:
         if model.masking_objective:
             trainer = trainers.PretrainMaskingNoisingTrainer(
                 model, train_loader, valid_loader, config, 
@@ -315,6 +315,11 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
                 model, train_loader, valid_loader, config, 
                 resume_state=resume_state,
             )
+    elif model_type == models.DenoisePretrainModelWithBlockEmbedding:
+        trainer = trainers.PretrainMaskingNoisingTrainerWithBlockEmbedding(
+            model, train_loader, valid_loader, config, 
+            resume_state=resume_state,
+        )
     elif model_type == models.MaskedNodeModel:
         trainer = trainers.MaskingTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DDGPredictor:
