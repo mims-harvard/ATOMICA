@@ -132,13 +132,13 @@ def create_model(args):
             Model = BinaryPredictorMSP
         elif args.task == 'MSP2':
             Model = BinaryPredictorMSP2
-        elif args.task == 'regression':
+        elif args.task == 'regression' or args.task == 'RNAScore':
             Model = RegressionPredictor
         elif args.task == 'DDG':
             Model = DDGPredictor
-        elif args.task == 'binary_classifier':
+        elif args.task == 'binary_classifier' or args.task == 'RNAScore_binary':
             Model = ClassifierModel
-        elif args.task == 'multiclass_classifier':
+        elif args.task == 'multiclass_classifier' or args.task == 'RNAScore_multiclass':
             Model = MultiClassClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
         elif args.task == 'masking':

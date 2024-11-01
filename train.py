@@ -11,7 +11,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset, BinaryRNAScoreDataset, RegressionRNAScoreDataset, MultiClassRNAScoreDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset, MSPDataset
 from data.dataset_ec import ECDataset
@@ -30,7 +30,8 @@ def parse():
     parser.add_argument('--task', type=str, default=None,
                         choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP', 'MSP2',
                                  'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
-                                 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom'],
+                                 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom',
+                                 'RNAScore_binary', 'RNAScore_multiclass', 'RNAScore'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
@@ -267,6 +268,18 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = LabelledPDBDataset(path) # for valid and test set do not apply noise
         if path2 is not None or path3 is not None:
             raise NotImplementedError('NoisyNodesTorsionDataset does not support multiple datasets')
+    elif task == "RNAScore_binary":
+        dataset = BinaryRNAScoreDataset(path, rmsd_cutoff=2.0)
+        if path2 is not None or path3 is not None:
+            raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
+    elif task == "RNAScore_multiclass":
+        dataset = MultiClassRNAScoreDataset(path, start_rmsd = 2.0, end_rmsd=10.0, num_classes=5)
+        if path2 is not None or path3 is not None:
+            raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
+    elif task == "RNAScore":
+        dataset = RegressionRNAScoreDataset(path)
+        if path2 is not None or path3 is not None:
+            raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset
@@ -302,8 +315,12 @@ def set_noise(dataset, args):
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
-    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.ClassifierModel, models.MultiClassClassifierModel, models.BlockAffinityPredictor]:
+    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.BlockAffinityPredictor]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
+    elif model_type == models.ClassifierModel:
+        trainer = trainers.ClassifierTrainer(model, train_loader, valid_loader, config)
+    elif model_type == models.MultiClassClassifierModel:
+        trainer = trainers.MultiClassClassifierTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.DenoisePretrainModel:
         if model.masking_objective:
             trainer = trainers.PretrainMaskingNoisingTrainer(

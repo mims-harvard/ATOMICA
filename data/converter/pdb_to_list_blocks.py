@@ -87,7 +87,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
             symbol = VOCAB.abrv_to_symbol(abrv)
                 
             # filter Hs because not all data include them
-            atoms = [ Atom(atom.get_id(), atom.get_coord(), atom.element) for atom in residue if atom.element != 'H' ]
+            atoms = [ Atom(atom.get_id(), atom.get_coord().tolist(), atom.element) for atom in residue if atom.element != 'H' ]
             residues.append(Block(symbol, atoms))
             res_ids[res_id] = True
             indexes.append(f"{_id}_{res_number}")

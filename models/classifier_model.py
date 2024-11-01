@@ -29,10 +29,11 @@ class ClassifierModel(PredictionModel):
             model.classifier_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
         logit = self.classifier_ffn(return_value.graph_repr).flatten()
-        return F.binary_cross_entropy_with_logits(logit, label)
+        pred = F.sigmoid(logit)
+        return F.binary_cross_entropy_with_logits(logit, label), pred
     
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -43,6 +44,7 @@ class ClassifierModel(PredictionModel):
             segment_ids=batch['segment_ids'],
         )
         logit = self.classifier_ffn(return_value.graph_repr)
+        pred_label = logit
         pred_label = F.sigmoid(logit)
         if extra_info:
             return pred_label, return_value
@@ -56,11 +58,13 @@ class MultiClassClassifierModel(PredictionModel):
         self.num_classes = num_classes
         self.classifier_ffn = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size*4),
+            nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
-            nn.Linear(self.hidden_size*4, self.hidden_size*4),
+            nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
-            nn.Linear(self.hidden_size*4, self.num_classes),
+            nn.Linear(self.hidden_size, self.hidden_size//2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_size//2, self.num_classes),
         )
     
     @classmethod
@@ -69,38 +73,43 @@ class MultiClassClassifierModel(PredictionModel):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
-            hidden_size=pretrained_model.hidden_size,
+            atom_hidden_size=pretrained_model.atom_hidden_size,
+            block_hidden_size=pretrained_model.hidden_size,
             edge_size=pretrained_model.edge_size,
             k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
             n_layers=pretrained_model.n_layers,
             dropout=kwargs.get('dropout', pretrained_model.dropout),
             fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
+            bottom_global_message_passing=kwargs.get('bottom_global_message_passing', pretrained_model.bottom_global_message_passing),
             global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
             num_classes=kwargs['num_classes'],
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
-               n_layers={model.n_layers}, global_message_passing={model.global_message_passing}, 
+               n_layers={model.n_layers}, bottom_global_message_passing={model.bottom_global_message_passing},
+               global_message_passing={model.global_message_passing}, 
                fragmentation_method={model.fragmentation_method}""")
         assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
         model.load_state_dict(pretrained_model.state_dict(), strict=False)
 
-        if pretrained_model.global_message_passing is False and model.global_message_passing is True:
-            model.edge_embedding.requires_grad_(requires_grad=True)
-            model.encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
-            model.top_encoder.encoder.edge_embedder.requires_grad_(requires_grad=True)
-            print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
-
         partial_finetune = kwargs.get('partial_finetune', False)
         if partial_finetune:
             model.requires_grad_(requires_grad=False)
-            model.classifier_ffn.requires_grad_(requires_grad=True)
+
+        if pretrained_model.global_message_passing is False and model.global_message_passing is True:
+            model.edge_embedding_top.requires_grad_(requires_grad=True)
+            print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
+        
+        if pretrained_model.bottom_global_message_passing is False and model.bottom_global_message_passing is True:
+            model.edge_embedding_bottom.requires_grad_(requires_grad=True)
+            print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
         logits = self.classifier_ffn(return_value.graph_repr)
-        return F.cross_entropy(logits, label)
+        prob = F.softmax(logits, dim=1)
+        return F.cross_entropy(logits, label), prob
     
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -142,7 +151,7 @@ class RegressionPredictor(PredictionModel):
             model.energy_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
         pred_energy = self.energy_ffn(return_value.graph_repr).squeeze(-1)
         return F.mse_loss(pred_energy, label), pred_energy  # since we are supervising pK=-log_10(Kd), whereas the energy is RTln(Kd)

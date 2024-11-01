@@ -13,6 +13,7 @@ from torch_scatter import scatter_mean, scatter_sum
 import numpy as np
 import biotite.structure as bs
 import biotite.structure.io.pdb as pdb
+import bisect
 
 from utils.logger import print_log
 
@@ -68,6 +69,9 @@ def blocks_to_data(*blocks_list: List[List[Block]]):
             cur_block_lengths.append(block_len)
         # update coordinates of the global node to the center
         cur_X[0] = np.mean(cur_X[1:], axis=0).tolist()
+        for x_i, x in enumerate(cur_X):
+            if isinstance(x, np.ndarray):
+                cur_X[x_i] = x.tolist()
         cur_segment_ids = [i for _ in cur_B]
         
         # finish these blocks
@@ -735,6 +739,26 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
 
+class BinaryRNAScoreDataset(LabelledPDBDataset):
+    def __init__(self, data_file, rmsd_cutoff=2.0):
+        super().__init__(data_file)
+        self.rmsd_cutoff = rmsd_cutoff
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        data = item['data']
+        data['label'] = item['rmsd'] < self.rmsd_cutoff
+        return data
+
+class RegressionRNAScoreDataset(LabelledPDBDataset):
+    def __init__(self, data_file):
+        super().__init__(data_file)
+
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        data = item['data']
+        data['label'] = item['rmsd']
+        return data
 
 class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
 
@@ -782,6 +806,18 @@ class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
+
+
+class MultiClassRNAScoreDataset(MultiClassLabelledPDBDataset):
+    def __init__(self, data_file, start_rmsd, end_rmsd, num_classes):
+        super().__init__(data_file)
+        self.class_cutoffs = np.linspace(start_rmsd, end_rmsd, num_classes-1)
+    
+    def __getitem__(self, idx):
+        item = self.data[idx]
+        data = item['data']
+        data['label'] = bisect.bisect_right(self.class_cutoffs, item['rmsd'])
+        return data
 
 
 class MixDatasetWrapper(torch.utils.data.Dataset):
