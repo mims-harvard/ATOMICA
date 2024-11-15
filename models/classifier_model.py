@@ -4,12 +4,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
 import torch
+from torch_scatter import scatter_sum, scatter_mean
+from data.pdb_utils import VOCAB
 
 class ClassifierModel(PredictionModel):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self.classifier_ffn = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.ReLU(),
+            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.ReLU(),
+            nn.Linear(self.hidden_size, self.hidden_size//2),
+            nn.ReLU(),
+            nn.Linear(self.hidden_size//2, 1),
+        )
+
+        self.classifier_ffn_atom = nn.Sequential(
             nn.ReLU(),
             nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
@@ -29,11 +42,42 @@ class ClassifierModel(PredictionModel):
             model.classifier_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, atom_label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
-        logit = self.classifier_ffn(return_value.graph_repr).flatten()
+
+        with torch.no_grad():
+            batch_id = torch.zeros_like(segment_ids)  # [Nb]
+            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+            block_id = torch.zeros_like(A) # [Nu]
+            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+
+            # transform blocks to single units
+            bottom_batch_id = batch_id[block_id]  # [Nu]
+            atom_segment_ids = segment_ids[block_id]  # [Nu]
+
+        logit = self.classifier_ffn(return_value.graph_repr).squeeze(-1)
         pred = F.sigmoid(logit)
-        return F.binary_cross_entropy_with_logits(logit, label), pred
+        graph_loss = F.binary_cross_entropy_with_logits(logit, label)
+
+        atom_mask = torch.logical_and(atom_segment_ids == 1, A != VOCAB.get_atom_global_idx())
+        atom_logit = self.classifier_ffn_atom(return_value.unit_repr[atom_mask]).squeeze(-1)
+        atom_pred = F.sigmoid(atom_logit)
+        atom_pred = scatter_mean(atom_pred, bottom_batch_id[atom_mask], dim=0)
+        atom_loss = F.binary_cross_entropy_with_logits(atom_logit, atom_label)
+        
+        block_mask = torch.logical_and(segment_ids == 1, B != self.global_block_id)
+        block_logit = self.classifier_ffn_atom(return_value.block_repr[block_mask]).squeeze(-1)
+        block_pred = F.sigmoid(block_logit)
+        block_pred = scatter_mean(block_pred, batch_id[block_mask], dim=0)
+        block_label = scatter_mean(atom_label, block_id[atom_mask], dim=0)[block_mask]
+        block_loss = F.binary_cross_entropy_with_logits(block_logit, block_label)
+
+        out_pred = (atom_pred + pred + block_pred) / 3
+        loss = graph_loss + atom_loss + block_loss
+        return loss, out_pred
     
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -43,12 +87,37 @@ class ClassifierModel(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         )
-        logit = self.classifier_ffn(return_value.graph_repr)
-        pred_label = logit
-        pred_label = F.sigmoid(logit)
+        with torch.no_grad():
+            batch_id = torch.zeros_like(batch["segment_ids"])  # [Nb]
+            batch_id[torch.cumsum(batch["lengths"], dim=0)[:-1]] = 1
+            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
+
+            block_id = torch.zeros_like(batch['A']) # [Nu]
+            block_id[torch.cumsum(batch["block_lengths"], dim=0)[:-1]] = 1
+            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
+
+            # transform blocks to single units
+            bottom_batch_id = batch_id[block_id]  # [Nu]
+            atom_segment_ids = batch["segment_ids"][block_id]  # [Nu]
+
+
+        logit = self.classifier_ffn(return_value.graph_repr).squeeze(-1)
+        pred = F.sigmoid(logit)
+
+        atom_mask = torch.logical_and(atom_segment_ids == 1, batch['A'] != VOCAB.get_atom_global_idx())
+        atom_logit = self.classifier_ffn_atom(return_value.unit_repr[atom_mask]).squeeze(-1)
+        atom_pred = F.sigmoid(atom_logit)
+        atom_pred = scatter_mean(atom_pred, bottom_batch_id[atom_mask], dim=0)
+
+        block_mask = torch.logical_and(batch["segment_ids"] == 1, batch["B"] != self.global_block_id)
+        block_logit = self.classifier_ffn_atom(return_value.block_repr[block_mask]).squeeze(-1)
+        block_pred = F.sigmoid(block_logit)
+        block_pred = scatter_mean(block_pred, batch_id[block_mask], dim=0)
+
+        out_pred = (atom_pred + block_pred + pred) / 3
         if extra_info:
-            return pred_label, return_value
-        return pred_label
+            return out_pred, return_value
+        return out_pred
 
 
 class MultiClassClassifierModel(PredictionModel):

@@ -135,8 +135,8 @@ def process_one_PP(protein_file_name, data_dir_rec, data_dir_lig, interface_dist
             pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), [pdb_indexes[j][idx] for idx in indexes2])))# map block index to pdb index, +1 for global block)
             item["block_to_pdb_indexes"] = pdb_indexes_map
 
-            item['atom_array1'] = atom_array[atom_array.chain_id == chain1]
-            item['atom_array2'] = atom_array[atom_array.chain_id == chain2]
+            # item['atom_array1'] = atom_array[atom_array.chain_id == chain1]
+            # item['atom_array2'] = atom_array[atom_array.chain_id == chain2]
 
             item['dist_th'] = interface_dist_th
             items.append(item)
@@ -219,8 +219,8 @@ def process_one_complex(complex_file_name, data_dir_rec, data_dir_lig, interface
         pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), pdb_indexes2)))# map block index to pdb index, +1 for global block)
     item["block_to_pdb_indexes"] = pdb_indexes_map
     item['dist_th'] = interface_dist_th
-    item['atom_array1'] = atom_array1
-    item['atom_array2'] = atom_array2
+    # item['atom_array1'] = atom_array1
+    # item['atom_array2'] = atom_array2
 
     return item
 

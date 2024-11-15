@@ -45,7 +45,7 @@ def parse():
 
     # training related
     parser.add_argument('--lr', type=float, default=1e-3, help='learning rate')
-    parser.add_argument('--final_lr', type=float, default=1e-4, help='final learning rate')
+    parser.add_argument('--final_lr', type=float, default=None, help='final learning rate')
     parser.add_argument('--warmup_epochs', type=int, default=0, help='Number of epochs where validation loss is not used for early stopping')
     parser.add_argument('--warmup_start_lr', type=float, default=1e-5, help='linear learning rate warmup start lr')
     parser.add_argument('--warmup_end_lr', type=float, default=1e-3, help='linear learning rate warmup end lr')
@@ -400,7 +400,7 @@ def main(args):
         save_topk=args.save_topk,
     )
     config.add_parameter(step_per_epoch=step_per_epoch,
-                         final_lr=args.final_lr)
+                         final_lr=args.final_lr if args.final_lr is not None else args.lr)
     if args.valid_batch_size is None:
         args.valid_batch_size = args.batch_size
 

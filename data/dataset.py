@@ -748,7 +748,25 @@ class BinaryRNAScoreDataset(LabelledPDBDataset):
         item = self.data[idx]
         data = item['data']
         data['label'] = item['rmsd'] < self.rmsd_cutoff
+        data['atom_label'] = [x < self.rmsd_cutoff for x in item['errors']]
         return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'label', 'atom_label']
+        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float, torch.float]
+        res = {}
+        for key, _type in zip(keys, types):
+            val = []
+            for item in batch:
+                val.append(torch.tensor(item[key], dtype=_type))
+            if key == 'label':
+                res[key] = torch.tensor(val, dtype=_type)
+            else:
+                res[key] = torch.cat(val, dim=0)
+        lengths = [len(item['B']) for item in batch]
+        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
+        return res
 
 class RegressionRNAScoreDataset(LabelledPDBDataset):
     def __init__(self, data_file):

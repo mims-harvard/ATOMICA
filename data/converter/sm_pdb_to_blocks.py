@@ -5,11 +5,11 @@ from .atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 from rdkit.Chem.rdchem import GetPeriodicTable
 _periodic_table = GetPeriodicTable()
 
-def sm_pdb_to_blocks(ligand_path, fragment=None):
+def sm_pdb_to_blocks(ligand_path, fragment=None, mol_idx=0):
     if ligand_path.endswith(".pdb"):
         pdb_mol = Chem.MolFromPDBFile(ligand_path, removeHs=True, sanitize=False)
     else:
-        pdb_mol = Chem.SDMolSupplier(ligand_path, removeHs=True, sanitize=False).__next__()
+        pdb_mol = Chem.SDMolSupplier(ligand_path, removeHs=True, sanitize=False)[mol_idx]
     # ligand (each block is an atom)
     blocks2 = []
     conf = pdb_mol.GetConformer()

@@ -35,6 +35,7 @@ pip3 install rdkit-pypi
 pip3 install openbabel-wheel
 pip3 install biopython
 pip3 install biotite
+pip3 install atom3d
 
 # plotting
 pip3 install umap-learn
