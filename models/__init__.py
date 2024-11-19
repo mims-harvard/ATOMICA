@@ -7,6 +7,7 @@ from .classifier_model import ClassifierModel, MultiClassClassifierModel, Regres
 from .prediction_model import PredictionModel
 from .masking_model import MaskedNodeModel
 from .binary_predictors import BinaryPredictor, BinaryPredictorMSP, BinaryPredictorMSP2
+from .prot_interface_model import ProteinInterfaceModel
 import torch
 
 def create_model(args):
@@ -144,6 +145,8 @@ def create_model(args):
         elif args.task == 'masking':
             Model = MaskedNodeModel
             add_params['num_masked_block_classes'] = args.num_nodes
+        elif args.task == 'prot_interface':
+            Model = ProteinInterfaceModel
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         

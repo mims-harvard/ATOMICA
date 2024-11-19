@@ -690,6 +690,48 @@ class PDBDataset(torch.utils.data.Dataset):
         return res
 
 
+class ProtInterfaceDataset(PDBDataset):
+    def __init__(self, data_file):
+        super().__init__(data_file)
+
+        for item in self.data:
+            item['prot_data'] = BlockGeoAffDataset.filter_for_segment(item['data'], 0)
+
+    
+    def __getitem__(self, idx):
+        '''
+        an example of the returned data
+        {
+            'X': [Natom, 3],
+            'B': [Nblock],
+            'A': [Natom],
+            'atom_positions': [Natom],
+            'block_lengths': [Natom]
+            'segment_ids': [Nblock]
+        }        
+        '''
+        cmplx_data = self.data[idx]['data']
+        prot_data = self.data[idx]['prot_data']
+
+        data = {
+            'cmplx': cmplx_data,
+            'prot': prot_data,
+            'len': len(prot_data['B']) + len(cmplx_data['B']),
+        }
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        batch_prot = super().collate_fn([item['prot'] for item in batch])
+        batch_cmplx = super().collate_fn([item['cmplx'] for item in batch])
+
+        batch = {
+            'prot': batch_prot,
+            'cmplx': batch_cmplx,
+        }
+        return batch
+
+
 class LabelledPDBDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):

@@ -1,12 +1,12 @@
 from tqdm import tqdm
 import pickle
-from data.dataset import PDBDataset
+from data.dataset import PDBDataset, ProtInterfaceDataset
 from models.prediction_model import PredictionModel
+from models.prot_interface_model import ProteinInterfaceModel
 from trainers.abs_trainer import Trainer
 import torch
 
 def main(args):
-    dataset = PDBDataset(args.data_path)
 
     # # Filter out large items
     # too_large = []
@@ -21,7 +21,15 @@ def main(args):
     # dataset.indexes = new_indexes
     # print(f"Removed {len(too_large)} items that are too large. Remaining {len(dataset)} items.")
 
-    model = PredictionModel.load_from_pretrained(args.model_ckpt)
+    model = torch.load(args.model_ckpt)
+    if isinstance(model, ProteinInterfaceModel):
+        print("Model is ProteinInterfaceModel, extracting prot_model.")
+        model = model.prot_model
+        dataset = ProtInterfaceDataset(args.data_path)
+    else:
+        dataset = PDBDataset(args.data_path)
+
+    # model = PredictionModel.load_from_pretrained(args.model_ckpt)
     model = model.to("cuda")
     batch_size = args.batch_size
 
@@ -33,7 +41,11 @@ def main(args):
         try:
             for item in items:
                 outputs.append({"id": item["id"]})
-            batch = dataset.collate_fn([item["data"] for item in items])
+            if isinstance(dataset, ProtInterfaceDataset):
+                batch_items = [item["prot_data"] for item in items]
+            else:
+                batch_items = [item["data"] for item in items]
+            batch = PDBDataset.collate_fn(batch_items)
             batch = Trainer.to_device(batch, "cuda")
             return_obj = model.infer(batch)
             
@@ -60,7 +72,7 @@ def main(args):
                 for item in items:
                     try:
                         output = {"id": item["id"]}
-                        batch = dataset.collate_fn([item["data"]])
+                        batch = PDBDataset.collate_fn([item["data"] if not isinstance(dataset, ProtInterfaceDataset) else item["prot_data"]])
                         batch = Trainer.to_device(batch, "cuda")
                         return_obj = model.infer(batch)
                         output["graph_embedding"] = return_obj.graph_repr[0].detach().cpu().numpy()

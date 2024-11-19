@@ -11,7 +11,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset, BinaryRNAScoreDataset, RegressionRNAScoreDataset, MultiClassRNAScoreDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset, BinaryRNAScoreDataset, RegressionRNAScoreDataset, MultiClassRNAScoreDataset, ProtInterfaceDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset, MSPDataset
 from data.dataset_ec import ECDataset
@@ -31,7 +31,7 @@ def parse():
                         choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP', 'MSP2',
                                  'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
                                  'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom',
-                                 'RNAScore_binary', 'RNAScore_multiclass', 'RNAScore'],
+                                 'RNAScore_binary', 'RNAScore_multiclass', 'RNAScore', 'prot_interface'],
                         help='PPA: protein-protein affinity, ' + \
                              'PLA: protein-ligand affinity (small molecules), ' + \
                              'PDBBind: pdbbind benchmark, ' + \
@@ -280,6 +280,10 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = RegressionRNAScoreDataset(path)
         if path2 is not None or path3 is not None:
             raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
+    elif task == "prot_interface":
+        dataset = ProtInterfaceDataset(path)
+        if path2 is not None or path3 is not None:
+            raise NotImplementedError('ProtInterfaceDataset does not support multiple datasets')
     else:
         raise NotImplementedError(f'Dataset for {task} not implemented!')
     return dataset
@@ -347,6 +351,8 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         trainer = trainers.BinaryPredictorTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.AffinityPredictorNoisyNodes:
         trainer = trainers.AffinityNoisyNodesTrainer(model, train_loader, valid_loader, config)
+    elif model_type == models.ProteinInterfaceModel:
+        trainer = trainers.ProtInterfaceTrainer(model, train_loader, valid_loader, config)
     else:
         raise NotImplementedError(f'Trainer for model type {model_type} not implemented!')
     return trainer
