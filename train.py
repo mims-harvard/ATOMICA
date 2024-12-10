@@ -11,7 +11,7 @@ from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
 
 ########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset, BinaryRNAScoreDataset, RegressionRNAScoreDataset, MultiClassRNAScoreDataset, ProtInterfaceDataset
+from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, BalancedDynamicBatchWrapper, PretrainBalancedDynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset, BinaryRNAScoreDataset, RegressionRNAScoreDataset, MultiClassRNAScoreDataset, ProtInterfaceDataset
 from data.distributed_sampler import DistributedSamplerResume
 from data.atom3d_dataset import LEPDataset, LBADataset, MSPDataset
 from data.dataset_ec import ECDataset
@@ -58,6 +58,7 @@ def parse():
     parser.add_argument('--max_n_vertex_per_gpu', type=int, default=None, help='if specified, ignore batch_size and form batch with dynamic size constrained by the total number of vertexes')
     parser.add_argument('--max_n_vertex_per_item', type=int, default=None, help='if max_n_vertex_per_gpu is specified, larger items will be randomly cropped')
     parser.add_argument('--valid_max_n_vertex_per_gpu', type=int, default=None, help='form batch with dynamic size constrained by the total number of vertexes')
+    parser.add_argument('--balanced_sampler', action='store_true', default=False, help='use balanced sampler')
     parser.add_argument('--patience', type=int, default=-1, help='patience before early stopping')
     parser.add_argument('--save_topk', type=int, default=-1, help='save topk checkpoint. -1 for saving all ckpt that has a better validation metric than its previous epoch')
     parser.add_argument('--shuffle', action='store_true', help='shuffle data')
@@ -387,7 +388,13 @@ def main(args):
     if args.max_n_vertex_per_gpu is not None:
         if args.valid_max_n_vertex_per_gpu is None:
             args.valid_max_n_vertex_per_gpu = args.max_n_vertex_per_gpu
-        train_set = DynamicBatchWrapper(train_set, args.max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=args.shuffle)
+        if args.balanced_sampler:
+            if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'pretrain_torsion_masking'}:
+                train_set = PretrainBalancedDynamicBatchWrapper(train_set, args.max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=args.shuffle)
+            else:
+                train_set = BalancedDynamicBatchWrapper(train_set, args.max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=args.shuffle)
+        else:
+            train_set = DynamicBatchWrapper(train_set, args.max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=args.shuffle)
         if valid_set is not None:
             valid_set = DynamicBatchWrapper(valid_set, args.valid_max_n_vertex_per_gpu, args.max_n_vertex_per_item, shuffle=False)
         args.batch_size, args.valid_batch_size = 1, 1

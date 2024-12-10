@@ -6,6 +6,7 @@ import argparse
 from tqdm.contrib.concurrent import process_map
 from os.path import basename, splitext
 from typing import List
+from collections import Counter
 
 import numpy as np
 import torch
@@ -902,6 +903,15 @@ class MixDatasetWrapper(torch.utils.data.Dataset):
             last_cum_len = cum_len
         return None
 
+    def _get_raw_item(self, idx):
+        last_cum_len = 0
+        for i, cum_len in enumerate(self.cum_len):
+            if idx < cum_len:
+                return self.datasets[i]._get_raw_item(idx - last_cum_len)
+            last_cum_len = cum_len
+        return None
+
+
 
 class DynamicBatchWrapper(torch.utils.data.Dataset):
     def __init__(self, dataset, max_n_vertex_per_batch, max_n_vertex_per_item=None, shuffle=True) -> None:
@@ -965,6 +975,35 @@ class DynamicBatchWrapper(torch.utils.data.Dataset):
         for minibatch in batched_batch:
             batch.extend(minibatch)
         return self.dataset.collate_fn(batch)
+
+class BalancedDynamicBatchWrapper(DynamicBatchWrapper):
+    def __init__(self, dataset, max_n_vertex_per_batch, max_n_vertex_per_item=None, shuffle=True) -> None:
+        self.labels = Counter([item['label'] for item in dataset])
+        self.sampling_weights = [1 / self.labels[item['label']] for item in dataset]
+        self.sampling_weights = np.array(self.sampling_weights) / sum(self.sampling_weights)
+        super().__init__(dataset, max_n_vertex_per_batch, max_n_vertex_per_item, shuffle)
+        self._form_batch()
+    
+    def _form_batch(self):
+        chosen_indexes = np.random.choice(len(self.dataset), size=len(self.dataset), replace=True, p=self.sampling_weights)
+        self.indexes = chosen_indexes
+        super()._form_batch()
+        print(f'Number of items in each class: {Counter([self.dataset[i]["label"] for i in self.indexes])}')
+
+class PretrainBalancedDynamicBatchWrapper(DynamicBatchWrapper):
+    def __init__(self, dataset, max_n_vertex_per_batch, max_n_vertex_per_item=None, shuffle=True) -> None:
+        self.dataset_labels = [dataset._get_raw_item(idx)['modality'] for idx in range(len(dataset))]
+        self.labels = Counter(self.dataset_labels)
+        self.sampling_weights = [1 / np.log(self.labels[label]) for label in self.dataset_labels] # downweight the large classes by log
+        self.sampling_weights = np.array(self.sampling_weights) / sum(self.sampling_weights)
+        super().__init__(dataset, max_n_vertex_per_batch, max_n_vertex_per_item, shuffle)
+        self._form_batch()
+    
+    def _form_batch(self):
+        chosen_indexes = np.random.choice(len(self.dataset), size=len(self.dataset), replace=True, p=self.sampling_weights)
+        self.indexes = chosen_indexes
+        super()._form_batch()
+        print(f'Number of items in each class: {Counter([self.dataset_labels[i] for i in self.indexes])}. Original class distribution: {self.labels}')
 
 
 def parse():

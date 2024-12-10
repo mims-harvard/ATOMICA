@@ -62,7 +62,7 @@ class PretrainTrainer(Trainer):
 
     def _before_train_epoch_start(self):
         # reform batch, with new random batches
-        if type(self.train_loader.dataset).__name__ == 'DynamicBatchWrapper':
+        if type(self.train_loader.dataset).__name__ in ['DynamicBatchWrapper', 'PretrainBalancedDynamicBatchWrapper']:
             self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 

@@ -3,81 +3,71 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
+from .pretrain_model import DenoisePretrainModel
 import torch
 from torch_scatter import scatter_sum, scatter_mean
 from data.pdb_utils import VOCAB
 
 class ClassifierModel(PredictionModel):
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self,  num_pred_layers, nonlinearity, pred_dropout, pred_hidden_size, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.classifier_ffn = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size//2),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size//2, 1),
-        )
-
-        self.classifier_ffn_atom = nn.Sequential(
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size//2),
-            nn.ReLU(),
-            nn.Linear(self.hidden_size//2, 1),
-        )
+        layers = [nonlinearity, nn.Dropout(pred_dropout), nn.Linear(self.hidden_size, pred_hidden_size)]
+        for _ in range(0, num_pred_layers-2):
+            layers.extend([nonlinearity, nn.Dropout(pred_dropout), nn.Linear(pred_hidden_size, pred_hidden_size)])
+        layers.extend([nonlinearity, nn.Dropout(pred_dropout), nn.Linear(pred_hidden_size, 1)])
+        self.classifier_ffn = nn.Sequential(*layers)
     
     @classmethod
     def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
+        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+        if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
+            print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
+        model = cls(
+            atom_hidden_size=pretrained_model.atom_hidden_size,
+            block_hidden_size=pretrained_model.hidden_size,
+            edge_size=pretrained_model.edge_size,
+            k_neighbors=kwargs.get('k_neighbors', pretrained_model.k_neighbors),
+            n_layers=pretrained_model.n_layers,
+            dropout=kwargs.get('dropout', pretrained_model.dropout),
+            fragmentation_method=pretrained_model.fragmentation_method if hasattr(pretrained_model, "fragmentation_method") else None, # for backward compatibility
+            bottom_global_message_passing=kwargs.get('bottom_global_message_passing', pretrained_model.bottom_global_message_passing),
+            global_message_passing=kwargs.get('global_message_passing', pretrained_model.global_message_passing),
+            nonlinearity=kwargs['nonlinearity'],
+            num_pred_layers=kwargs['num_pred_layers'],
+            pred_dropout=kwargs['pred_dropout'],
+            pred_hidden_size=kwargs['pred_hidden_size'],
+        )
+        print(f"""Pretrained model params: hidden_size={model.hidden_size},
+               edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
+               n_layers={model.n_layers}, bottom_global_message_passing={model.bottom_global_message_passing},
+               global_message_passing={model.global_message_passing}, 
+               fragmentation_method={model.fragmentation_method}""")
+        assert not any([model.atom_noise, model.translation_noise, model.rotation_noise, model.torsion_noise]), "prediction model no noise"
+        model.load_state_dict(pretrained_model.state_dict(), strict=False)
+
         partial_finetune = kwargs.get('partial_finetune', False)
         if partial_finetune:
             model.requires_grad_(requires_grad=False)
-            model.classifier_ffn.requires_grad_(requires_grad=True)
+
+        if pretrained_model.global_message_passing is False and model.global_message_passing is True:
+            model.edge_embedding_top.requires_grad_(requires_grad=True)
+            print("Warning: global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
+        
+        if pretrained_model.bottom_global_message_passing is False and model.bottom_global_message_passing is True:
+            model.edge_embedding_bottom.requires_grad_(requires_grad=True)
+            print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
+        model.attention_pooling.requires_grad_(requires_grad=False) # pooling is not used in affinity prediction
+        partial_finetune = kwargs.get('partial_finetune', False)
+        if partial_finetune:
+            model.classifer_ffn.requires_grad_(requires_grad=True)
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, atom_label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
-
-        with torch.no_grad():
-            batch_id = torch.zeros_like(segment_ids)  # [Nb]
-            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
-            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
-
-            block_id = torch.zeros_like(A) # [Nu]
-            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
-            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
-
-            # transform blocks to single units
-            bottom_batch_id = batch_id[block_id]  # [Nu]
-            atom_segment_ids = segment_ids[block_id]  # [Nu]
-
-        logit = self.classifier_ffn(return_value.graph_repr).squeeze(-1)
-        pred = F.sigmoid(logit)
-        graph_loss = F.binary_cross_entropy_with_logits(logit, label)
-
-        atom_mask = torch.logical_and(atom_segment_ids == 1, A != VOCAB.get_atom_global_idx())
-        atom_logit = self.classifier_ffn_atom(return_value.unit_repr[atom_mask]).squeeze(-1)
-        atom_pred = F.sigmoid(atom_logit)
-        atom_pred = scatter_mean(atom_pred, bottom_batch_id[atom_mask], dim=0)
-        atom_loss = F.binary_cross_entropy_with_logits(atom_logit, atom_label)
-        
-        block_mask = torch.logical_and(segment_ids == 1, B != self.global_block_id)
-        block_logit = self.classifier_ffn_atom(return_value.block_repr[block_mask]).squeeze(-1)
-        block_pred = F.sigmoid(block_logit)
-        block_pred = scatter_mean(block_pred, batch_id[block_mask], dim=0)
-        block_label = scatter_mean(atom_label, block_id[atom_mask], dim=0)[block_mask]
-        block_loss = F.binary_cross_entropy_with_logits(block_logit, block_label)
-
-        out_pred = (atom_pred + pred + block_pred) / 3
-        loss = graph_loss + atom_loss + block_loss
-        return loss, out_pred
+        logits = self.classifier_ffn(return_value.graph_repr).squeeze(-1)
+        loss = F.binary_cross_entropy_with_logits(logits, label)
+        return loss, F.sigmoid(logits)
     
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -87,37 +77,11 @@ class ClassifierModel(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         )
-        with torch.no_grad():
-            batch_id = torch.zeros_like(batch["segment_ids"])  # [Nb]
-            batch_id[torch.cumsum(batch["lengths"], dim=0)[:-1]] = 1
-            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
-
-            block_id = torch.zeros_like(batch['A']) # [Nu]
-            block_id[torch.cumsum(batch["block_lengths"], dim=0)[:-1]] = 1
-            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
-
-            # transform blocks to single units
-            bottom_batch_id = batch_id[block_id]  # [Nu]
-            atom_segment_ids = batch["segment_ids"][block_id]  # [Nu]
-
-
-        logit = self.classifier_ffn(return_value.graph_repr).squeeze(-1)
-        pred = F.sigmoid(logit)
-
-        atom_mask = torch.logical_and(atom_segment_ids == 1, batch['A'] != VOCAB.get_atom_global_idx())
-        atom_logit = self.classifier_ffn_atom(return_value.unit_repr[atom_mask]).squeeze(-1)
-        atom_pred = F.sigmoid(atom_logit)
-        atom_pred = scatter_mean(atom_pred, bottom_batch_id[atom_mask], dim=0)
-
-        block_mask = torch.logical_and(batch["segment_ids"] == 1, batch["B"] != self.global_block_id)
-        block_logit = self.classifier_ffn_atom(return_value.block_repr[block_mask]).squeeze(-1)
-        block_pred = F.sigmoid(block_logit)
-        block_pred = scatter_mean(block_pred, batch_id[block_mask], dim=0)
-
-        out_pred = (atom_pred + block_pred + pred) / 3
+        logits = self.classifier_ffn(return_value.graph_repr)
+        pred = F.sigmoid(logits)
         if extra_info:
-            return out_pred, return_value
-        return out_pred
+            return pred, return_value
+        return pred
 
 
 class MultiClassClassifierModel(PredictionModel):

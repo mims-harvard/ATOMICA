@@ -209,8 +209,8 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         data = copy.deepcopy(item['data'])
-        if 'modality' in data.keys():
-            data['modality'] = MODALITIES[data['modality']]
+        if 'modality' in item.keys():
+            data['modality'] = item['modality']
         data['label'] = -1  # dummy label
 
         choices = []

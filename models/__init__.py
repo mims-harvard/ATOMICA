@@ -122,7 +122,7 @@ def create_model(args):
                 **add_params
             )
         return model
-        
+
     else:
         add_params = {}
         if args.task == 'PPA':
@@ -139,6 +139,19 @@ def create_model(args):
             Model = DDGPredictor
         elif args.task == 'binary_classifier' or args.task == 'RNAScore_binary':
             Model = ClassifierModel
+            add_params.update({
+                'num_pred_layers': args.num_affinity_pred_layers,
+                'pred_dropout': args.affinity_pred_dropout,
+                'pred_hidden_size': args.affinity_pred_hidden_size,
+            })
+            if args.affinity_pred_nonlinearity == 'relu':
+                add_params["nonlinearity"] = torch.nn.ReLU()
+            elif args.affinity_pred_nonlinearity == 'gelu':
+                add_params["nonlinearity"] = torch.nn.GELU()
+            elif args.affinity_pred_nonlinearity == 'elu':
+                add_params["nonlinearity"] = torch.nn.ELU()
+            else:
+                raise NotImplementedError(f"Nonlinearity {args.affinity_pred_nonlinearity} not implemented")
         elif args.task == 'multiclass_classifier' or args.task == 'RNAScore_multiclass':
             Model = MultiClassClassifierModel
             add_params["num_classes"] = args.num_classifier_classes

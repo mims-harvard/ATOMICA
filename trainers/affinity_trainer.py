@@ -192,7 +192,6 @@ class ClassifierTrainer(Trainer):
             block_embeddings=batch.get('block_embeddings', None),
             block_embeddings0=batch.get('block_embeddings0', None),
             block_embeddings1=batch.get('block_embeddings1', None),
-            atom_label=batch['atom_label'],
         )
 
         log_type = 'Validation' if val else 'Train'
@@ -250,7 +249,7 @@ class ClassifierTrainer(Trainer):
             }, step=self.global_step)
         if self.use_raytune:
             from ray import train as ray_train
-            ray_train.report({'val_RMSELoss': float(valid_metric), "epoch": self.epoch})
+            ray_train.report({'val_loss': float(valid_metric), "epoch": self.epoch})
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
             module_to_save = self.model.module if self.local_rank == 0 else self.model
@@ -370,9 +369,11 @@ class MultiClassClassifierTrainer(Trainer):
         pred_arr = np.concatenate(pred_arr)
 
         frequency_baseline = np.bincount(label_arr) / len(label_arr)
-        auroc = roc_auc_score(label_arr, pred_arr, multi_class='ovr')
+        # auroc = roc_auc_score(label_arr, pred_arr, multi_class='ovr')
         auprc_per_class = []
         for i in range(self.model.num_classes):
+            if len(label_arr==i) == 0:
+                continue
             precision, recall, _ = precision_recall_curve(label_arr == i, pred_arr[:, i])
             auprc = auc(recall, precision)
             auprc_per_class.append(auprc)
@@ -383,7 +384,7 @@ class MultiClassClassifierTrainer(Trainer):
         if self.use_wandb and self._is_main_proc():
             wandb.log({
                 'val_loss': valid_metric,
-                'val_auroc': auroc,
+                # 'val_auroc': auroc,
                 'val_auprc': mean_auprc,
                 'val_delta_auprc': mean_delta_auprc,
             }, step=self.global_step)
