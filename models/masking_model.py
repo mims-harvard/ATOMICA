@@ -54,7 +54,7 @@ class MaskedNodeModel(DenoisePretrainModel):
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, masked_labels):
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, masked_labels, return_logits=False):
         with torch.no_grad():
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
             batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
@@ -102,6 +102,8 @@ class MaskedNodeModel(DenoisePretrainModel):
         
         logits = self.masked_ffn(block_repr[masked_blocks])
         masked_loss = F.cross_entropy(logits, masked_labels)
+        if return_logits:
+            return masked_loss, logits
         pred_blocks = F.softmax(logits, dim=1)
         return masked_loss, pred_blocks
     

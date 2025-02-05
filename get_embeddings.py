@@ -2,6 +2,7 @@ from tqdm import tqdm
 import pickle
 from data.dataset import PDBDataset, ProtInterfaceDataset
 from models.prediction_model import PredictionModel
+from models.pretrain_model import DenoisePretrainModel
 from models.prot_interface_model import ProteinInterfaceModel
 from trainers.abs_trainer import Trainer
 import torch
@@ -28,8 +29,9 @@ def main(args):
         dataset = ProtInterfaceDataset(args.data_path)
     else:
         dataset = PDBDataset(args.data_path)
-
-    # model = PredictionModel.load_from_pretrained(args.model_ckpt)
+    
+    if isinstance(model, DenoisePretrainModel) and not isinstance(model, PredictionModel):
+        model = PredictionModel.load_from_pretrained(args.model_ckpt)
     model = model.to("cuda")
     batch_size = args.batch_size
 
