@@ -25,7 +25,7 @@ def parse_args():
     parser.add_argument('--plddt_cutoff', type=float, default=None, required=False, help='pLDDT cutoff value')
     parser.add_argument('--data_dir', type=str, required=True, help='Directory containing the protein data files processed by PESTO')
     parser.add_argument('--raw_data_dir', type=str, default=None, required=False, help='Directory containing the AF2 protein data files')
-    parser.add_argument('--prot_list', type=str, required=True, help='File containing the list of protein names')
+    parser.add_argument('--prot_list', type=str, required=True, help='File containing the list of protein names separated by newline character')
     parser.add_argument('--output_dir', type=str, required=True, help='Directory to save the processed output files')
     return parser.parse_args()
 
