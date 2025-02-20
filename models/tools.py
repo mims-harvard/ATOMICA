@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_sum, scatter_min
 from .InteractNN.utils import GaussianEmbedding
+from copy import copy
 
 
 def _unit_edges_from_block_edges(unit_block_id, block_src_dst, Z=None, k=None):
