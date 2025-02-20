@@ -27,14 +27,17 @@ pretrain
 run_logs
 
 testing_scripts
-
-scripts/exps/configs/LBA/*.json
-scripts/exps/configs/PPA/*.json
+scripts
 
 trainers/deprecated
 models/deprecated
 
 plip/
+
+case_studies/_*
+checkpoints
+data/other
+utils/_*
 
 # Force include the specific file
 !/data/tokenizer/vocabs/ps_vocab_300.txt

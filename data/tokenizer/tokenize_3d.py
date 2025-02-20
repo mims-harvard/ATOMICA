@@ -10,9 +10,9 @@ from rdkit.Chem.rdchem import BondType
 
 from .mol_bpe import Tokenizer as PSTokenizer
 
-from utils.mol_atom_match import struct_to_bonds
-from utils.chem_utils import mol2smi, smi2mol, MAX_VALENCE
-from utils.singleton import singleton
+from .mol_atom_match import struct_to_bonds
+from .chem_utils import mol2smi, smi2mol, MAX_VALENCE
+from .singleton import singleton
 
 
 ID2BOND = [None, BondType.SINGLE, BondType.DOUBLE, BondType.TRIPLE, BondType.AROMATIC]
