@@ -9,12 +9,13 @@ import numpy as np
 
 from utils.logger import print_log
 from utils.random_seed import setup_seed, SEED
-
-########### Import your packages below ##########
-from data.dataset import BlockGeoAffDataset, PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper, BalancedDynamicBatchWrapper, PretrainBalancedDynamicBatchWrapper, MutationDataset, LabelledPDBDataset, MultiClassLabelledPDBDataset, BinaryRNAScoreDataset, RegressionRNAScoreDataset, MultiClassRNAScoreDataset, ProtInterfaceDataset
+from data.dataset import (
+    PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper,
+    BalancedDynamicBatchWrapper, PretrainBalancedDynamicBatchWrapper,
+    LabelledPDBDataset, MultiClassLabelledPDBDataset,
+    ProtInterfaceDataset
+)
 from data.distributed_sampler import DistributedSamplerResume
-from data.atom3d_dataset import LEPDataset, LBADataset, MSPDataset
-from data.dataset_ec import ECDataset
 import models
 import trainers
 from utils.nn_utils import count_parameters
@@ -28,15 +29,9 @@ def parse():
     parser.add_argument('--train_set', type=str, required=True, help='path to train set')
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
     parser.add_argument('--task', type=str, default=None,
-                        choices=['PPA', 'PLA', 'AffMix', 'PDBBind', 'NL', 'PN', 'DDG', 'GLOF', 'LEP', 'MSP', 'MSP2',
-                                 'pretrain_gaussian', 'pretrain_torsion',  'pretrain_torsion_masking',
-                                 'binary_classifier', 'multiclass_classifier', 'masking', 'PLA_noisy_nodes', 'regression', 'PPA-atom',
-                                 'RNAScore_binary', 'RNAScore_multiclass', 'RNAScore', 'prot_interface'],
-                        help='PPA: protein-protein affinity, ' + \
-                             'PLA: protein-ligand affinity (small molecules), ' + \
-                             'PDBBind: pdbbind benchmark, ' + \
-                             'pretrain_gaussian: pretraining with gaussian atom coordinate noise, ' + \
-                             'pretrain_torsion: pretraining with torsion angle noise, ')
+                        choices=['pretrain_torsion', 'pretrain_torsion_masking', 'pretrain_gaussian',
+                                 'binary_classifier', 'multiclass_classifier', 'masking', 
+                                 'PDBBind', 'prot_interface', 'regression'])
     parser.add_argument('--num_classifier_classes', type=int, default=None, help='number of classes for task=multiclass_classifier')
     parser.add_argument('--train_set2', type=str, default=None, help='path to another train set if task is PretrainMix')
     parser.add_argument('--valid_set2', type=str, default=None, help='path to another valid set if task is PretrainMix')
@@ -121,49 +116,8 @@ def parse():
     return parser.parse_args()
 
 
-def create_dataset(task, path, path2=None, path3=None, fragment=None):
-    if task == 'PLA':
-        # dataset = Atom3DLBA(path)
-        dataset = LBADataset(path, fragment=fragment)
-        if path2 is not None:  # add protein dataset
-            dataset2 = BlockGeoAffDataset(path2)
-            dataset = MixDatasetWrapper(dataset, dataset2)
-    elif task == 'PPA' or task == 'PPA-atom':
-        dataset = BlockGeoAffDataset(path)
-        if path2 is not None:  # add small molecule dataset
-            dataset2 = LBADataset(path2, fragment=fragment)
-            dataset = MixDatasetWrapper(dataset, dataset2)
-    elif task == 'AffMix':
-        dataset1 = BlockGeoAffDataset(path)
-        dataset2 = LBADataset(path2, fragment=fragment)
-        dataset = MixDatasetWrapper(dataset1, dataset2)
-    elif task == 'PDBBind':
-        dataset = PDBBindBenchmark(path)
-    elif task == 'NL':
-        datasets = [BlockGeoAffDataset(path)]
-        if path2 is not None:
-            datasets.append(BlockGeoAffDataset(path2))
-        if path3 is not None:
-            datasets.append(LBADataset(path3, fragment=fragment))
-        if len(datasets) == 1:
-            dataset = datasets[0]
-        else:
-            dataset = MixDatasetWrapper(*datasets)
-    elif task == 'PN':
-        datasets = [BlockGeoAffDataset(path)]
-        if path2 is not None:
-            datasets.append(LBADataset(path2, fragment=fragment))
-        if len(datasets) == 1:
-            dataset = datasets[0]
-        else:
-            dataset = MixDatasetWrapper(*datasets)
-    elif task == 'DDG' or task == 'GLOF':
-        dataset = MutationDataset(path)
-    elif task == 'LEP':
-        dataset = LEPDataset(path, fragment=fragment)
-    elif task == 'MSP' or task == 'MSP2':
-        dataset = MSPDataset(path)
-    elif task == 'pretrain_torsion':
+def create_dataset(task, path, path2=None, path3=None, fragment=None):    
+    if task == 'pretrain_torsion':
         from data.dataset_pretrain import PretrainTorsionDataset
         dataset1 = PretrainTorsionDataset(path)
         print_log(f'Pretrain dataset {path} size: {len(dataset1)}')
@@ -260,27 +214,10 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
             datasets.append(dataset3)
         if len(datasets) > 1:
             dataset = MixDatasetWrapper(*datasets)
-    elif task == "PLA_noisy_nodes_train":
-        from data.dataset_pretrain import NoisyNodesTorsionDataset
-        dataset = NoisyNodesTorsionDataset(path)
+    elif task == 'PDBBind':
+        dataset = PDBBindBenchmark(path)
         if path2 is not None or path3 is not None:
-            raise NotImplementedError('NoisyNodesTorsionDataset does not support multiple datasets')
-    elif task == "PLA_noisy_nodes":
-        dataset = LabelledPDBDataset(path) # for valid and test set do not apply noise
-        if path2 is not None or path3 is not None:
-            raise NotImplementedError('NoisyNodesTorsionDataset does not support multiple datasets')
-    elif task == "RNAScore_binary":
-        dataset = BinaryRNAScoreDataset(path, rmsd_cutoff=2.0)
-        if path2 is not None or path3 is not None:
-            raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
-    elif task == "RNAScore_multiclass":
-        dataset = MultiClassRNAScoreDataset(path, start_rmsd = 2.0, end_rmsd=10.0, num_classes=5)
-        if path2 is not None or path3 is not None:
-            raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
-    elif task == "RNAScore":
-        dataset = RegressionRNAScoreDataset(path)
-        if path2 is not None or path3 is not None:
-            raise NotImplementedError('RNAScoreDataset does not support multiple datasets')
+            raise NotImplementedError('ProtInterfaceDataset does not support multiple datasets')
     elif task == "prot_interface":
         dataset = ProtInterfaceDataset(path)
         if path2 is not None or path3 is not None:
@@ -291,8 +228,8 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
 
 
 def set_noise(dataset, args):
-    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset
-    if type(dataset) in [PretrainAtomDataset, PretrainTorsionDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset]:
+    from data.dataset_pretrain import PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedDataset, PretrainMaskedTorsionDataset
+    if type(dataset) in [PretrainAtomDataset, PretrainTorsionDataset, PretrainMaskedTorsionDataset]:
         if args.atom_noise != 0 and args.torsion_noise != 0:
             raise ValueError('Cannot set both atom and torsion noise at the same time')
         if type(dataset) == PretrainAtomDataset and args.atom_noise != 0:
@@ -303,7 +240,7 @@ def set_noise(dataset, args):
             dataset.set_rotation_noise(args.rotation_noise, args.max_rotation)
         if args.max_n_vertex_per_item is not None:
             dataset.set_crop(args.max_n_vertex_per_item, args.fragmentation_method)
-        if type(dataset) in [PretrainTorsionDataset, NoisyNodesTorsionDataset, PretrainMaskedTorsionDataset] and args.torsion_noise != 0:
+        if type(dataset) in [PretrainTorsionDataset, PretrainMaskedTorsionDataset] and args.torsion_noise != 0:
             dataset.set_torsion_noise(args.torsion_noise)
         if type(dataset) == PretrainMaskedTorsionDataset:
             dataset.mask_proportion = args.mask_proportion
@@ -320,7 +257,7 @@ def set_noise(dataset, args):
 
 def create_trainer(model, train_loader, valid_loader, config, resume_state=None):
     model_type = type(model)
-    if model_type in [models.AffinityPredictor, models.RegressionPredictor, models.BlockAffinityPredictor]:
+    if model_type in [models.AffinityPredictor, models.RegressionPredictor]:
         trainer = trainers.AffinityTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.ClassifierModel:
         trainer = trainers.ClassifierTrainer(model, train_loader, valid_loader, config)
@@ -344,14 +281,6 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
         )
     elif model_type == models.MaskedNodeModel:
         trainer = trainers.MaskingTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.DDGPredictor:
-        trainer = trainers.DDGTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.GLOFPredictor:
-        trainer = trainers.GLOFTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.BinaryPredictor or model_type == models.BinaryPredictorMSP or model_type == models.BinaryPredictorMSP2:
-        trainer = trainers.BinaryPredictorTrainer(model, train_loader, valid_loader, config)
-    elif model_type == models.AffinityPredictorNoisyNodes:
-        trainer = trainers.AffinityNoisyNodesTrainer(model, train_loader, valid_loader, config)
     elif model_type == models.ProteinInterfaceModel:
         trainer = trainers.ProtInterfaceTrainer(model, train_loader, valid_loader, config)
     else:

@@ -1,12 +1,8 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
 import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
 from .pretrain_model import DenoisePretrainModel
 import torch
-from torch_scatter import scatter_sum, scatter_mean
-from data.pdb_utils import VOCAB
 
 class ClassifierModel(PredictionModel):
 

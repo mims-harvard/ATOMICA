@@ -1,5 +1,3 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
 import os
 import pickle
 import argparse
@@ -10,16 +8,13 @@ from collections import Counter
 
 import numpy as np
 import torch
-from torch_scatter import scatter_mean, scatter_sum
-import numpy as np
 import biotite.structure as bs
 import biotite.structure.io.pdb as pdb
-import bisect
 
 from utils.logger import print_log
-
-########## import your packages below ##########
 from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
+
+# Source https://github.com/THUNLP-MT/GET
 
 MODALITIES = {"PP":0, "PL":1, "Pion":2, "Ppeptide":3, "PRNA":4, "PDNA":5, "RNAL":6, "CSD":7}
 
@@ -382,217 +377,6 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         return res
     
 
-class MutationDataset(torch.utils.data.Dataset):
-
-    def __init__(self, data_file):
-        super().__init__()
-        self.data = pickle.load(open(data_file, 'rb'))
-        self.dist_th = 10
-        if 'ddG' in self.data[0]:
-            self.label_key = 'ddG'
-        else:
-            self.label_key = 'label'
-        if "wt_esm_block_embeddings" in self.data[0] and "mt_esm_block_embeddings" in self.data[0]:
-            for item in self.data:
-                item['wt']["esm_embeddings"] = item["wt_esm_block_embeddings"]
-                item['mt']["esm_embeddings"] = item["mt_esm_block_embeddings"]
-        new_items = []
-        removed_items = 0
-        for item in self.data:
-            new_item = self._preprocess(item)
-            if new_item is not None:
-                new_items.append(new_item)
-            else:
-                removed_items += 1
-        self.data = new_items
-        self.indexes = [ {'id': item['id'], 'label': item[self.label_key] } for item in self.data ]  # to satify the requirements of inference.py
-        print(f"Removed {removed_items} items due to no atoms within the threshold of {self.dist_th} A to the mutation block")
-    
-    def _preprocess(self, item):
-        # remove blocks outside of dist_th from mutated block
-        # redefine the global atoms and blocks
-
-        block_id = torch.zeros(len(item['wt']['A']), dtype=torch.long) # [Nu]
-        block_lengths = torch.tensor(item['wt']['block_lengths'], dtype=torch.long)
-        block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
-        block_id.cumsum_(dim=0)
-
-        mt_block_id = torch.zeros(len(item['mt']['A']), dtype=torch.long) # [Nu]
-        mt_block_lengths = torch.tensor(item['mt']['block_lengths'], dtype=torch.long)
-        mt_block_id[torch.cumsum(mt_block_lengths, dim=0)[:-1]] = 1
-        mt_block_id.cumsum_(dim=0)
-
-        Z = torch.tensor(item['wt']['X'], dtype=torch.float)
-        Z_mt = torch.tensor(item['mt']['X'], dtype=torch.float)
-        Z_block = scatter_mean(Z, block_id, dim=0)
-
-        mt_blocks = torch.tensor(item["mt_block_indexes"], dtype=torch.long)
-        if len(mt_blocks) != 1:
-            raise ValueError("Only one mutation block is supported")
-        mt_block = mt_blocks[0]
-        mt_block_Z = Z_block[mt_block]
-
-        blocks_within_th = torch.norm(Z_block - mt_block_Z, dim=1) < self.dist_th
-        global_blocks = torch.tensor(item['wt']['B'], dtype=torch.long) == VOCAB.symbol_to_idx(VOCAB.GLB)
-        torch.logical_or(blocks_within_th, global_blocks, out=blocks_within_th)
-        block_idxes = torch.nonzero(blocks_within_th).squeeze(1)
-        old_block_idxes_map = dict(zip(block_idxes.tolist(), range(len(block_idxes))))
-
-        atoms_within_th = torch.isin(block_id, block_idxes)
-        global_atoms = torch.tensor(item['wt']['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()
-        torch.logical_or(atoms_within_th, global_atoms, out=atoms_within_th)
-        atom_idxes = torch.nonzero(atoms_within_th).squeeze(1)
-        mt_atoms_within_th = torch.isin(mt_block_id, block_idxes)
-        mt_global_atoms = torch.tensor(item['mt']['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()
-        torch.logical_or(mt_atoms_within_th, mt_global_atoms, out=mt_atoms_within_th)
-        mt_atom_idxes = torch.nonzero(mt_atoms_within_th).squeeze(1)
-
-        segment0_blocks = torch.tensor(item['wt']['segment_ids'], dtype=torch.long) == 0
-        segment1_blocks = torch.tensor(item['wt']['segment_ids'], dtype=torch.long) == 1
-        segment0_atoms = torch.isin(block_id, torch.nonzero(segment0_blocks).squeeze(1))
-        segment1_atoms = torch.isin(block_id, torch.nonzero(segment1_blocks).squeeze(1))
-
-        if torch.logical_and(segment0_atoms, atoms_within_th).sum() == 0:
-            return None
-        if torch.logical_and(segment1_atoms, atoms_within_th).sum() == 0:
-            return None
-
-        Z_global0 = Z[torch.logical_and(segment0_atoms, atoms_within_th)].mean(dim=0).tolist()
-        Z_global1 = Z[torch.logical_and(segment1_atoms, atoms_within_th)].mean(dim=0).tolist()
-        
-        for mt_block in item["mt_block_indexes"]:
-            if mt_block not in old_block_idxes_map:
-                return None
-        mt_block_indexes = [old_block_idxes_map[mt_block] for mt_block in item["mt_block_indexes"]]
-
-        wt = {
-            'X': [item['wt']['X'][i] for i in atom_idxes],
-            'B': [item['wt']['B'][i] for i in block_idxes],
-            'A': [item['wt']['A'][i] for i in atom_idxes],
-            'block_lengths': [item['wt']['block_lengths'][i] for i in block_idxes],
-            'segment_ids': [item['wt']['segment_ids'][i] for i in block_idxes],
-            'mut_block_id': mt_block_indexes,
-        }
-
-        global_atoms_idxes = torch.nonzero(torch.tensor(wt['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()).squeeze(1)
-        wt['X'][global_atoms_idxes[0]] = Z_global0
-        wt['X'][global_atoms_idxes[1]] = Z_global1
-
-        segment0_atoms = torch.isin(mt_block_id, torch.nonzero(segment0_blocks).squeeze(1))
-        segment1_atoms = torch.isin(mt_block_id, torch.nonzero(segment1_blocks).squeeze(1))
-
-        if torch.logical_and(segment0_atoms, mt_atoms_within_th).sum() <= 1:
-            return None
-        if torch.logical_and(segment1_atoms, mt_atoms_within_th).sum() <= 1:
-            return None
-
-        Z_global0 = Z_mt[torch.logical_and(segment0_atoms, mt_atoms_within_th)].mean(dim=0).tolist()
-        Z_global1 = Z_mt[torch.logical_and(segment1_atoms, mt_atoms_within_th)].mean(dim=0).tolist()
-
-        mt = {
-            'X': [item['mt']['X'][i] for i in mt_atom_idxes],
-            'B': [item['mt']['B'][i] for i in block_idxes],
-            'A': [item['mt']['A'][i] for i in mt_atom_idxes],
-            'block_lengths': [item['mt']['block_lengths'][i] for i in block_idxes],
-            'segment_ids': [item['mt']['segment_ids'][i] for i in block_idxes],
-            'mut_block_id': mt_block_indexes,
-        }
-
-        global_atoms_idxes = torch.nonzero(torch.tensor(mt['A'], dtype=torch.long) == VOCAB.get_atom_global_idx()).squeeze(1)
-        wt['X'][global_atoms_idxes[0]] = Z_global0
-        wt['X'][global_atoms_idxes[1]] = Z_global1
-
-        item['wt'] = wt
-        item['mt'] = mt
-        return item
-
-    
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx):
-        '''
-        an example of the returned data
-        [
-            # wild type
-            {
-                'X': [Natom, 3],
-                'B': [Nblock],
-                'A': [Natom],
-                'atom_positions': [Natom],
-                'block_lengths': [Natom]
-                'segment_ids': [Nblock]
-            },
-            # mutated
-            {
-                'X': [Natom, 3],
-                'B': [Nblock],
-                'A': [Natom],
-                'atom_positions': [Natom],
-                'block_lengths': [Natom]
-                'segment_ids': [Nblock]
-            },
-            # mt_block_indexes
-            [Nmtblock],
-            # label
-            [1]
-        ]
-        '''
-        item = {
-            'wt': self.data[idx]['wt'],
-            'mt': self.data[idx]['mt'],
-            'label': self.data[idx][self.label_key],
-            'len': len(self.data[idx]['wt']['B']) + len(self.data[idx]['mt']['B'])
-        }
-        return item # self.data[idx]['wt'], self.data[idx]['mt'], torch.tensor(self.data[idx][self.label_key], dtype=torch.float) #, torch.tensor(self.data[idx]["mt_block_indexes"], dtype=torch.long)
-        #torch.tensor(self.data[idx]['wt_binding_affinity'], dtype=torch.float), torch.tensor(self.data[idx]['mt_binding_affinity'], dtype=torch.float)
-
-    @classmethod
-    def collate_fn(cls, batch):
-        wt = [item['wt'] for item in batch]
-        mt = [item['mt'] for item in batch]
-        label = [item['label'] for item in batch]
-        # cumsum_block_lengths = torch.cumsum(torch.tensor([0] + [len(mt_item['B']) for mt_item in mt], dtype=torch.long), dim=0)
-        # mt_block_indexes = torch.cat([item[3] + cumsum_block_lengths[i] for i, item in enumerate(batch)])
-        batch0 = cls.collate_fn_(wt)
-        batch1 = cls.collate_fn_(mt)
-        return batch0, batch1, torch.tensor(label, dtype=torch.float) #, mt_block_indexes
-
-    @classmethod
-    def collate_fn_(cls, batch):
-        keys = ['X', 'B', 'A', 'block_lengths', 'segment_ids']
-        if 'esm_embeddings' in batch[0]:
-            keys.append('esm_embeddings')
-        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float]
-        res = {}
-        for key, _type in zip(keys, types):
-            val = []
-            for item in batch:
-                if key != "esm_embeddings":
-                    val.append(torch.tensor(item[key], dtype=_type))
-                else:
-                    val.append(item[key])
-            res[key] = torch.cat(val, dim=0)
-        lengths = []
-        mt_block_indexes = []
-        for item in batch:
-            for idx in item['mut_block_id']:
-                mt_block_indexes.append(idx + sum(lengths))
-            lengths.append(len(item['B']))
-        res['mut_block_id'] = torch.tensor(mt_block_indexes, dtype=torch.long)
-        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-
-        # block_id = torch.zeros_like(res['A']) # [Nu]
-        # block_id[torch.cumsum(res['block_lengths'], dim=0)[:-1]] = 1
-        # block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
-        # res['Z_block'] = scatter_mean(res['X'], block_id, dim=0)
-        
-        # del res['A']
-        # del res['X']
-        # del res['block_lengths']
-        return res
-    
-    
 class PDBBindBenchmark(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
@@ -782,44 +566,6 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
 
-class BinaryRNAScoreDataset(LabelledPDBDataset):
-    def __init__(self, data_file, rmsd_cutoff=2.0):
-        super().__init__(data_file)
-        self.rmsd_cutoff = rmsd_cutoff
-
-    def __getitem__(self, idx):
-        item = self.data[idx]
-        data = item['data']
-        data['label'] = item['rmsd'] < self.rmsd_cutoff
-        data['atom_label'] = [x < self.rmsd_cutoff for x in item['errors']]
-        return data
-
-    @classmethod
-    def collate_fn(cls, batch):
-        keys = ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids', 'label', 'atom_label']
-        types = [torch.float, torch.long, torch.long, torch.long, torch.long, torch.long, torch.float, torch.float]
-        res = {}
-        for key, _type in zip(keys, types):
-            val = []
-            for item in batch:
-                val.append(torch.tensor(item[key], dtype=_type))
-            if key == 'label':
-                res[key] = torch.tensor(val, dtype=_type)
-            else:
-                res[key] = torch.cat(val, dim=0)
-        lengths = [len(item['B']) for item in batch]
-        res['lengths'] = torch.tensor(lengths, dtype=torch.long)
-        return res
-
-class RegressionRNAScoreDataset(LabelledPDBDataset):
-    def __init__(self, data_file):
-        super().__init__(data_file)
-
-    def __getitem__(self, idx):
-        item = self.data[idx]
-        data = item['data']
-        data['label'] = item['rmsd']
-        return data
 
 class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
 
@@ -867,18 +613,6 @@ class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
         lengths = [len(item['B']) for item in batch]
         res['lengths'] = torch.tensor(lengths, dtype=torch.long)
         return res
-
-
-class MultiClassRNAScoreDataset(MultiClassLabelledPDBDataset):
-    def __init__(self, data_file, start_rmsd, end_rmsd, num_classes):
-        super().__init__(data_file)
-        self.class_cutoffs = np.linspace(start_rmsd, end_rmsd, num_classes-1)
-    
-    def __getitem__(self, idx):
-        item = self.data[idx]
-        data = item['data']
-        data['label'] = bisect.bisect_right(self.class_cutoffs, item['rmsd'])
-        return data
 
 
 class MixDatasetWrapper(torch.utils.data.Dataset):

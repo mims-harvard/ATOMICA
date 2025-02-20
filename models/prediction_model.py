@@ -1,5 +1,3 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
 from collections import namedtuple
 import torch
 from torch_scatter import scatter_mean

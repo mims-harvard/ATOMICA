@@ -1,5 +1,3 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
 import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
