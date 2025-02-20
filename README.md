@@ -104,13 +104,13 @@ This model was finetuned from pretrained InteractNN on protein interfaces with t
 This model was finetuned from pretrained InteractNN on protein binder pockets for a given binder with the following command:
 ```bash
 
-~/.conda/envs/interactenv/bin/torchrun --nnodes=1 --nproc_per_node=4 --standalone train.py \
-    --train_set datasets/QBioLiP_train.pkl \
-    --valid_set datasets/QBioLiP_valid.pkl \
-    --task prot_interface \
-    --gpu 0 1 2 3 \
-    --num_workers 32 \
-    --lr 5e-4 \
+python train.py \
+    --train_set datasets/binder_train.pkl \
+    --valid_set datasets/binder_valid.pkl \
+    --task binary_classifier \
+    --gpu 0 \
+    --num_workers 8 \
+    --lr 1e-4 \
     --max_epoch 50 \
     --shuffle \
     --atom_hidden_size 32 \
