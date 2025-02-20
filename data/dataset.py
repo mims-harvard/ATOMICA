@@ -1,3 +1,5 @@
+# Source https://github.com/THUNLP-MT/GET
+
 import os
 import pickle
 import argparse
@@ -14,7 +16,6 @@ import biotite.structure.io.pdb as pdb
 from utils.logger import print_log
 from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
 
-# Source https://github.com/THUNLP-MT/GET
 
 MODALITIES = {"PP":0, "PL":1, "Pion":2, "Ppeptide":3, "PRNA":4, "PDNA":5, "RNAL":6, "CSD":7}
 

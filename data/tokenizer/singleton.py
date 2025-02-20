@@ -1,5 +1,4 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
 
 def singleton(cls):
     _instance = {}

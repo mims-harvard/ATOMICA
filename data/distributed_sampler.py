@@ -1,6 +1,5 @@
 '''
-Taken directly from torch.utils.data.distributed.py
-- Class adapted to support resuming from a given index (for )
+Taken directly from torch.utils.data.distributed.py Class adapted to support resuming from a given index
 '''
 
 import math

@@ -1,3 +1,5 @@
+# Adapted from https://github.com/gcorso/DiffDock/blob/main/utils/torsion.py
+
 import argparse
 import pickle
 from tqdm import tqdm
@@ -6,10 +8,6 @@ import multiprocessing
 from .dataset import data_to_blocks
 from .pdb_utils import VOCAB
 from .torsion import get_side_chain_torsion_mask_block, get_segment_torsion_mask
-
-
-# Adapted from https://github.com/gcorso/DiffDock/blob/main/utils/torsion.py
-
 
 RESIDUES = set([x[0] for x in VOCAB.aas] + [x[0] for x in VOCAB.bases])
 

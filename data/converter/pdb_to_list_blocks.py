@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
+
 from typing import List, Optional, Dict, Tuple
 import numpy as np
 from Bio.PDB import PDBParser

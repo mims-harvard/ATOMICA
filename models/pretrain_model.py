@@ -1,3 +1,5 @@
+# Source https://github.com/THUNLP-MT/GET
+
 from collections import namedtuple
 from copy import deepcopy
 

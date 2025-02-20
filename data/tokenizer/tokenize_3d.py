@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
+
 import os
 import sys
 from copy import deepcopy
