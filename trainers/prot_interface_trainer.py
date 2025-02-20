@@ -1,21 +1,14 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
-from math import exp, pi, cos, log
+from math import exp, log
 import torch
-from .abs_trainer import Trainer, LearningRateWarmup
+from .abs_trainer import Trainer
 from utils.logger import print_log
 from tqdm import tqdm
 import numpy as np
 import wandb
-from scipy.stats import spearmanr
 import os
-from collections import defaultdict
-from torch.optim.lr_scheduler import SequentialLR, LinearLR, LambdaLR
-from sklearn.metrics import precision_recall_curve, auc, roc_auc_score
+from torch.optim.lr_scheduler import LambdaLR
 
 class ProtInterfaceTrainer(Trainer):
-
-    ########## Override start ##########
 
     def __init__(self, model, train_loader, valid_loader, config):
         self.global_step = 0
@@ -50,11 +43,8 @@ class ProtInterfaceTrainer(Trainer):
         return self.share_step(batch, batch_idx, val=True)
 
     def _before_train_epoch_start(self):
-        # reform batch, with new random batches
         self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
-
-    ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
         loss = self.model(
@@ -95,7 +85,6 @@ class ProtInterfaceTrainer(Trainer):
                 metric_arr.append(metric)
                 self.valid_global_step += 1
         self.model.train()
-        # judge
         valid_metric = np.mean(metric_arr)
         if self.use_wandb and self._is_main_proc():
             wandb.log({
@@ -118,7 +107,6 @@ class ProtInterfaceTrainer(Trainer):
         self.last_valid_metric = valid_metric
         if self.epoch > self.config.warmup_epochs:
             self.best_valid_metric = min(self.best_valid_metric, valid_metric) if self.config.metric_min_better else max(self.best_valid_metric, valid_metric)
-        # write valid_metric
         for name in self.writer_buffer:
             value = np.mean(self.writer_buffer[name])
             self.log(name, value, self.epoch)

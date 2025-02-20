@@ -1,5 +1,3 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
 import torch
 from .abs_trainer import Trainer
 from utils.logger import print_log
@@ -11,9 +9,6 @@ from collections import defaultdict
 from sklearn.metrics import accuracy_score
 
 class MaskingTrainer(Trainer):
-
-    ########## Override start ##########
-
     def __init__(self, model, train_loader, valid_loader, config, resume_state=None):
         self.global_step = 0
         self.epoch = 0
@@ -62,8 +57,6 @@ class MaskingTrainer(Trainer):
         # reform batch, with new random batches
         self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
-
-    ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
         try:
@@ -217,7 +210,6 @@ class MaskingTrainer(Trainer):
         else:
             self.patience -= 1
         self.last_valid_metric = valid_metric
-        # write valid_metric
         for name in self.writer_buffer:
             value = np.mean(self.writer_buffer[name])
             self.log(name, value, self.epoch)
