@@ -64,7 +64,7 @@ def parse():
     parser.add_argument('--exclude_path', type=str, default=None, help='Path to file with PDB ids to be excluded from the dataset')
     parser.add_argument('--out_dir', type=str, required=True,
                         help='Output directory')
-    parser.add_argument('--fragment', type=str, default=None, choices=['PS_300', 'PS_500'], help='Fragment small molecules into common chemical motifs')
+    parser.add_argument('--fragment', type=str, default=None, choices=['PS_300'], help='Fragment small molecules into common chemical motifs')
     parser.add_argument('--ccd_dictionary', type=str, default=None, help='Path to SMILES for ligand CCD codes. Required for fragmentation of small molecules.')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')

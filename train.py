@@ -74,7 +74,7 @@ def parse():
     parser.add_argument('--n_layers', type=int, default=3, help='Number of layers')
     parser.add_argument('--bottom_global_message_passing', action="store_true", default=False, help='message passing between global nodes and normal nodes at the bottom level')
     parser.add_argument('--global_message_passing', action="store_true", default=False, help='message passing between global nodes and normal nodes at the top level')
-    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation method for small molecules')
+    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300'], help='fragmentation method for small molecules')
 
     # for pretraining
     parser.add_argument('--atom_noise', type=float, default=0, help='apply noise to atom coordinates')

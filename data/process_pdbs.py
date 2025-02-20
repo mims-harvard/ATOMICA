@@ -2,10 +2,26 @@ import argparse
 import pandas as pd
 import pickle
 from tqdm import tqdm
-
 from .converter.pdb_lig_to_blocks import extract_pdb_ligand
 from .converter.pdb_to_list_blocks import pdb_to_list_blocks
 from .dataset import blocks_interface, blocks_to_data
+
+def parse_args():
+    parser = argparse.ArgumentParser(description='Process Q-BioLiP PP data of protein-ligand interaction for pre-training')
+    parser.add_argument('--data_index_file', type=str, required=True, help="""CSV file containing the following headers [ pdb_id | pdb_path | chain1 | chain2 | lig_code | lig_smiles ]
+                            pdb_id: 4 letter pdb code, 
+                            pdb_path: path to the pdb file, 
+                            chain1: chain of the protein delimited with '_', 
+                            chain2: chain of the ligand delimited with '_', 
+                            lig_code: ligand code if ligand, leave empty/None if the interface is chain 2. If lig, then chain2 must refer to the chain the ligand is on.
+                            lig_smiles: smiles for ligand, used for fragmentation of ligand into common chemical motifs.
+                            label (optional): binding affinity label for the interaction, leave empty/None if not available.
+                        """)
+    parser.add_argument('--out_path', type=str, required=True, help='Output path')
+    parser.add_argument('--interface_dist_th', type=float, default=8.0,
+                        help='Residues who has atoms with distance below this threshold are considered in the complex interface')
+    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300'], help='fragmentation method for small molecule ligands')
+    return parser.parse_args()
 
 def process_PL_pdb(pdb_file, pdb_id, rec_chain, lig_code, lig_chain, smiles, dist_th, fragmentation_method=None):
     items = []
@@ -63,23 +79,6 @@ def process_pdb(pdb_file, pdb_id, group1_chains, group2_chains, dist_th):
         "id": f"{pdb_id}_{''.join(group1_chains)}_{''.join(group2_chains)}",
         "block_to_pdb_indexes": pdb_indexes_map,
     }
-
-def parse_args():
-    parser = argparse.ArgumentParser(description='Process Q-BioLiP PP data of protein-ligand interaction for pre-training')
-    parser.add_argument('--data_index_file', type=str, required=True, help="""CSV file containing the following headers [ pdb_id | pdb_path | chain1 | chain2 | lig_code | lig_smiles ]
-                            pdb_id: 4 letter pdb code, 
-                            pdb_path: path to the pdb file, 
-                            chain1: chain of the protein delimited with '_', 
-                            chain2: chain of the ligand delimited with '_', 
-                            lig_code: ligand code if ligand, leave empty/None if the interface is chain 2. If lig, then chain2 must refer to the chain the ligand is on.
-                            lig_smiles: smiles for ligand, used for fragmentation of ligand into common chemical motifs.
-                            label (optional): binding affinity label for the interaction, leave empty/None if not available.
-                        """)
-    parser.add_argument('--out_path', type=str, required=True, help='Output path')
-    parser.add_argument('--interface_dist_th', type=float, default=8.0,
-                        help='Residues who has atoms with distance below this threshold are considered in the complex interface')
-    parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300', 'PS_500'], help='fragmentation method for small molecule ligands')
-    return parser.parse_args()
 
 def main(args):
     data_index_file = pd.read_csv(args.data_index_file)
