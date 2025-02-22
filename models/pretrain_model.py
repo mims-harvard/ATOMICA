@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
+
 from collections import namedtuple
 from copy import deepcopy
 
@@ -395,9 +395,6 @@ class DenoisePretrainModelWithBlockEmbedding(DenoisePretrainModel):
             block_projector, block_mixing = self.init_block_embedding(*params)
             self.pre_projector = nn.Sequential(*block_projector)
             self.pre_mixing_ffn = nn.Sequential(*block_mixing)
-            # block_projector, block_mixing = self.init_block_embedding(*params)
-            # self.post_projector = nn.Sequential(*block_projector)
-            # self.post_mixing_ffn = nn.Sequential(*block_mixing)
 
         # different block embedidng for segment 0 and 1
         self.block_embedding0_size = block_embedding0_size
@@ -413,15 +410,6 @@ class DenoisePretrainModelWithBlockEmbedding(DenoisePretrainModel):
             block_projector1, block_mixing1 = self.init_block_embedding(*params1)
             self.pre_projector1 = nn.Sequential(*block_projector1)
             self.pre_mixing_ffn1 = nn.Sequential(*block_mixing1)
-
-            # block_projector0, block_mixing0 = self.init_block_embedding(*params0)
-            # self.post_projector0 = nn.Sequential(*block_projector0)
-            # self.post_mixing_ffn0 = nn.Sequential(*block_mixing0)
-
-            # block_projector1, block_mixing1 = self.init_block_embedding(*params1)
-            # self.post_projector1 = nn.Sequential(*block_projector1)
-            # self.post_mixing_ffn1 = nn.Sequential(*block_mixing1)
-
     
     def init_block_embedding(self, nonlinearity: nn.Module, block_embedding_size: int, projector_dropout: float, projector_hidden_size: int, num_projector_layers: int):
         projector_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]

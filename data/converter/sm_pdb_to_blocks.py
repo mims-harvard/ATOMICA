@@ -1,3 +1,5 @@
+# Source https://github.com/THUNLP-MT/GET
+
 from rdkit import Chem
 import os
 from data.dataset import Block, Atom, VOCAB

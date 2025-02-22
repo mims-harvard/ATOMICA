@@ -1,19 +1,14 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
+
 import os
 import re
 import json
 from tqdm import tqdm
-
 import numpy as np
 import torch
 from torch.utils.tensorboard import SummaryWriter
-
 from utils.logger import print_log
-
-########### Import your packages below ##########
 import wandb
-
 
 class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch,
@@ -310,7 +305,6 @@ class Trainer:
             else:
                 self.writer.add_scalar(name, value, step)
 
-    ########## Overload these functions below ##########
     # define optimizer
     def get_optimizer(self):
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr)

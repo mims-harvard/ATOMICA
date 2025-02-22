@@ -1,5 +1,3 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
 import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
@@ -127,11 +125,5 @@ def calculate_contrastive_loss(z, augmented_z, temperature=0.5, device="cpu"):
             torch.sum(torch.exp(similarity_negs_bb), dim=1)
             + torch.sum(torch.exp(logits_ba), dim=1)
         )
-    )
-    print(
-        f"Positive pairs ab {torch.mean(similarity_pos_ab)}, negative pairs aa {torch.mean(similarity_negs_aa)}, negative pairs ab {torch.mean(logits_ab[~diag_mask])}"
-    )
-    print(
-        f"Positive pairs ba {torch.mean(similarity_pos_ba)}, negative pairs bb {torch.mean(similarity_negs_bb)}, negative pairs ba {torch.mean(logits_ba[~diag_mask])}"
     )
     return torch.mean(torch.cat((contrastive_loss_ab, contrastive_loss_ba)))

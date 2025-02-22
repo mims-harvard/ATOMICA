@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
+
 import json
 from copy import copy
 import argparse
@@ -7,10 +7,8 @@ import multiprocessing as mp
 from tqdm import tqdm
 
 from .molecule import Molecule
-
-from utils.chem_utils import smi2mol, mol2smi, get_submol
-from utils.chem_utils import cnt_atom, MAX_VALENCE
-from utils.logger import print_log
+from .chem_utils import smi2mol, mol2smi, get_submol
+from .chem_utils import cnt_atom, MAX_VALENCE
 
 
 '''classes below are used for principal subgraph extraction'''
@@ -114,7 +112,7 @@ def freq_cnt(mol):
 
 def graph_bpe(fname, vocab_len, vocab_path, cpus, kekulize):
     # load molecules
-    print_log(f'Loading mols from {fname} ...')
+    print(f'Loading mols from {fname} ...')
     with open(fname, 'r') as fin:
         smis = list(map(lambda x: x.strip(), fin.readlines()))
     # init to atoms
@@ -124,7 +122,7 @@ def graph_bpe(fname, vocab_len, vocab_path, cpus, kekulize):
             mol = MolInSubgraph(smi2mol(smi, kekulize), kekulize)
             mols.append(mol)
         except Exception as e:
-            print_log(f'Parsing {smi} failed. Skip.', level='ERROR')
+            print(f'Error: Parsing {smi} failed. Skip.')
     # loop
     selected_smis, details = list(MAX_VALENCE.keys()), {}   # details: <smi: [atom cnt, frequency]
     # calculate single atom frequency
@@ -137,7 +135,7 @@ def graph_bpe(fname, vocab_len, vocab_path, cpus, kekulize):
                 details[atom][1] += cnts[atom]
     # bpe process
     add_len = vocab_len - len(selected_smis)
-    print_log(f'Added {len(selected_smis)} atoms, {add_len} principal subgraphs to extract')
+    print(f'Added {len(selected_smis)} atoms, {add_len} principal subgraphs to extract')
     pbar = tqdm(total=add_len)
     pool = mp.Pool(cpus)
     while len(selected_smis) < vocab_len:
@@ -164,7 +162,7 @@ def graph_bpe(fname, vocab_len, vocab_path, cpus, kekulize):
         details[merge_smi] = [cnt_atom(merge_smi), max_cnt]
         pbar.update(1)
     pbar.close()
-    print_log('sorting vocab by atom num')
+    print('sorting vocab by atom num')
     selected_smis.sort(key=lambda x: details[x][0], reverse=True)
     pool.close()
     with open(vocab_path, 'w') as fout:

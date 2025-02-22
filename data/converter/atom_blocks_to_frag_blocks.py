@@ -1,6 +1,5 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
-import re
+# Source https://github.com/THUNLP-MT/GET
+
 from typing import Tuple, List, Optional
 
 from data.dataset import Block, VOCAB

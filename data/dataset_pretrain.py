@@ -6,8 +6,6 @@ from collections import defaultdict
 from utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform, CropTransform
 from torch_scatter import scatter_mean
 from tqdm import tqdm
-from .dataset import MODALITIES
-
 
 class PretrainMaskedDataset(torch.utils.data.Dataset):
     def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):

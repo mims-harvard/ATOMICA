@@ -1,12 +1,7 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
-from math import exp, pi, cos, log
 import torch
 from .abs_trainer import Trainer
 from utils.logger import print_log
-from torch.utils.tensorboard import SummaryWriter
 import os
-import json
 from tqdm import tqdm
 import wandb
 import numpy as np
@@ -14,8 +9,6 @@ from collections import defaultdict
 from sklearn.metrics import accuracy_score
 
 class PretrainTrainer(Trainer):
-
-    ########## Override start ##########
 
     def __init__(self, model, train_loader, valid_loader, config, resume_state=None):
         self.global_step = 0
@@ -65,8 +58,6 @@ class PretrainTrainer(Trainer):
         if type(self.train_loader.dataset).__name__ in ['DynamicBatchWrapper', 'PretrainBalancedDynamicBatchWrapper']:
             self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
-
-    ########## Override end ##########
 
     def share_step(self, batch, batch_idx, val=False):
         print("BATCH KEYS:", batch.keys())

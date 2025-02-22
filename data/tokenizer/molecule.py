@@ -1,5 +1,5 @@
-#!/usr/bin/python
-# -*- coding:utf-8 -*-
+# Source https://github.com/THUNLP-MT/GET
+
 from copy import copy, deepcopy
 from typing import Union
 
@@ -9,8 +9,8 @@ from rdkit.Chem.Draw import rdMolDraw2D
 from rdkit.Chem.rdchem import Mol as RDKitMol
 import numpy as np
 
-from utils.chem_utils import smi2mol, mol2smi
-from utils.chem_utils import get_submol, get_submol_atom_map
+from .chem_utils import smi2mol, mol2smi
+from .chem_utils import get_submol, get_submol_atom_map
 
 
 class SubgraphNode:
