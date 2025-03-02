@@ -45,8 +45,6 @@ class InteractionModule(torch.nn.Module):
             f'{ns}x0e + {nv}x1o + {nv}x2e',
             f'{ns}x0e + {nv}x1o + {nv}x2e + {nv}x1e + {nv}x2o',
             f'{ns}x0e + {nv}x1o + {nv}x2e + {nv}x1e + {nv}x2o + {ns}x0o',
-            f'{ns}x0e + {nv}x1o + {nv}x2e + {nv}x1e + {nv}x2o',
-            f'{ns}x0e + {nv}x1o + {nv}x2e',
         ]
 
         conv_layers = []
