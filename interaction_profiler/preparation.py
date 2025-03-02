@@ -1,7 +1,6 @@
 from openbabel import openbabel
 from openbabel import pybel
 import os
-import torch
 import numpy as np
 from openeye import oechem
 import tempfile
@@ -10,8 +9,6 @@ from data.pdb_utils import VOCAB
 
 def generated_to_xyz(data):
     num_atoms, atom_type, atom_coords = data
-    if type(atom_coords) == torch.Tensor:
-        atom_coords = atom_coords.clone().cpu().tolist()
     xyz = "%d\n\n" % (num_atoms,)
     for i in range(num_atoms):
         symb = atom_type[i]
