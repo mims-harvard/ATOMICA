@@ -7,7 +7,7 @@ import math
 from torch.nn import functional as F
 from .torus import score as torus_score
 from data.dataset import data_to_blocks, blocks_to_data, VOCAB
-from utils.torsion import get_side_chain_torsion_mask_block, get_segment_torsion_mask
+from data.torsion import get_side_chain_torsion_mask_block, get_segment_torsion_mask
 
 
 def modify_conformer_torsion_angles(coords, rotateable_edges, mask_rotate, torsion_updates):
