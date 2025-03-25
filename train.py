@@ -96,11 +96,11 @@ def parse():
     parser.add_argument('--pretrain_state', type=str, default=None, help='path of the pretrained training state to load for resuming training')
     parser.add_argument('--partial_finetune', action="store_true", default=False, help='only finetune energy head')
 
-    # for affinity prediction
-    parser.add_argument('--affinity_pred_dropout', type=float, default=0.0, help='dropout rate for affinity prediction')
-    parser.add_argument('--affinity_pred_nonlinearity', type=str, default='relu', choices=['relu', 'gelu', 'elu'], help='nonlinearity for affinity prediction')
-    parser.add_argument('--num_affinity_pred_layers', type=int, default=3, help='number of layers for affinity prediction')
-    parser.add_argument('--affinity_pred_hidden_size', type=int, default=32, help='hidden size for affinity prediction')
+    # for prediction
+    parser.add_argument('--pred_dropout', type=float, default=0.0, help='dropout rate for prediction')
+    parser.add_argument('--pred_nonlinearity', type=str, default='relu', choices=['relu', 'gelu', 'elu'], help='nonlinearity for prediction')
+    parser.add_argument('--num_pred_layers', type=int, default=3, help='number of layers for prediction')
+    parser.add_argument('--pred_hidden_size', type=int, default=32, help='hidden size for prediction')
     parser.add_argument('--num_projector_layers', type=int, default=3, help='number of layers for projector')
     parser.add_argument('--projector_hidden_size', type=int, default=256, help='hidden size for projector')
     parser.add_argument('--projector_dropout', type=float, default=0.0, help='dropout rate for projector')

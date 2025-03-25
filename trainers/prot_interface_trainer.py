@@ -22,9 +22,7 @@ class ProtInterfaceTrainer(Trainer):
         return optimizer
 
     def get_scheduler(self, optimizer):
-        log_alpha = self.log_alpha
-        lr_lambda = lambda step: exp(log_alpha * (step + 1))  # equal to alpha^{step}
-        scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(optimizer, T_0=self.config.cycle_steps, eta_min=self.config.final_lr)
         return {
             'scheduler': scheduler,
             'frequency': 'batch'

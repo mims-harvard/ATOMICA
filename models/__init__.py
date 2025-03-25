@@ -50,9 +50,9 @@ def create_model(args):
         return model
     elif args.task == 'PDBBind':
         add_params = {
-            'num_affinity_pred_layers': args.num_affinity_pred_layers,
-            'affinity_pred_dropout': args.affinity_pred_dropout,
-            'affinity_pred_hidden_size': args.affinity_pred_hidden_size,
+            'num_affinity_pred_layers': args.num_pred_layers,
+            'affinity_pred_dropout': args.pred_dropout,
+            'affinity_pred_hidden_size': args.pred_hidden_size,
             'num_projector_layers': args.num_projector_layers,
             'projector_dropout': args.projector_dropout,
             'projector_hidden_size': args.projector_hidden_size,
@@ -64,14 +64,14 @@ def create_model(args):
             'block_embedding0_size': args.block_embedding0_size,
             'block_embedding1_size': args.block_embedding1_size,
         }
-        if args.affinity_pred_nonlinearity == 'relu':
+        if args.pred_nonlinearity == 'relu':
             add_params["nonlinearity"] = torch.nn.ReLU()
-        elif args.affinity_pred_nonlinearity == 'gelu':
+        elif args.pred_nonlinearity == 'gelu':
             add_params["nonlinearity"] = torch.nn.GELU()
-        elif args.affinity_pred_nonlinearity == 'elu':
+        elif args.pred_nonlinearity == 'elu':
             add_params["nonlinearity"] = torch.nn.ELU()
         else:
-            raise NotImplementedError(f"Nonlinearity {args.affinity_pred_nonlinearity} not implemented")
+            raise NotImplementedError(f"Nonlinearity {args.pred_nonlinearity} not implemented")
         if args.pretrain_ckpt:
             add_params["partial_finetune"] = args.partial_finetune
             model = AffinityPredictor.load_from_pretrained(args.pretrain_ckpt, **add_params)
@@ -93,18 +93,18 @@ def create_model(args):
         elif args.task == 'binary_classifier' or args.task == 'RNAScore_binary':
             Model = ClassifierModel
             add_params.update({
-                'num_pred_layers': args.num_affinity_pred_layers,
-                'pred_dropout': args.affinity_pred_dropout,
-                'pred_hidden_size': args.affinity_pred_hidden_size,
+                'num_pred_layers': args.num_pred_layers,
+                'pred_dropout': args.pred_dropout,
+                'pred_hidden_size': args.pred_hidden_size,
             })
-            if args.affinity_pred_nonlinearity == 'relu':
+            if args.pred_nonlinearity == 'relu':
                 add_params["nonlinearity"] = torch.nn.ReLU()
-            elif args.affinity_pred_nonlinearity == 'gelu':
+            elif args.pred_nonlinearity == 'gelu':
                 add_params["nonlinearity"] = torch.nn.GELU()
-            elif args.affinity_pred_nonlinearity == 'elu':
+            elif args.pred_nonlinearity == 'elu':
                 add_params["nonlinearity"] = torch.nn.ELU()
             else:
-                raise NotImplementedError(f"Nonlinearity {args.affinity_pred_nonlinearity} not implemented")
+                raise NotImplementedError(f"Nonlinearity {args.pred_nonlinearity} not implemented")
         elif args.task == 'multiclass_classifier':
             Model = MultiClassClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
