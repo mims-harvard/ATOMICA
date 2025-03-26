@@ -1,8 +1,10 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
+from .pretrain_model import DenoisePretrainModel
 import torch
 from copy import deepcopy
+import json
 
 class ProteinInterfaceModel(nn.Module):
     def __init__(self, model: PredictionModel) -> None:
@@ -29,8 +31,7 @@ class ProteinInterfaceModel(nn.Module):
         )
     
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model = torch.load(pretrain_ckpt, map_location='cpu')
+    def _load_from_pretrained(cls, pretrained_model, **kwargs):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = PredictionModel(
@@ -65,6 +66,42 @@ class ProteinInterfaceModel(nn.Module):
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         
         return cls(model)
+    
+    def get_config(self):
+        return {
+            'model_type': self.__class__.__name__,
+            'prot_model': self.prot_model.get_config(),
+        }
+    
+    @classmethod
+    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
+        pretrained_model = torch.load(pretrain_ckpt, map_location='cpu')
+        if isinstance(pretrained_model, cls):
+            return pretrained_model
+        return cls._load_from_pretrained(pretrained_model, **kwargs)
+    
+    @classmethod
+    def load_from_config_and_weights(cls, config_path, weights_path, **kwargs):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        model_type = config['model_type']
+        del config['model_type']
+        if model_type == 'DenoisePretrainModel':
+            pretrained_model = DenoisePretrainModel.load_from_config_and_weights(config_path, weights_path)
+            return cls._load_from_pretrained(pretrained_model, **kwargs)
+        elif model_type == 'PredictionModel':
+            pretrained_model = PredictionModel.load_from_config_and_weights(config_path, weights_path)
+            return cls._load_from_pretrained(pretrained_model, **kwargs)
+        elif model_type == cls.__name__:
+            model_config = config['prot_model']
+            assert model_config['model_type'] == 'PredictionModel', f"Model type {model_config['model_type']} not recognized for ProteinInterfaceModel"
+            del model_config['model_type']
+            model = PredictionModel(**model_config)
+            pretrained_model = cls(model)
+            pretrained_model.load_state_dict(torch.load(weights_path, map_location='cpu'))
+            return pretrained_model
+        else:
+            raise ValueError(f"Model type {model_type} not recognized")
     
     def forward(self, batch_cmplx, batch_prot) -> PredictionReturnValue:
         with torch.no_grad():

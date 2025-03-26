@@ -1,6 +1,7 @@
 import torch.nn.functional as F
 import torch
 from torch_scatter import scatter_mean
+import json
 
 from .pretrain_model import DenoisePretrainModel
 from data.pdb_utils import VOCAB
@@ -10,7 +11,8 @@ from .InteractNN.utils import batchify
 class MaskedNodeModel(DenoisePretrainModel):
 
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size, k_neighbors,
-                 n_layers, num_masked_block_classes, dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None) -> None:
+                 n_layers, num_masked_block_classes, dropout=0.0, bottom_global_message_passing=False, 
+                 global_message_passing=False, fragmentation_method=None) -> None:
         super().__init__(
             atom_hidden_size=atom_hidden_size, block_hidden_size=block_hidden_size, edge_size=edge_size, 
             k_neighbors=k_neighbors, n_layers=n_layers, dropout=dropout, 
@@ -20,8 +22,7 @@ class MaskedNodeModel(DenoisePretrainModel):
         assert not any([self.atom_noise, self.translation_noise, self.rotation_noise, self.torsion_noise]), 'Masking model should not have any denoising heads'
 
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+    def _load_from_pretrained(cls, pretrained_model, **kwargs):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
@@ -51,6 +52,43 @@ class MaskedNodeModel(DenoisePretrainModel):
             model.edge_embedding_bottom.requires_grad_(requires_grad=True)
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
+    
+    def get_config(self):
+        return {
+            'atom_hidden_size': self.atom_hidden_size,
+            'block_hidden_size': self.hidden_size,
+            'edge_size': self.edge_size,
+            'n_layers': self.n_layers,
+            'dropout': self.dropout,
+            'k_neighbors': self.k_neighbors,
+            'global_message_passing': self.global_message_passing,
+            'bottom_global_message_passing': self.bottom_global_message_passing,
+            'fragmentation_method': self.fragmentation_method,
+            'num_masked_block_classes': self.num_masked_block_classes,
+            'model_type': self.__class__.__name__,
+        }
+
+    @classmethod
+    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
+        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+        return cls._load_from_pretrained(pretrained_model, **kwargs)
+    
+    @classmethod
+    def load_from_config_and_weights(cls, config_path, weights_path, **kwargs):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        model_type = config['model_type']
+        del config['model_type']
+
+        if model_type == 'DenoisePretrainModel':
+            pretrained_model = DenoisePretrainModel.load_from_config_and_weights(config_path, weights_path)
+            return cls._load_from_pretrained(pretrained_model, **kwargs)
+        elif model_type == cls.__name__:
+            pretrained_model = cls(**config)
+            pretrained_model.load_state_dict(torch.load(weights_path, map_location='cpu'))
+            return pretrained_model
+        else:
+            raise ValueError(f"Model type {model_type} not recognized")
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, masked_blocks, masked_labels, return_logits=False):
         with torch.no_grad():

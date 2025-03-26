@@ -13,9 +13,20 @@ class AffinityPredictor(PredictionModel):
 
     def __init__(self, num_affinity_pred_layers, nonlinearity, affinity_pred_dropout, affinity_pred_hidden_size, 
                  num_projector_layers, projector_hidden_size, projector_dropout, 
-                 block_embedding_size=None, block_embedding0_size=None, block_embedding1_size=None, # =1536 ESM3 embedding size
+                 block_embedding_size=None, block_embedding0_size=None, block_embedding1_size=None,
                    **kwargs) -> None:
         super().__init__(**kwargs)
+
+        self.nonlinearity = 'relu' if isinstance(nonlinearity, nn.ReLU) else 'gelu' if nonlinearity == nn.GELU else 'elu' if nonlinearity == nn.ELU else None
+        self.num_affinity_pred_layers = num_affinity_pred_layers
+        self.affinity_pred_dropout = affinity_pred_dropout
+        self.affinity_pred_hidden_size = affinity_pred_hidden_size
+        self.num_projector_layers = num_projector_layers
+        self.projector_hidden_size = projector_hidden_size
+        self.projector_dropout = projector_dropout
+        self.block_embedding_size = block_embedding_size
+        self.block_embedding0_size = block_embedding0_size
+        self.block_embedding1_size = block_embedding1_size
 
         layers = [nonlinearity, nn.Dropout(affinity_pred_dropout), nn.Linear(self.hidden_size, affinity_pred_hidden_size)]
         for _ in range(0, num_affinity_pred_layers-2):
@@ -72,8 +83,7 @@ class AffinityPredictor(PredictionModel):
         return projector_layers, mixing_layers
 
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+    def _load_from_pretrained(cls, pretrained_model, **kwargs):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
@@ -93,9 +103,9 @@ class AffinityPredictor(PredictionModel):
             num_projector_layers=kwargs['num_projector_layers'],
             projector_dropout=kwargs['projector_dropout'],
             projector_hidden_size=kwargs['projector_hidden_size'],
-            block_embedding_size=kwargs['block_embedding_size'],
-            block_embedding0_size=kwargs['block_embedding0_size'],
-            block_embedding1_size=kwargs['block_embedding1_size'],
+            block_embedding_size=kwargs.get('block_embedding_size', None),
+            block_embedding0_size=kwargs.get('block_embedding0_size', None),
+            block_embedding1_size=kwargs.get('block_embedding1_size', None),
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
@@ -122,6 +132,22 @@ class AffinityPredictor(PredictionModel):
             model.energy_ffn.requires_grad_(requires_grad=True)
         return model
     
+    def get_config(self):
+        config_dict = super().get_config()
+        config_dict.update({
+            'nonlinearity': self.nonlinearity,
+            'num_affinity_pred_layers': self.num_affinity_pred_layers,
+            'affinity_pred_dropout': self.affinity_pred_dropout,
+            'affinity_pred_hidden_size': self.affinity_pred_hidden_size,
+            'num_projector_layers': self.num_projector_layers,
+            'projector_dropout': self.projector_dropout,
+            'projector_hidden_size': self.projector_hidden_size,
+            'block_embedding_size': self.block_embedding_size,
+            'block_embedding0_size': self.block_embedding0_size,
+            'block_embedding1_size': self.block_embedding1_size,
+        })
+        return config_dict
+
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings, block_embeddings0, block_embeddings1) -> PredictionReturnValue:
         # batch_id and block_id
         with torch.no_grad():
@@ -206,67 +232,3 @@ class AffinityPredictor(PredictionModel):
             block_embeddings1=batch.get('block_embeddings1', None),
         )
         return pred_energy
-
-
-class BlockAffinityPredictor(PredictionModel):
-
-    def __init__(self, **kwargs) -> None:
-        super().__init__(**kwargs)
-        nonlinearity = nn.ReLU
-        self.energy_ffn = nn.Sequential(
-            nonlinearity(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nonlinearity(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, self.hidden_size),
-            nonlinearity(),
-            nn.Dropout(self.dropout),
-            nn.Linear(self.hidden_size, 1)
-        )
-    
-    @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
-        partial_finetune = kwargs.get('partial_finetune', False)
-        if partial_finetune:
-            model.energy_ffn.requires_grad_(requires_grad=True)
-        return model
-    
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label) -> PredictionReturnValue:
-        # batch_id and block_id
-        with torch.no_grad():
-            batch_id = torch.zeros_like(segment_ids)  # [Nb]
-            batch_id[torch.cumsum(lengths, dim=0)[:-1]] = 1
-            batch_id.cumsum_(dim=0)  # [Nb], item idx in the batch
-
-            block_id = torch.zeros_like(A) # [Nu]
-            block_id[torch.cumsum(block_lengths, dim=0)[:-1]] = 1
-            block_id.cumsum_(dim=0)  # [Nu], block (residue) id of each unit (atom)
-
-        # embedding
-        top_H_0 = self.block_embedding.block_embedding(B)
-        top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
-        top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        edges, edge_attr = self.get_edges(B, batch_id, segment_ids, top_Z, top_block_id, 
-                                          self.global_message_passing, top=True)
-        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
-        block_energy = self.energy_ffn(block_repr).squeeze(-1)
-        if not self.global_message_passing: # ignore global blocks
-            block_energy[B == self.global_block_id] = 0
-        pred_energy = scatter_sum(block_energy, batch_id)
-        return F.mse_loss(pred_energy, label), pred_energy
-
-
-    def infer(self, batch, extra_info=False):
-        self.eval()
-        loss, pred = self.forward(
-            Z=batch['X'], B=batch['B'], A=batch['A'],
-            block_lengths=batch['block_lengths'],
-            lengths=batch['lengths'],
-            segment_ids=batch['segment_ids'],
-            label=batch['label'],
-        )
-        if extra_info:
-            raise NotImplementedError
-        return pred

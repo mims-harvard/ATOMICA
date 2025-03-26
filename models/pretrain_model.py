@@ -2,6 +2,7 @@
 
 from collections import namedtuple
 from copy import deepcopy
+import json
 
 import torch
 import torch.nn as nn
@@ -177,6 +178,7 @@ class DenoisePretrainModel(nn.Module):
                 nn.Dropout(dropout),
                 nn.Linear(block_hidden_size, 1, bias=False)
             )
+        self.num_masked_block_classes = num_masked_block_classes
         if num_masked_block_classes is not None:
             self.masked_ffn = nn.Sequential(
                 nn.ReLU(),
@@ -191,7 +193,44 @@ class DenoisePretrainModel(nn.Module):
             )
             self.masking_objective = True
         else:
-            self.masking_objective = False
+            self.masking_objective = False        
+
+
+    def get_config(self):
+        return {
+            'atom_hidden_size': self.atom_hidden_size,
+            'block_hidden_size': self.hidden_size,
+            'edge_size': self.edge_size,
+            'n_layers': self.n_layers,
+            'dropout': self.dropout,
+            'k_neighbors': self.k_neighbors,
+            'global_message_passing': self.global_message_passing,
+            'bottom_global_message_passing': self.bottom_global_message_passing,
+            'fragmentation_method': self.fragmentation_method,
+            'atom_noise': self.atom_noise,
+            'translation_noise': self.translation_noise,
+            'rotation_noise': self.rotation_noise,
+            'torsion_noise': self.torsion_noise,
+            'atom_weight': self.atom_weight,
+            'translation_weight': self.translation_weight,
+            'rotation_weight': self.rotation_weight,
+            'torsion_weight': self.torsion_weight,
+            'mask_weight': self.mask_weight,
+            'modality_embedding': self.use_modality_embedding,
+            'num_masked_block_classes': self.num_masked_block_classes,
+            'model_type': self.__class__.__name__,
+        }
+    
+    @classmethod
+    def load_from_config_and_weights(cls, config_path, weights_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        assert config['model_type'] == cls.__name__, f"Model type {config['model_type']} does not match {cls.__name__}"
+        del config['model_type']
+        model = DenoisePretrainModel(**config)
+        model.load_state_dict(torch.load(weights_path))
+        return model
+
 
     def get_edges(self, B, batch_id, segment_ids, Z, block_id, global_message_passing, top):
         intra_edges, inter_edges, global_normal_edges, global_global_edges = construct_edges(
@@ -386,6 +425,9 @@ class DenoisePretrainModelWithBlockEmbedding(DenoisePretrainModel):
             atom_noise, translation_noise, rotation_noise, torsion_noise, num_masked_block_classes, 
             atom_weight, translation_weight, rotation_weight, torsion_weight, mask_weight, modality_embedding,
         )
+        self.num_projector_layers = num_projector_layers
+        self.projector_hidden_size = projector_hidden_size
+        self.projector_dropout = projector_dropout
 
         # same block embedding for all blocks
         nonlinearity = nn.ReLU()
@@ -410,6 +452,28 @@ class DenoisePretrainModelWithBlockEmbedding(DenoisePretrainModel):
             block_projector1, block_mixing1 = self.init_block_embedding(*params1)
             self.pre_projector1 = nn.Sequential(*block_projector1)
             self.pre_mixing_ffn1 = nn.Sequential(*block_mixing1)
+    
+    def get_config(self):
+        config_dict = super().get_config()
+        config_dict.update({
+            'block_embedding_size': self.block_embedding_size,
+            'block_embedding0_size': self.block_embedding0_size,
+            'block_embedding1_size': self.block_embedding1_size,
+            'num_projector_layers': self.num_projector_layers,
+            'projector_dropout': self.projector_dropout,
+            'projector_hidden_size': self.projector_hidden_size,
+        })
+        return config_dict
+    
+    @classmethod
+    def load_from_config_and_weights(cls, config_path, weights_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        assert config['model_type'] == cls.__name__, f"Model type {config['model_type']} does not match {cls.__name__}"
+        del config['model_type']
+        model = DenoisePretrainModelWithBlockEmbedding(**config)
+        model.load_state_dict(torch.load(weights_path))
+        return model
     
     def init_block_embedding(self, nonlinearity: nn.Module, block_embedding_size: int, projector_dropout: float, projector_hidden_size: int, num_projector_layers: int):
         projector_layers = [nonlinearity, nn.Dropout(projector_dropout), nn.Linear(block_embedding_size, projector_hidden_size)]

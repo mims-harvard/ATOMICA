@@ -1,13 +1,15 @@
 import torch.nn as nn
 import torch.nn.functional as F
 from .prediction_model import PredictionModel, PredictionReturnValue
-from .pretrain_model import DenoisePretrainModel
-import torch
 
 class ClassifierModel(PredictionModel):
 
-    def __init__(self,  num_pred_layers, nonlinearity, pred_dropout, pred_hidden_size, **kwargs) -> None:
+    def __init__(self, num_pred_layers, nonlinearity, pred_dropout, pred_hidden_size, **kwargs) -> None:
         super().__init__(**kwargs)
+        self.num_pred_layers = num_pred_layers
+        self.pred_dropout = pred_dropout
+        self.pred_hidden_size = pred_hidden_size
+        self.nonlinearity = 'relu' if isinstance(nonlinearity, nn.ReLU) else 'gelu' if nonlinearity == nn.GELU else 'elu' if nonlinearity == nn.ELU else None
         layers = [nonlinearity, nn.Dropout(pred_dropout), nn.Linear(self.hidden_size, pred_hidden_size)]
         for _ in range(0, num_pred_layers-2):
             layers.extend([nonlinearity, nn.Dropout(pred_dropout), nn.Linear(pred_hidden_size, pred_hidden_size)])
@@ -15,8 +17,7 @@ class ClassifierModel(PredictionModel):
         self.classifier_ffn = nn.Sequential(*layers)
     
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
+    def _load_from_pretrained(cls, pretrained_model, **kwargs):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
@@ -58,6 +59,16 @@ class ClassifierModel(PredictionModel):
         if partial_finetune:
             model.classifer_ffn.requires_grad_(requires_grad=True)
         return model
+
+    def get_config(self):
+        config_dict = super().get_config()
+        config_dict.update({
+            'num_pred_layers': self.num_pred_layers,
+            'nonlinearity': self.nonlinearity,
+            'pred_dropout': self.pred_dropout,
+            'pred_hidden_size': self.pred_hidden_size,
+        })
+        return config_dict
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
@@ -97,8 +108,7 @@ class MultiClassClassifierModel(PredictionModel):
         )
     
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model = torch.load(pretrain_ckpt, map_location='cpu')
+    def _load_from_pretrained(cls, pretrained_model, **kwargs):
         if pretrained_model.k_neighbors != kwargs.get('k_neighbors', pretrained_model.k_neighbors):
             print(f"Warning: pretrained model k_neighbors={pretrained_model.k_neighbors}, new model k_neighbors={kwargs.get('k_neighbors')}")
         model = cls(
@@ -133,6 +143,11 @@ class MultiClassClassifierModel(PredictionModel):
             model.edge_embedding_bottom.requires_grad_(requires_grad=True)
             print("Warning: bottom_global_message_passing is True in the new model but False in the pretrain model, training edge_embedders in the model")
         return model
+    
+    def get_config(self):
+        config_dict = super().get_config()
+        config_dict['num_classes'] = self.num_classes
+        return config_dict
     
     def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
@@ -173,8 +188,8 @@ class RegressionPredictor(PredictionModel):
         )
     
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        model = super().load_from_pretrained(pretrain_ckpt, **kwargs)
+    def _load_from_pretrained(cls, pretrained_model, **kwargs):
+        model = super()._load_from_pretrained(pretrained_model, **kwargs)
         partial_finetune = kwargs.get('partial_finetune', False)
         if partial_finetune:
             model.energy_ffn.requires_grad_(requires_grad=True)
