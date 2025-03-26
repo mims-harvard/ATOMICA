@@ -6,23 +6,21 @@ from models.pretrain_model import DenoisePretrainModel
 from models.prot_interface_model import ProteinInterfaceModel
 from trainers.abs_trainer import Trainer
 import torch
+import json
 
 def main(args):
+    if args.model_ckpt:
+        model = torch.load(args.model_ckpt)
+    elif args.model_config and args.model_weights:
+        with open(args.model_config, "r") as f:
+            model_config = json.load(f)
+        if model_config['model_type'] == 'PredictionModel' or model_config['model_type'] == 'DenoisePretrainModel':
+            model = PredictionModel.load_from_config_and_weights(args.model_config, args.model_weights)
+        elif model_config['model_type'] == 'ProteinInterfaceModel':
+            model = ProteinInterfaceModel.load_from_config_and_weights(args.model_config, args.model_weights)
+        else:
+            raise NotImplementedError(f"Model type {model_config['model_type']} not implemented")
 
-    # # Filter out large items
-    # too_large = []
-    # new_data, new_indexes = [], []
-    # for item in dataset.data:
-    #     if len(item["data"]['B']) <= 500:
-    #         new_data.append(item)
-    #         new_indexes.append(item["id"])
-    #     else:
-    #         too_large.append(item["id"])
-    # dataset.data = new_data
-    # dataset.indexes = new_indexes
-    # print(f"Removed {len(too_large)} items that are too large. Remaining {len(dataset)} items.")
-
-    model = torch.load(args.model_ckpt)
     if isinstance(model, ProteinInterfaceModel):
         print("Model is ProteinInterfaceModel, extracting prot_model.")
         model = model.prot_model
@@ -100,7 +98,9 @@ def main(args):
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_ckpt", type=str, required=True)
+    parser.add_argument('--model_ckpt', type=str, default=None, help='path of the model ckpt to load')
+    parser.add_argument('--model_config', type=str, default=None, help='path of the model config to load')
+    parser.add_argument('--model_weights', type=str, default=None, help='path of the model weights to load')
     parser.add_argument("--output_path", type=str, required=True)
     parser.add_argument("--data_path", type=str, required=True)
     parser.add_argument("--batch_size", type=int, default=4)

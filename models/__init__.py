@@ -31,7 +31,11 @@ def create_model(args):
         }
         if args.block_embedding_size is None and args.block_embedding0_size is None and args.block_embedding1_size is None:
             if args.pretrain_ckpt:
+                print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
                 model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
+            elif args.pretrain_config and args.pretrain_weights:
+                print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
+                model = DenoisePretrainModel.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights)
             else:
                 model = DenoisePretrainModel(**params)
         else:
@@ -43,10 +47,14 @@ def create_model(args):
                 "block_embedding0_size": args.block_embedding0_size,
                 "block_embedding1_size": args.block_embedding1_size,
             })
-            model = DenoisePretrainModelWithBlockEmbedding(**params)
             if args.pretrain_ckpt:
-                pretrained_model: DenoisePretrainModelWithBlockEmbedding = torch.load(args.pretrain_ckpt, map_location='cpu')
-                model.load_state_dict(pretrained_model.state_dict(), strict=False)
+                print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
+                model: DenoisePretrainModelWithBlockEmbedding = torch.load(args.pretrain_ckpt, map_location='cpu')
+            elif args.pretrain_config and args.pretrain_weights:
+                print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
+                model = DenoisePretrainModelWithBlockEmbedding.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights)
+            else:
+                model = DenoisePretrainModelWithBlockEmbedding(**params)
         return model
     elif args.task == 'PDBBind':
         add_params = {
@@ -73,8 +81,12 @@ def create_model(args):
         else:
             raise NotImplementedError(f"Nonlinearity {args.pred_nonlinearity} not implemented")
         if args.pretrain_ckpt:
+            print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
             add_params["partial_finetune"] = args.partial_finetune
             model = AffinityPredictor.load_from_pretrained(args.pretrain_ckpt, **add_params)
+        elif args.pretrain_config and args.pretrain_weights:
+            print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
+            model = AffinityPredictor.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights, **add_params)
         else:
             model = AffinityPredictor(
                 atom_hidden_size=args.atom_hidden_size,
@@ -116,7 +128,7 @@ def create_model(args):
         else:
             raise NotImplementedError(f'Model for task {args.task} not implemented')
         
-        if args.pretrain_ckpt:
+        if args.pretrain_ckpt or (args.pretrain_config and args.pretrain_weights):
             add_params.update({
                 'partial_finetune': args.partial_finetune,
                 'bottom_global_message_passing': args.bottom_global_message_passing,
@@ -124,7 +136,12 @@ def create_model(args):
                 'k_neighbors': args.k_neighbors,
                 'dropout': args.dropout,
             })
-            model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
+            if args.pretrain_ckpt:
+                print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
+                model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
+            elif args.pretrain_config and args.pretrain_weights:
+                print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
+                model = Model.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights, **add_params)
             print(f"Model size: {sum(p.numel() for p in model.parameters())}")
             num_trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
             print(f"Number of trainable parameters: {num_trainable_params}")

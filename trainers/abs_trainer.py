@@ -96,6 +96,7 @@ class Trainer:
         self.last_valid_metric = None
         self.best_valid_metric = float('inf') if self.config.metric_min_better else -float('inf')
         self.topk_ckpt_map = []  # smaller index means better ckpt
+        self.topk_weights_map = []  # smaller index means better ckpt
         self.patience = self.config.patience
 
     @classmethod
@@ -183,10 +184,15 @@ class Trainer:
         if self.valid_loader is None:
             if self._is_main_proc():
                 save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+                config_path = os.path.join(self.model_dir, 'config.json')
                 module_to_save = self.model.module if self.local_rank == 0 else self.model
                 if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
                     print_log(f'No validation, save path: {save_path}')
                     torch.save(module_to_save, save_path)
+                    torch.save(module_to_save.state_dict(), weights_path)
+                    with open(config_path, 'w') as fout:
+                        json.dump(module_to_save.get_config(), fout)
                 else:
                     print_log('No validation')
             return
@@ -210,9 +216,15 @@ class Trainer:
             wandb.log({f'val_RMSELoss': np.sqrt(valid_metric)}, step=self.global_step)
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+            config_path = os.path.join(self.model_dir, 'config.json')
             module_to_save = self.model.module if self.local_rank == 0 else self.model
             torch.save(module_to_save, save_path)
+            torch.save(module_to_save.state_dict(), weights_path)
+            with open(config_path, 'w') as fout:
+                json.dump(module_to_save.get_config(), fout)
             self._maintain_topk_checkpoint(valid_metric, save_path)
+            self._maintain_topk_weights(valid_metric, weights_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
         if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience
@@ -260,6 +272,32 @@ class Trainer:
         topk_map_path = os.path.join(self.model_dir, 'topk_map.txt')
         with open(topk_map_path, 'w') as fout:
             for metric, path in self.topk_ckpt_map:
+                fout.write(f'{metric}: {path}\n')
+    
+    def _maintain_topk_weights(self, valid_metric, weights_path):
+        topk = self.config.save_topk
+        if self.config.metric_min_better:
+            better = lambda a, b: a < b
+        else:
+            better = lambda a, b: a > b
+        insert_pos = len(self.topk_weights_map)
+        for i, (metric, _) in enumerate(self.topk_weights_map):
+            if better(valid_metric, metric):
+                insert_pos = i
+                break
+        self.topk_weights_map.insert(insert_pos, (valid_metric, weights_path))
+
+        # maintain topk
+        if topk > 0:
+            while len(self.topk_weights_map) > topk:
+                last_ckpt_path = self.topk_weights_map[-1][1]
+                os.remove(last_ckpt_path)
+                self.topk_weights_map.pop()
+
+        # save map
+        topk_map_path = os.path.join(self.model_dir, 'topk_weight_map.txt')
+        with open(topk_map_path, 'w') as fout:
+            for metric, path in self.topk_weights_map:
                 fout.write(f'{metric}: {path}\n')
 
     def train(self, device_ids, local_rank, use_wandb=False, use_raytune=False):

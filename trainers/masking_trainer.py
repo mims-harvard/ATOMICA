@@ -7,6 +7,7 @@ import wandb
 import numpy as np
 from collections import defaultdict
 from sklearn.metrics import accuracy_score
+import json
 
 class MaskingTrainer(Trainer):
     def __init__(self, model, train_loader, valid_loader, config, resume_state=None):
@@ -166,11 +167,16 @@ class MaskingTrainer(Trainer):
                 if not os.path.exists(self.training_state_dir):
                     os.makedirs(self.training_state_dir)
                 training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
+                weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+                config_path = os.path.join(self.model_dir, 'config.json')                    
                 module_to_save = self.model.module if self.local_rank == 0 else self.model
                 if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
                     print_log(f'No validation, save path: {save_path}')
                     torch.save(module_to_save, save_path)
                     torch.save(self._get_training_state(), training_save_path)
+                    torch.save(module_to_save.state_dict(), weights_path)
+                    with open(config_path, 'w') as fout:
+                        json.dump(module_to_save.get_config(), fout)
                 else:
                     print_log('No validation')
             return
@@ -196,9 +202,15 @@ class MaskingTrainer(Trainer):
             wandb.log({'val_acc': accuracy_score(metric_dict["label"], metric_dict["pred"])}, step=self.global_step)
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+            config_path = os.path.join(self.model_dir, 'config.json')
             module_to_save = self.model.module if self.local_rank == 0 else self.model
             torch.save(module_to_save, save_path)
+            torch.save(module_to_save.state_dict(), weights_path)
+            with open(config_path, 'w') as fout:
+                json.dump(module_to_save.get_config(), fout)
             self._maintain_topk_checkpoint(valid_metric, save_path)
+            self._maintain_topk_weights(valid_metric, weights_path)
             training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
             if not os.path.exists(self.training_state_dir):
                 os.makedirs(self.training_state_dir)

@@ -7,6 +7,7 @@ import numpy as np
 import wandb
 from scipy.stats import spearmanr
 import os
+import json
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import precision_recall_curve, auc, roc_auc_score
 
@@ -75,10 +76,15 @@ class AffinityTrainer(Trainer):
         if self.valid_loader is None:
             if self._is_main_proc():
                 save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+                config_path = os.path.join(self.model_dir, 'config.json')
                 module_to_save = self.model.module if self.local_rank == 0 else self.model
                 if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
                     print_log(f'No validation, save path: {save_path}')
                     torch.save(module_to_save, save_path)
+                    torch.save(module_to_save.state_dict(), weights_path)
+                    with open(config_path, 'w') as fout:
+                        json.dump(module_to_save.get_config(), fout)
                 else:
                     print_log('No validation')
             return
@@ -112,9 +118,15 @@ class AffinityTrainer(Trainer):
             ray_train.report({'val_RMSELoss': float(valid_metric), "epoch": self.epoch})
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+            config_path = os.path.join(self.model_dir, 'config.json')
             module_to_save = self.model.module if self.local_rank == 0 else self.model
             torch.save(module_to_save, save_path)
+            torch.save(module_to_save.state_dict(), weights_path)
+            with open(config_path, 'w') as fout:
+                json.dump(module_to_save.get_config(), fout)
             self._maintain_topk_checkpoint(valid_metric, save_path)
+            self._maintain_topk_weights(valid_metric, weights_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
         if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience
@@ -194,10 +206,15 @@ class ClassifierTrainer(Trainer):
         if self.valid_loader is None:
             if self._is_main_proc():
                 save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+                config_path = os.path.join(self.model_dir, 'config.json')
                 module_to_save = self.model.module if self.local_rank == 0 else self.model
                 if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
                     print_log(f'No validation, save path: {save_path}')
                     torch.save(module_to_save, save_path)
+                    torch.save(module_to_save.state_dict(), weights_path)
+                    with open(config_path, 'w') as fout:
+                        json.dump(module_to_save.get_config(), fout)
                 else:
                     print_log('No validation')
             return
@@ -236,9 +253,15 @@ class ClassifierTrainer(Trainer):
             ray_train.report({'val_loss': float(valid_metric), "epoch": self.epoch})
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+            config_path = os.path.join(self.model_dir, 'config.json')
             module_to_save = self.model.module if self.local_rank == 0 else self.model
             torch.save(module_to_save, save_path)
+            torch.save(module_to_save.state_dict(), weights_path)
+            with open(config_path, 'w') as fout:
+                json.dump(module_to_save.get_config(), fout)
             self._maintain_topk_checkpoint(valid_metric, save_path)
+            self._maintain_topk_weights(valid_metric, weights_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
         if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience
@@ -319,10 +342,15 @@ class MultiClassClassifierTrainer(Trainer):
         if self.valid_loader is None:
             if self._is_main_proc():
                 save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+                weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+                config_path = os.path.join(self.model_dir, 'config.json')
                 module_to_save = self.model.module if self.local_rank == 0 else self.model
                 if self.config.save_topk < 0 or (self.config.max_epoch - self.epoch <= self.config.save_topk):
                     print_log(f'No validation, save path: {save_path}')
                     torch.save(module_to_save, save_path)
+                    torch.save(module_to_save.state_dict(), weights_path)
+                    with open(config_path, 'w') as fout:
+                        json.dump(module_to_save.get_config(), fout)
                 else:
                     print_log('No validation')
             return
@@ -368,9 +396,15 @@ class MultiClassClassifierTrainer(Trainer):
             ray_train.report({'val_RMSELoss': float(valid_metric), "epoch": self.epoch})
         if self._is_main_proc():
             save_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.ckpt')
+            weights_path = os.path.join(self.model_dir, f'epoch{self.epoch}_step{self.global_step}.pt')
+            config_path = os.path.join(self.model_dir, 'config.json')
             module_to_save = self.model.module if self.local_rank == 0 else self.model
             torch.save(module_to_save, save_path)
+            torch.save(module_to_save.state_dict(), weights_path)
+            with open(config_path, 'w') as fout:
+                json.dump(module_to_save.get_config(), fout)
             self._maintain_topk_checkpoint(valid_metric, save_path)
+            self._maintain_topk_weights(valid_metric, weights_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
         if self.epoch < self.config.warmup_epochs or self._metric_better(valid_metric):
             self.patience = self.config.patience

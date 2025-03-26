@@ -28,7 +28,7 @@ def parse():
     # data
     parser.add_argument('--train_set', type=str, required=True, help='path to train set')
     parser.add_argument('--valid_set', type=str, default=None, help='path to valid set')
-    parser.add_argument('--task', type=str, default=None,
+    parser.add_argument('--task', type=str, required=True, default=None,
                         choices=['pretrain_torsion', 'pretrain_torsion_masking', 'pretrain_gaussian',
                                  'binary_classifier', 'multiclass_classifier', 'masking', 
                                  'PDBBind', 'prot_interface', 'regression'])
@@ -93,6 +93,8 @@ def parse():
 
     # load pretrain
     parser.add_argument('--pretrain_ckpt', type=str, default=None, help='path of the pretrained ckpt to load')
+    parser.add_argument('--pretrain_config', type=str, default=None, help='path of the pretrained config to load')
+    parser.add_argument('--pretrain_weights', type=str, default=None, help='path of the pretrained weights to load')
     parser.add_argument('--pretrain_state', type=str, default=None, help='path of the pretrained training state to load for resuming training')
     parser.add_argument('--partial_finetune', action="store_true", default=False, help='only finetune energy head')
 
