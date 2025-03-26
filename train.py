@@ -387,7 +387,7 @@ def main(args):
         print_log(f"Saving model checkpoints to: {config.save_dir}")
         os.makedirs(config.save_dir, exist_ok=True)
         with open(os.path.join(config.save_dir, 'args.json'), 'w') as f:
-            json.dump(vars(args), f)
+            json.dump(vars(args), f, indent=4)
         if args.use_wandb:
             wandb.init(
                 entity="ada-f",

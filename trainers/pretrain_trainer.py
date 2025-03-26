@@ -213,7 +213,7 @@ class PretrainTrainer(Trainer):
                     torch.save(self._get_training_state(), training_save_path)
                     torch.save(module_to_save.state_dict(), weights_path)
                     with open(config_path, 'w') as fout:
-                        json.dump(module_to_save.get_config(), fout)
+                        json.dump(module_to_save.get_config(), fout, indent=4)
                 else:
                     print_log('No validation')
             return
@@ -250,7 +250,7 @@ class PretrainTrainer(Trainer):
             torch.save(module_to_save, save_path)
             torch.save(module_to_save.state_dict(), weights_path)
             with open(config_path, 'w') as fout:
-                json.dump(module_to_save.get_config(), fout)
+                json.dump(module_to_save.get_config(), fout, indent=4)
             self._maintain_topk_checkpoint(valid_metric, save_path)
             self._maintain_topk_weights(valid_metric, weights_path)
             training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')
@@ -420,7 +420,7 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
                     torch.save(self._get_training_state(), training_save_path)
                     torch.save(module_to_save.state_dict(), weights_path)
                     with open(config_path, 'w') as fout:
-                        json.dump(module_to_save.get_config(), fout)
+                        json.dump(module_to_save.get_config(), fout, indent=4)
                 else:
                     print_log('No validation')
             return
@@ -466,7 +466,7 @@ class PretrainMaskingNoisingTrainer(PretrainTrainer):
             torch.save(module_to_save, save_path)
             torch.save(module_to_save.state_dict(), weights_path)
             with open(config_path, 'w') as fout:
-                json.dump(module_to_save.get_config(), fout)
+                json.dump(module_to_save.get_config(), fout, indent=4)
             self._maintain_topk_checkpoint(valid_metric, save_path)
             self._maintain_topk_weights(valid_metric, weights_path)
             training_save_path = os.path.join(self.training_state_dir, f'training_state_epoch{self.epoch}_step{self.global_step}.pt')

@@ -192,7 +192,7 @@ class Trainer:
                     torch.save(module_to_save, save_path)
                     torch.save(module_to_save.state_dict(), weights_path)
                     with open(config_path, 'w') as fout:
-                        json.dump(module_to_save.get_config(), fout)
+                        json.dump(module_to_save.get_config(), fout, indent=4)
                 else:
                     print_log('No validation')
             return
@@ -222,7 +222,7 @@ class Trainer:
             torch.save(module_to_save, save_path)
             torch.save(module_to_save.state_dict(), weights_path)
             with open(config_path, 'w') as fout:
-                json.dump(module_to_save.get_config(), fout)
+                json.dump(module_to_save.get_config(), fout, indent=4)
             self._maintain_topk_checkpoint(valid_metric, save_path)
             self._maintain_topk_weights(valid_metric, weights_path)
             print_log(f'Validation: {valid_metric}, save path: {save_path}')
@@ -311,7 +311,7 @@ class Trainer:
             if not os.path.exists(self.model_dir):
                 os.makedirs(self.model_dir)
             with open(os.path.join(self.config.save_dir, 'train_config.json'), 'w') as fout:
-                json.dump(self.config.__dict__, fout)
+                json.dump(self.config.__dict__, fout, indent=4)
         # main device
         main_device_id = local_rank if local_rank != -1 else device_ids[0]
         device = torch.device('cpu' if main_device_id == -1 else f'cuda:{main_device_id}')
