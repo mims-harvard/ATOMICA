@@ -1,12 +1,12 @@
-# InteractNN: Learning Universal Representations of Molecular Interactions
+# ATOMICA: Universal Geometric AI for Molecular Interactions across Biomolecular Modalities
 
 **Authors**
 * Ada Fang
 * Zaixi Zhang
+* Andrew Zhou
 * Marinka Zitnik
-* TO DO
 
-## Overview of InteractNN
+## Overview of ATOMICA
 TO DO: adapt from paper
 
 ## Installation and Setup
@@ -14,8 +14,8 @@ TO DO: adapt from paper
 ### 1. Download the Repository
 First, clone the Gihub Repository:
 ```bash
-git clone https://github.com/mims-harvard/InteractNN
-cd InteractNN
+git clone https://github.com/mims-harvard/ATOMICA
+cd ATOMICA
 ```
 
 ### 2. Set Up Environment
@@ -35,10 +35,12 @@ To process other structures for embedding complexes refer to `data/process_pdbs.
 Model checkpoints are provided for
 * Pretrained complex model <insert-link>
 * Pretrained protein interface model <insert-link>
-* Finetuned protein binder prediction models <insert-link> for the following ligands: **TO DO: add list of ligands**
+* Finetuned protein binder prediction models <insert-link> for the following ligands:
+    * metal ions: Ca, Co, Cu, Fe, K, Mg, Mn, Na, Zn
+    * small molecules: ADP, ATP, GTP, GDP, FAD, NAD, NAP, NDP, HEM, HEC, CIT, CLA
 
 ## Usage
-### Train InteractNN
+### Train ATOMICA
 The model was trained on 4 NVIDIA H100 gpus in parallel with the following command:
 ```bash
 ~/.conda/envs/interactenv/bin/torchrun --nnodes=1 --nproc_per_node=4 --standalone train.py \
@@ -70,11 +72,11 @@ The model was trained on 4 NVIDIA H100 gpus in parallel with the following comma
     --max_rotation 0.5 \
     --rot_weight 0.1 \
     --save_dir model_checkpoints \
-    --run_name InteractNN
+    --run_name ATOMICA
 ```
 
-### Train InteractNN-Interface
-This model was finetuned from pretrained InteractNN on protein interfaces with the following command:
+### Train ATOMICA-Interface
+This model was finetuned from pretrained ATOMICA on protein interfaces with the following command:
 ```bash
 
 ~/.conda/envs/interactenv/bin/torchrun --nnodes=1 --nproc_per_node=4 --standalone train.py \
@@ -96,12 +98,12 @@ This model was finetuned from pretrained InteractNN on protein interfaces with t
     --fragmentation_method PS_300 \
     --global_message_passing \
     --save_dir model_checkpoints \
-    --pretrain_ckpt path/to/pretrained/InteractNN/checkpoint \
-    --run_name InteractNN-Interface
+    --pretrain_ckpt path/to/pretrained/ATOMICA/checkpoint \
+    --run_name ATOMICA-Interface
 ```
 
-### Train InteractNN-Binder
-This model was finetuned from pretrained InteractNN on protein binder pockets for a given binder with the following command:
+### Train ATOMICA-Ligand
+This model was finetuned from pretrained ATOMICA on protein binder pockets for a given binder with the following command:
 ```bash
 
 python train.py \
@@ -123,19 +125,19 @@ python train.py \
     --fragmentation_method PS_300 \
     --global_message_passing \
     --save_dir model_checkpoints \
-    --pretrain_ckpt path/to/pretrained/InteractNN/checkpoint \
-    --run_name InteractNN-Interface
+    --pretrain_ckpt path/to/pretrained/ATOMICA/checkpoint \
+    --run_name ATOMICA-Interface
 ```
 
-### Inference with InteractNN-Binder
-Refer to the jupyter notebook at `case_studies/binder_prediction/InteractNN_Binder_Prediction.ipynb` for an example of how to use the model for binder prediction. **TODO: add jupyter notebook**
+### Inference with ATOMICA-Ligand
+Refer to the jupyter notebook at `case_studies/binder_prediction/ATOMICA_Binder_Prediction.ipynb` for an example of how to use the model for binder prediction. **TODO: add jupyter notebook**
 
-### Explore InteractNN-Network
-Refer to the jupyter notebook at `case_studies/human_interfaceome_network/InteractNN_Network.ipynb`
+### Explore ATOMICANets
+Refer to the jupyter notebook at `case_studies/human_interfaceome_network/ATOMICA_Network.ipynb`
 
 ## Additional Resources
-* [InteractNN Paper](link_to_paper)
-* [InteractNN Website](link_to_website)
+* [ATOMICA Paper](link_to_paper)
+* [ATOMICA Website](link_to_website)
 * [Demo](link_to_demo)
 
 ## Questions
