@@ -15,6 +15,7 @@ pip3 install biopython==1.84
 pip3 install biotite==0.40.0
 pip3 install atom3d
 pip3 install wandb==0.18.2
+pip3 install orjson
 
 # plotting
 pip3 install umap-learn

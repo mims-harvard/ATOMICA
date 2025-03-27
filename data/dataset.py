@@ -7,7 +7,8 @@ from tqdm.contrib.concurrent import process_map
 from os.path import basename, splitext
 from typing import List
 from collections import Counter
-
+import gzip
+import orjson
 import numpy as np
 import torch
 import biotite.structure as bs
@@ -382,7 +383,7 @@ class PDBBindBenchmark(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        self.data = pickle.load(open(data_file, 'rb'))
+        self.data = open_data_file(data_file)
         self.indexes = [ {'id': item['id'], 'label': item['affinity']['neglog_aff'] } for item in self.data ]  # to satify the requirements of inference.py
 
     def __len__(self):
@@ -437,8 +438,7 @@ class PDBDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        with open(data_file, 'rb') as f:
-            self.data = pickle.load(f)
+        self.data = open_data_file(data_file)
         self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
 
     def __len__(self):
@@ -522,8 +522,7 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        with open(data_file, 'rb') as f:
-            self.data = pickle.load(f)
+        self.data = open_data_file(data_file)
         self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
 
     def __len__(self):
@@ -572,8 +571,7 @@ class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        with open(data_file, 'rb') as f:
-            self.data = pickle.load(f)
+        self.data = open_data_file(data_file)
         self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
 
     def __len__(self):
@@ -746,6 +744,32 @@ def parse():
     parser.add_argument('--dataset', type=str, required=True, help='dataset')
     parser.add_argument('--database', type=str, default=None, help='directory of pdb data')
     return parser.parse_args()
+
+def dataset_to_compressed_jsonl(dataset, output_file):
+    with gzip.open(output_file, 'wb', compresslevel=6) as f:
+        for item in dataset:
+            if 'block_to_pdb_indexes' in item:
+                item['block_to_pdb_indexes'] = {str(k): v for k, v in item['block_to_pdb_indexes'].items()}
+            f.write(orjson.dumps(item) + b"\n")
+
+def compressed_jsonl_to_dataset(input_file):
+    dataset = []
+    with gzip.open(input_file, 'rb') as f:
+        for line in f:
+            item = orjson.loads(line)
+            if 'block_to_pdb_indexes' in item:
+                item['block_to_pdb_indexes'] = {int(k): v for k, v in item['block_to_pdb_indexes'].items()}
+            dataset.append(item)
+    return dataset
+
+def open_data_file(data_file):
+    if data_file.endswith('.jsonl.gz'):
+        return compressed_jsonl_to_dataset(data_file)
+    elif data_file.endswith('.pkl'):
+        with open(data_file, 'rb') as f:
+            return pickle.load(f)
+    else:
+        raise ValueError('Unknown file format')
  
 
 if __name__ == '__main__':

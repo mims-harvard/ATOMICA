@@ -6,11 +6,12 @@ from collections import defaultdict
 from utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform, CropTransform
 from torch_scatter import scatter_mean
 from tqdm import tqdm
+from .dataset import open_data_file
 
 class PretrainMaskedDataset(torch.utils.data.Dataset):
     def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
         super().__init__()
-        self.data = pickle.load(open(data_file, 'rb'))
+        self.data = open_data_file(data_file)
         self.indexes = [ {'id': item['id']} for item in self.data ]
         self.mask_proportion = mask_proportion
         self.mask_token = mask_token
@@ -140,7 +141,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        self.data = pickle.load(open(data_file, 'rb'))
+        self.data = open_data_file(data_file)
         self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
         self.tor, self.global_tr, self.global_rot, self.crop = None, None, None, None
         # remove items with no torsion angles in either segment
@@ -334,7 +335,7 @@ class PretrainTorsionDataset(torch.utils.data.Dataset):
 class PretrainMaskedTorsionDataset(PretrainTorsionDataset):
     def __init__(self, data_file, mask_proportion, mask_token, atom_mask_token, vocab_to_mask):
         self.data_file = data_file
-        self.data = pickle.load(open(data_file, 'rb'))
+        self.data = open_data_file(data_file)
         self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
         self.tor, self.global_tr, self.global_rot, self.crop = None, None, None, None
         self.mask_proportion = mask_proportion
@@ -450,7 +451,7 @@ class PretrainAtomDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file):
         super().__init__()
-        self.data = pickle.load(open(data_file, 'rb'))
+        self.data = open_data_file(data_file)
         self.indexes = [ {'id': item['id']} for item in self.data ]  # to satify the requirements of inference.py
         self.atom_noise, self.global_tr, self.global_rot = None, None, None
     
