@@ -4,10 +4,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch_scatter import scatter_sum
 
-from .interactnn import InteractionModule
+from .atomica import InteractionModule
 from .utils import batchify, unbatchify
 
-class InteractNNEncoder(nn.Module):
+class ATOMICAEncoder(nn.Module):
     def __init__(self, hidden_size, edge_size, n_layers=3, return_atom_noise=False, return_global_noise=False, 
                  return_torsion_noise=False, dropout=0.0, max_torsion_neighbors=9,
                  max_edge_length=20, max_global_edge_length=20, max_torsion_edge_length=5) -> None:

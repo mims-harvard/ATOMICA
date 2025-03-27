@@ -5,7 +5,7 @@ import torch
 
 from data.pdb_utils import VOCAB
 from .pretrain_model import DenoisePretrainModel
-from .InteractNN.utils import batchify
+from .ATOMICA.utils import batchify
 from .prediction_model import PredictionModel, PredictionReturnValue
 
 

@@ -5,7 +5,7 @@ import json
 
 from .pretrain_model import DenoisePretrainModel
 from data.pdb_utils import VOCAB
-from .InteractNN.utils import batchify
+from .ATOMICA.utils import batchify
 
 
 class MaskedNodeModel(DenoisePretrainModel):

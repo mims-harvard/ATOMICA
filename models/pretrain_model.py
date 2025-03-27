@@ -12,9 +12,9 @@ from torch_scatter import scatter_mean, scatter_sum
 from data.pdb_utils import VOCAB
 from data.dataset import MODALITIES
 from .tools import BlockEmbedding, KNNBatchEdgeConstructor
-from .InteractNN.encoder import InteractNNEncoder, AttentionPooling
+from .ATOMICA.encoder import ATOMICAEncoder, AttentionPooling
 from .tools import CrossAttention
-from .InteractNN.utils import batchify
+from .ATOMICA.utils import batchify
 
 
 ReturnValue = namedtuple(
@@ -138,13 +138,13 @@ class DenoisePretrainModel(nn.Module):
         self.edge_embedding_bottom = nn.Embedding(4, edge_size)  # [intra / inter / global_global / global_normal]
         self.edge_embedding_top = nn.Embedding(4, edge_size)  # [intra / inter / global_global / global_normal]
         
-        self.encoder = InteractNNEncoder(
+        self.encoder = ATOMICAEncoder(
             atom_hidden_size, edge_size, n_layers=n_layers, dropout=dropout,
             return_atom_noise=atom_noise, return_global_noise=translation_noise or rotation_noise,
             return_torsion_noise=torsion_noise, max_torsion_neighbors=k_neighbors, 
             max_edge_length=5, max_global_edge_length=20, max_torsion_edge_length=5
         )
-        self.top_encoder = InteractNNEncoder(
+        self.top_encoder = ATOMICAEncoder(
             block_hidden_size, edge_size, n_layers=n_layers, dropout=dropout, max_edge_length=5
         )
         self.atom_block_attn = CrossAttention(block_hidden_size, atom_hidden_size, block_hidden_size, num_heads=4, dropout=dropout)
