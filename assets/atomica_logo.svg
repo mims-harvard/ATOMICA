@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 213.12 74.79">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: #24b6ea;
+      }
+
+      .cls-1, .cls-2 {
+        stroke: #c0e5e7;
+        stroke-miterlimit: 10;
+        stroke-width: 3px;
+      }
+
+      .cls-2 {
+        fill: #40b97d;
+      }
+
+      .cls-3 {
+        fill: #231f20;
+        font-family: AdelleSansDevanagari-Regular, 'Adelle Sans Devanagari';
+        font-size: 48px;
+      }
+
+      .cls-4 {
+        letter-spacing: -.08em;
+      }
+
+      .cls-5 {
+        letter-spacing: -.04em;
+      }
+
+      .cls-6 {
+        fill: #28bec3;
+      }
+    </style>
+  </defs>
+  <path class="cls-1" d="M58.12,8.67c17.7,15.09,35.4,30.18,53.1,45.28"/>
+  <path class="cls-1" d="M111.22,53.95c9.53-12.01,19.05-24.03,28.58-36.04"/>
+  <path class="cls-1" d="M177.73,44.62c-12.65-8.9-25.29-17.81-37.94-26.71"/>
+  <path class="cls-2" d="M29.8,44.62c9.44-10.83,18.88-21.67,28.32-32.5"/>
+  <line class="cls-2" x1="60.84" y1="10.58" x2="139.8" y2="17.26"/>
+  <circle class="cls-6" cx="28.45" cy="43.6" r="7.79"/>
+  <circle class="cls-6" cx="60.47" cy="10.58" r="10.58"/>
+  <circle class="cls-6" cx="179.62" cy="45.95" r="5.05"/>
+  <text class="cls-3" transform="translate(0 50.79)"><tspan class="cls-4" x="0" y="0">A</tspan><tspan class="cls-5" x="29.09" y="0">T</tspan><tspan x="53.81" y="0">OMICA</tspan></text>
+  <circle class="cls-6" cx="139.8" cy="17.26" r="3.9"/>
+  <circle class="cls-6" cx="111.22" cy="53.95" r="5.45"/>
+</svg>

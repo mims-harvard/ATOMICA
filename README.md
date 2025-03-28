@@ -32,8 +32,6 @@ We provide the following datasets:
 * Processed protein interfaces of human proteome binding sites to ion, small molecule, lipid, nucleic acid, and protein modalities
 * Processed protein interfaces of dark proteome binding sites to ion and small molecules
 
-To process other structures for embedding complexes refer to `data/process_pdbs.py`. To process other structures for embedding protein interfaces refer to **TO DO: PeSTo processing**. These can be used to generate embeddings, or finetuned for other tasks.
-
 ### 4. Download Model Checkpoints
 Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/ATOMICA/). The following models are available:
 * Pretrained complex model
