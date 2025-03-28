@@ -6,18 +6,10 @@ import numpy as np
 from tqdm import tqdm
 import argparse
 import pickle
-import sys
 import os
 import pandas as pd
-PROJ_DIR = os.path.join(
-    os.path.split(os.path.abspath(__file__))[0],
-    '..', '..'
-)
-print(f'Project directory: {PROJ_DIR}')
-sys.path.append(PROJ_DIR)
-
-from data.dataset import blocks_to_data
-from data.converter.pdb_to_list_blocks import atoms_array_to_blocks, get_residues
+from .dataset import blocks_to_data
+from .converter.pdb_to_list_blocks import atoms_array_to_blocks, get_residues
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Process protein structures based on B-factor cutoff.")

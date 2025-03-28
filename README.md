@@ -33,7 +33,7 @@ We provide the following datasets:
 
 ### 4. Download Model Checkpoints
 Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/ATOMICA/). The following models are available:
-* Pretrained complex model
+* ATOMICA model
 * Pretrained ATOMICA-Interface model
 * Finetuned ATOMICA-Ligand prediction models for the following ligands:
     * metal ions: Ca, Co, Cu, Fe, K, Mg, Mn, Na, Zn
@@ -50,9 +50,11 @@ Refer to the jupyter notebook at `case_studies/binder_prediction/ATOMICA_Binder_
 Refer to the jupyter notebook at `case_studies/human_interfaceome_network/ATOMICA_Network.ipynb`
 
 ### Embedding your own structures
+Make sure to download the ATOMICA model weights and config files from [Hugging Face](https://huggingface.co/ada-f/ATOMICA/).
+
 **For embedding biomolecular complexes:** process .pdb files with `data/process_pdbs.py` and embed with `get_embeddings.py`.
 
-**For embedding protein-(ion/small molecule/lipid/nucleic acid/protein) interfaces:** first predict (ion/small molecule/lipid/nucleic acid/protein) binding sites with [PeSTo](https://github.com/LBM-EPFL/PeSTo), second process the PeSTo output .pdb files with `case_studies/protein_universe/process_PeSTo_results.py`, finally embed with `get_embeddings.py`.
+**For embedding protein-(ion/small molecule/lipid/nucleic acid/protein) interfaces:** first predict (ion/small molecule/lipid/nucleic acid/protein) binding sites with [PeSTo](https://github.com/LBM-EPFL/PeSTo), second process the PeSTo output .pdb files with `data/process_PeSTo_results.py`, finally embed with `get_embeddings.py`.
 
 ## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.
