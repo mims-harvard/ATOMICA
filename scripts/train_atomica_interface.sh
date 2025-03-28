@@ -28,5 +28,6 @@
     --fragmentation_method PS_300 \
     --global_message_passing \
     --save_dir model_checkpoints \
-    --pretrain_ckpt path/to/pretrained/ATOMICA/checkpoint \
+    --pretrain_weights path/to/pretrained/ATOMICA/weights \
+    --pretrain_config path/to/pretrained/ATOMICA/config \
     --run_name ATOMICA-Interface

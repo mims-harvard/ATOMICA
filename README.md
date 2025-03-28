@@ -1,18 +1,21 @@
 # ATOMICA: Universal Geometric AI for Molecular Interactions across Biomolecular Modalities
 
+![ATOMICA logo](assets/atomica_logo.svg)
+
 **Authors**
 * Ada Fang
 * Zaixi Zhang
 * Andrew Zhou
 * Marinka Zitnik
 
-## Overview of ATOMICA
-TO DO: adapt from paper
+[Paper](link_to_paper) | [Project Website](link_to_website)
 
-## Installation and Setup
+ATOMICA is a geometric AI model that learns universal representations of molecular interactions at an atomic scale. The model is pretrained on 2,105,703 molecular interaction interfaces from the Protein Data Bank and Cambridge Structural Database, this includes protein-small molecule, protein-ion, small molecule-small molecule, protein-protein, protein-peptide, protein-RNA, protein-DNA, and nucleic acid-small molecule complexes. Embeddings of ATOMICA can be generated with the open source model weights and code to be used for various downstream tasks. In the paper, we demonstrate the utility of ATOMICA embeddings for studying the human interfaceome network with ATOMICANets and for annotating ions and small molecules to proteins in the dark proteome.
+
+## :rocket: Installation and Setup
 
 ### 1. Download the Repository
-First, clone the Gihub Repository:
+Clone the Gihub Repository:
 ```bash
 git clone https://github.com/mims-harvard/ATOMICA
 cd ATOMICA
@@ -21,8 +24,8 @@ cd ATOMICA
 ### 2. Set Up Environment
 Set up the environment according to `setup_env.sh`.
 
-### 3. Download Processed Datasets
-The data is hosted at <insert-link>. Please unzip once downloaded.
+### 3. (optional) Download Processed Datasets
+The data for pretraining and downstream analyses is hosted at [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
 
 We provide the following datasets:
 * Processed CSD and QBioLiP (based on PDB) interface complex graphs for pretraining
@@ -39,7 +42,7 @@ Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/AT
     * metal ions: Ca, Co, Cu, Fe, K, Mg, Mn, Na, Zn
     * small molecules: ADP, ATP, GTP, GDP, FAD, NAD, NAP, NDP, HEM, HEC, CIT, CLA
 
-## Usage
+## :star: Usage
 ### Train ATOMICA
 Training scripts for pretraining ATOMICA and finetuning ATOMICA-Interface and ATOMICA-Ligand are provided in `scripts/`.
 
@@ -49,10 +52,9 @@ Refer to the jupyter notebook at `case_studies/binder_prediction/ATOMICA_Binder_
 ### Explore ATOMICANets
 Refer to the jupyter notebook at `case_studies/human_interfaceome_network/ATOMICA_Network.ipynb`
 
-## Additional Resources
-* [ATOMICA Paper](link_to_paper)
-* [ATOMICA Website](link_to_website)
-* [Demo](link_to_demo)
+### Embedding your own structures
+For embedding biomolecular complexes: process .pdb files with `data/process_pdbs.py` and embed with `get_embeddings.py`.
+For embedding protein-(ion/small molecule/lipid/nucleic acid/protein) interfaces: first predict (ion/small molecule/lipid/nucleic acid/protein) binding sites with [PeSTo](https://github.com/LBM-EPFL/PeSTo), second process the PeSTo output .pdb files with `case_studies/protein_universe/process_PeSTo_results.py`, finally embed with `get_embeddings.py`.
 
-## Questions
+## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.

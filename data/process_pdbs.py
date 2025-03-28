@@ -7,7 +7,7 @@ from .converter.pdb_to_list_blocks import pdb_to_list_blocks
 from .dataset import blocks_interface, blocks_to_data
 
 def parse_args():
-    parser = argparse.ArgumentParser(description='Process Q-BioLiP PP data of protein-ligand interaction for pre-training')
+    parser = argparse.ArgumentParser(description='Process PDB data for embedding with ATOMICA')
     parser.add_argument('--data_index_file', type=str, required=True, help="""CSV file containing the following headers [ pdb_id | pdb_path | chain1 | chain2 | lig_code | lig_smiles ]
                             pdb_id: 4 letter pdb code, 
                             pdb_path: path to the pdb file, 
