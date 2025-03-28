@@ -1,6 +1,5 @@
-# ATOMICA: Universal Geometric AI for Molecular Interactions across Biomolecular Modalities
-
 ![ATOMICA logo](assets/atomica_logo.png)
+# Universal Geometric AI for Molecular Interactions across Biomolecular Modalities
 
 **Authors**
 * Ada Fang
