@@ -1,6 +1,6 @@
 # ATOMICA: Universal Geometric AI for Molecular Interactions across Biomolecular Modalities
 
-![ATOMICA logo](assets/atomica_logo.svg)
+![ATOMICA logo](assets/atomica_logo.png)
 
 **Authors**
 * Ada Fang
@@ -51,8 +51,9 @@ Refer to the jupyter notebook at `case_studies/binder_prediction/ATOMICA_Binder_
 Refer to the jupyter notebook at `case_studies/human_interfaceome_network/ATOMICA_Network.ipynb`
 
 ### Embedding your own structures
-For embedding biomolecular complexes: process .pdb files with `data/process_pdbs.py` and embed with `get_embeddings.py`.
-For embedding protein-(ion/small molecule/lipid/nucleic acid/protein) interfaces: first predict (ion/small molecule/lipid/nucleic acid/protein) binding sites with [PeSTo](https://github.com/LBM-EPFL/PeSTo), second process the PeSTo output .pdb files with `case_studies/protein_universe/process_PeSTo_results.py`, finally embed with `get_embeddings.py`.
+**For embedding biomolecular complexes:** process .pdb files with `data/process_pdbs.py` and embed with `get_embeddings.py`.
+
+**For embedding protein-(ion/small molecule/lipid/nucleic acid/protein) interfaces:** first predict (ion/small molecule/lipid/nucleic acid/protein) binding sites with [PeSTo](https://github.com/LBM-EPFL/PeSTo), second process the PeSTo output .pdb files with `case_studies/protein_universe/process_PeSTo_results.py`, finally embed with `get_embeddings.py`.
 
 ## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.
