@@ -7,9 +7,9 @@
 * Andrew Zhou
 * Marinka Zitnik
 
-[Paper](link_to_paper) | [Project Website](link_to_website)
+[Paper](link_to_paper) | [Project Website](https://zitniklab.hms.harvard.edu/projects/ATOMICA)
 
-ATOMICA is a geometric AI model that learns universal representations of molecular interactions at an atomic scale. The model is pretrained on 2,105,703 molecular interaction interfaces from the Protein Data Bank and Cambridge Structural Database, this includes protein-small molecule, protein-ion, small molecule-small molecule, protein-protein, protein-peptide, protein-RNA, protein-DNA, and nucleic acid-small molecule complexes. Embeddings of ATOMICA can be generated with the open source model weights and code to be used for various downstream tasks. In the paper, we demonstrate the utility of ATOMICA embeddings for studying the human interfaceome network with ATOMICANets and for annotating ions and small molecules to proteins in the dark proteome.
+ATOMICA is a geometric AI model that learns universal representations of molecular interactions at an atomic scale. The model is pretrained on 2,037,972 molecular interaction interfaces from the Protein Data Bank and Cambridge Structural Database, this includes protein-small molecule, protein-ion, small molecule-small molecule, protein-protein, protein-peptide, protein-RNA, protein-DNA, and nucleic acid-small molecule complexes. Embeddings of ATOMICA can be generated with the open source model weights and code to be used for various downstream tasks. In the paper, we demonstrate the utility of ATOMICA embeddings for studying the human interfaceome network with ATOMICANets and for annotating ions and small molecules to proteins in the dark proteome.
 
 ## :rocket: Installation and Setup
 
@@ -32,7 +32,7 @@ We provide the following datasets:
 * Processed protein interfaces of dark proteome binding sites to ion and small molecules
 
 ### 4. Download Model Checkpoints
-Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/ATOMICA/). The following models are available:
+Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/ATOMICA). The following models are available:
 * ATOMICA model
 * Pretrained ATOMICA-Interface model
 * Finetuned ATOMICA-Ligand prediction models for the following ligands:
@@ -44,13 +44,13 @@ Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/AT
 Training scripts for pretraining ATOMICA and finetuning ATOMICA-Interface and ATOMICA-Ligand are provided in `scripts/`.
 
 ### Inference with ATOMICA-Ligand
-Refer to the jupyter notebook at `case_studies/binder_prediction/ATOMICA_Binder_Prediction.ipynb` for an example of how to use the model for binder prediction. **TODO: add jupyter notebook**
+Refer to the jupyter notebook at `case_studies/atomica_ligand/example_run_atomica_ligand.ipynb` for an example of how to use the model for binder prediction.
 
 ### Explore ATOMICANets
-Refer to the jupyter notebook at `case_studies/human_interfaceome_network/ATOMICA_Network.ipynb`
+Refer to the jupyter notebook at `case_studies/atomica_net/example_atomica_net.ipynb`
 
 ### Embedding your own structures
-Make sure to download the ATOMICA model weights and config files from [Hugging Face](https://huggingface.co/ada-f/ATOMICA/).
+Make sure to download the ATOMICA model weights and config files from [Hugging Face](https://huggingface.co/ada-f/ATOMICA).
 
 **For embedding biomolecular complexes:** process .pdb files with `data/process_pdbs.py` and embed with `get_embeddings.py`.
 
