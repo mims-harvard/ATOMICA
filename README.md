@@ -1,5 +1,5 @@
 ![ATOMICA logo](assets/atomica_logo.png)
-# Universal Geometric AI for Molecular Interactions across Biomolecular Modalities
+# Learning Universal Representations of Intermolecular Interactions
 
 **Authors**
 * Ada Fang
@@ -27,7 +27,7 @@ Set up the environment according to `setup_env.sh`.
 The data for pretraining and downstream analyses is hosted at [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
 
 We provide the following datasets:
-* Processed CSD and QBioLiP (based on PDB) interface complex graphs for pretraining
+* Processed CSD and QBioLiP (based on PDB) interaction complex graphs for pretraining
 * Processed protein interfaces of human proteome binding sites to ion, small molecule, lipid, nucleic acid, and protein modalities
 * Processed protein interfaces of dark proteome binding sites to ion and small molecules
 
