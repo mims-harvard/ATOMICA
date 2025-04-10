@@ -58,3 +58,21 @@ Make sure to download the ATOMICA model weights and config files from [Hugging F
 
 ## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.
+
+## :balance_scale: License
+The code in this package is licensed under the MIT License.
+
+## :scroll: Citation
+If you use ATOMICA in your research, please cite the following [preprint](https://www.biorxiv.org/content/10.1101/2025.04.02.646906v1):
+```
+@article{Fang2025ATOMICA,
+  author = {Fang, Ada and Zhang, Zaixi and Zhou, Andrew and Zitnik, Marinka},
+  title = {ATOMICA: Learning Universal Representations of Intermolecular Interactions},
+  year = {2025},
+  journal = {bioRxiv},
+  publisher = {Cold Spring Harbor Laboratory},
+  doi = {10.1101/2025.04.02.646906},
+  url = {https://www.biorxiv.org/content/10.1101/2025.04.02.646906v1},
+  note = {preprint},
+}
+```
