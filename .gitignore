@@ -18,6 +18,20 @@ __pycache__
 
 *.ckpt
 
+*.sh
+
+*.fasta
+
+*.gml
+
+*.csv
+
+*.tsv
+
+*.gexf
+
+*.yaml
+
 baselines
 
 datasets
@@ -42,3 +56,9 @@ utils/_*
 # Force include the specific file
 !/data/tokenizer/vocabs/ps_vocab_300.txt
 !/data/tokenizer/vocabs/ps_vocab_500.txt
+
+# Other files
+visualise_interactions.ipynb
+data/example/test_example.ipynb
+data/mmap_dataset.py
+interaction_profiler/*
