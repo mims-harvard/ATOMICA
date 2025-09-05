@@ -62,3 +62,5 @@ visualise_interactions.ipynb
 data/example/test_example.ipynb
 data/mmap_dataset.py
 interaction_profiler/*
+src/atomica.egg-info
+third_party

@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "atomica"
+version = "0.1.0"
+description = "ATOMICA"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "torch==2.1.1",
+    "torch-scatter",
+    "torch-cluster",
+    "numpy==1.26.4",
+    "scipy==1.13.1",
+    "tqdm",
+    "wandb==0.18.2",
+    "tensorboard==2.18.0",
+    "e3nn==0.5.1",
+    "rdkit-pypi==2022.9.5",
+    "openbabel-wheel==3.1.1.20",
+    "biopython==1.84",
+    "biotite==0.40.0",
+    "atom3d",
+    "orjson",
+    "matplotlib",
+    "seaborn",
+    "plotly",
+    "umap-learn",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "black",
+    "flake8",
+    "jupyter",
+]
+
+[project.scripts]
+atomica-train = "atomica.scripts.train:main"
+atomica-embeddings = "atomica.scripts.get_embeddings:main"
+atomica-evaluate = "atomica.scripts.evaluate:main"
+atomica-inference = "atomica.scripts.inference:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.package-data]
+atomica = [
+    "data/tokenizer/vocabs/*.txt",
+    "data/converter/*.txt",
+]
