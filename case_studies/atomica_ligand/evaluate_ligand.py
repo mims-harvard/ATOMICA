@@ -2,15 +2,11 @@ import numpy as np
 import json
 import os
 import pandas as pd
-import sys
 import torch
 from tqdm import tqdm
 from sklearn.metrics import precision_recall_curve, auc
 
-# Get the absolute path to the ATOMICA root directory
-current_file = os.path.abspath(__file__)
-atomica_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
-sys.path.insert(0, atomica_root)
+# Imports for ligand evaluation
 
 from atomica.data.dataset import LabelledPDBDataset
 from atomica.models.classifier_model import ClassifierModel

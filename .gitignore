@@ -32,6 +32,8 @@ __pycache__
 
 *.yaml
 
+*.sdf
+
 baselines
 
 datasets
