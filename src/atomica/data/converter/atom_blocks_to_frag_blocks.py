@@ -2,8 +2,8 @@
 
 from typing import Tuple, List, Optional
 
-from data.dataset import Block, VOCAB
-from data.tokenizer.tokenize_3d import tokenize_3d
+from ..dataset import Block, VOCAB
+from ..tokenizer.tokenize_3d import tokenize_3d
 
 
 def atom_blocks_to_frag_blocks(

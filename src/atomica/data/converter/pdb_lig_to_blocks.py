@@ -1,7 +1,7 @@
 from Bio.PDB import PDBParser
 from Bio.PDB.MMCIFParser import MMCIFParser
-from data.dataset import Block, Atom, VOCAB
-from data.converter.atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
+from ..dataset import Block, Atom, VOCAB
+from .atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 
 
 def extract_pdb_ligand(pdb, lig_code, chain_id, smiles, lig_idx:int=None, use_model:int=None, fragmentation_method=None):

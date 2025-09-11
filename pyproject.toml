@@ -28,6 +28,7 @@ dependencies = [
     "seaborn",
     "plotly",
     "umap-learn",
+    "pyarrow==21.0.0",
 ]
 
 [project.optional-dependencies]

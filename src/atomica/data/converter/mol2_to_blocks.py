@@ -3,7 +3,7 @@
 import re
 from typing import List, Optional
 
-from data.dataset import Block, Atom, VOCAB
+from ..dataset import Block, Atom, VOCAB
 
 from .atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 

@@ -8,16 +8,7 @@ import biotite.structure as bs
 from biotite.structure import AtomArray, get_residue_starts
 from biotite.structure.io.pdb import PDBFile
 
-import sys
-import os
-PROJ_DIR = os.path.join(
-    os.path.split(os.path.abspath(__file__))[0],
-    '..', '..'
-)
-print(f'Project directory: {PROJ_DIR}')
-sys.path.append(PROJ_DIR)
-
-from data.dataset import Block, Atom, VOCAB
+from ..dataset import Block, Atom, VOCAB
 
 
 def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, 

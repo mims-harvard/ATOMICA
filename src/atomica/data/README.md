@@ -32,7 +32,7 @@ If there are particular sections of a chain that you would not like in the inter
 
 **Example**
 ```
-python data/process_pdbs.py \
+python -m atomica.data.process_pdbs \
     --data_index_file data/example/example_inputs.csv \
     --out_path data/example/example_outputs.pkl \
     --interface_dist_th 8.0 \

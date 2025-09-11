@@ -2,7 +2,7 @@
 
 from rdkit import Chem
 import os
-from data.dataset import Block, Atom, VOCAB
+from ..dataset import Block, Atom, VOCAB
 from .atom_blocks_to_frag_blocks import atom_blocks_to_frag_blocks
 from rdkit.Chem.rdchem import GetPeriodicTable
 _periodic_table = GetPeriodicTable()

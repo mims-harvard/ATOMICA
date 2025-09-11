@@ -1,13 +1,16 @@
 import argparse
 import pandas as pd
 import pickle
+import json
 from tqdm import tqdm
 import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from data.converter.pdb_lig_to_blocks import extract_pdb_ligand
-from data.converter.pdb_to_list_blocks import pdb_to_list_blocks
-from data.dataset import blocks_interface, blocks_to_data
+from .converter.pdb_lig_to_blocks import extract_pdb_ligand
+from .converter.pdb_to_list_blocks import pdb_to_list_blocks
+from .dataset import blocks_interface, blocks_to_data
+import pyarrow.parquet as pq
+import pyarrow as pa
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Process PDB data for embedding with ATOMICA')
@@ -21,7 +24,7 @@ def parse_args():
                             lig_resi: residue index (integer) of the ligand, used for matching the ligand in the pdb file.
                             label (optional): label for the interaction, e.g. binding affinity, leave empty/None if not available.
                         """)
-    parser.add_argument('--out_path', type=str, required=True, help='Output path')
+    parser.add_argument('--out_path', type=str, required=True, help='Output path for parquet file')
     parser.add_argument('--interface_dist_th', type=float, default=8.0,
                         help='Residues who has atoms with distance below this threshold are considered in the complex interface')
     parser.add_argument('--fragmentation_method', type=str, default=None, choices=['PS_300'], help='fragmentation method for small molecule ligands')
@@ -47,7 +50,7 @@ def process_PL_pdb(pdb_file, pdb_id, rec_chain, lig_code, lig_chain, smiles, lig
         pdb_indexes_map.update(dict(zip(range(1,len(interface_rec_blocks)+1), rec_pdb_indexes))) # map block index to pdb index, +1 for global block)
         pdb_indexes_map.update(dict(zip(range(len(interface_rec_blocks)+2,len(interface_rec_blocks)+len(interface_lig_indexes)+2), lig_pdb_indexes))) # map block index to pdb index, +2 for global blocks
         items.append({
-            'data': data,
+            **data,
             'block_to_pdb_indexes': pdb_indexes_map,
             'id': id,
         })
@@ -79,7 +82,7 @@ def process_pdb(pdb_file, pdb_id, group1_chains, group2_chains, dist_th):
     pdb_indexes_map.update(dict(zip(range(len(blocks1)+2,len(blocks1)+len(blocks2)+2), [pdb_indexes[1][i] for i in block2_indexes])))# map block index to pdb index, +1 for global block)
     data = blocks_to_data(blocks1, blocks2)
     return {
-        "data": data,
+        **data,
         "id": f"{pdb_id}_{''.join(group1_chains)}_{''.join(group2_chains)}",
         "block_to_pdb_indexes": pdb_indexes_map,
     }
@@ -124,8 +127,9 @@ def main(args):
                     item['label'] = label
             items.extend(pl_items)
     
-    with open(args.out_path, 'wb') as f:
-        pickle.dump(items, f)
+    items = pd.DataFrame(items)
+    items['block_to_pdb_indexes'] = items['block_to_pdb_indexes'].apply(json.dumps)
+    items.to_parquet(args.out_path)
     
     print(f"Finished processing. Total items={len(items)}. Saved to {args.out_path}")
 
