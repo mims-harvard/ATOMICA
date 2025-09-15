@@ -34,7 +34,7 @@ If there are particular sections of a chain that you would not like in the inter
 ```
 python -m atomica.data.process_pdbs \
     --data_index_file data/example/example_inputs.csv \
-    --out_path data/example/example_outputs.pkl \
+    --out_path data/example/example_outputs.parquet \
     --interface_dist_th 8.0 \
     --fragmentation_method PS_300
 ```
@@ -42,16 +42,15 @@ python -m atomica.data.process_pdbs \
 In the example data index file `data/example/example_inputs.csv`, we provide examples for the following PDB ids: 6llw (protein-small molecule), 3i5x (protein-RNA), 5kl2 (protein-DNA), 6d1u (protein-peptide), 2uxq (protein-protein), 6hrg (protein-ion), and 4yaz (nucleic acid-small molecule).
 
 ## Output format
-The output is a pickle file containing the processed interaction complexes as a list of nested dictionaries. Each dictionary contains the following keys:
+The output is a parquet file containing the processed interaction complexes as a list of nested dictionaries. Each entry is a row in the parquet file and contains the following fields:
 * `id`: the PDB ID of the structure, or unique identifier of the structure.
 * `block_to_pdb_indexes`: a dictionary that maps from the `block_idx` to the indexes of the residues (chain, residue index) in the PDB file.
-* `data`: a dictionary containing the following:
-    * `X`: list of floats of shape [Natom,3] which contains the 3D atomic coordinates of every atom as well as well as two special global atoms defined to be the center of their respective interfaces.
-    * `A`: list of integer atom element indexes of shape [Natom].
-    * `B`: list of integer block identity indexes of shape [Nblock].
-    * `block_lengths`: list of integers of shape [Nblock] which contains the number of atoms in each block.
-    * `segment_ids`: list of integers of shape [Nblock] which contains the segment id of each block. Segment id is 0 for the first interface and 1 for the second interface.
-    * `atom_positions`: deprecated.
+* `X`: list of floats of shape [Natom,3] which contains the 3D atomic coordinates of every atom as well as well as two special global atoms defined to be the center of their respective interfaces.
+* `A`: list of integer atom element indexes of shape [Natom].
+* `B`: list of integer block identity indexes of shape [Nblock].
+* `block_lengths`: list of integers of shape [Nblock] which contains the number of atoms in each block.
+* `segment_ids`: list of integers of shape [Nblock] which contains the segment id of each block. Segment id is 0 for the first interface and 1 for the second interface.
+* `atom_positions`: deprecated.
 
 ## Embedding your own structures
 To embed your own structures with ATOMICA, please use the `get_embeddings.py` script. The script takes in a processed data file and outputs the embeddings for each interface. You will need to provide the following inputs:

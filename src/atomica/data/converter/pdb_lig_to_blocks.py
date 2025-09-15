@@ -31,6 +31,8 @@ def extract_pdb_ligand(pdb, lig_code, chain_id, smiles, lig_idx:int=None, use_mo
             if hetero_flag.strip() != '' and hetero_flag == f"H_{lig_code}" and (res_number == lig_idx or lig_idx is None):
                 atoms = []
                 for atom in residue:
+                    if atom.element == 'H':
+                        continue
                     atoms.append(Atom(atom.get_id(), atom.get_coord(), atom.element))
                 blocks = [Block(symbol=atom.element.lower(),units=[atom]) for atom in atoms]
                 if fragmentation_method is not None and smiles is not None:

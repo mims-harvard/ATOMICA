@@ -255,6 +255,34 @@ def item_to_pdb_file(item, output_pdb_file):
     with open(output_pdb_file, "w") as file:
         pdb_file.write(file)
 
+
+def filter_for_segment(data, keep_segment):
+    # segment_id = 0, protein
+    # segment_id = 1, ligand
+    for k, v in data.items():
+        if type(v) is list:
+            data[k] = np.array(v)
+
+    block_mask = data['segment_ids'] == keep_segment
+    block_id = np.zeros_like(data["A"]) # [Nu]
+    block_id[np.cumsum(data["block_lengths"], axis=0)[:-1]] = 1
+    block_id = np.cumsum(block_id, axis=0)
+    atom_mask = data["segment_ids"][block_id] == keep_segment
+
+    new_data = {}
+    new_data['X'] = data['X'][atom_mask].tolist()
+    new_data['B'] = data['B'][block_mask].tolist()
+    new_data['A'] = data['A'][atom_mask].tolist()
+    new_data['atom_positions'] = data['atom_positions'][atom_mask].tolist()
+    new_data['block_lengths'] = data['block_lengths'][block_mask].tolist()
+    new_data['segment_ids'] = data['segment_ids'][block_mask].tolist()
+    for key in data:
+        if key in ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']:
+            continue
+        new_data[key] = data[key]
+    return new_data
+
+
 class BlockGeoAffDataset(torch.utils.data.Dataset):
 
     def __init__(self, data_file, database=None, dist_th=6, n_cpu=4, suffix=''):
@@ -335,33 +363,6 @@ class BlockGeoAffDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         return item
-    
-    @classmethod
-    def filter_for_segment(cls, data, keep_segment):
-        # segment_id = 0, protein
-        # segment_id = 1, ligand
-        for k, v in data.items():
-            if type(v) is list:
-                data[k] = np.array(v)
-
-        block_mask = data['segment_ids'] == keep_segment
-        block_id = np.zeros_like(data["A"]) # [Nu]
-        block_id[np.cumsum(data["block_lengths"], axis=0)[:-1]] = 1
-        block_id = np.cumsum(block_id, axis=0)
-        atom_mask = data["segment_ids"][block_id] == keep_segment
-
-        new_data = {}
-        new_data['X'] = data['X'][atom_mask].tolist()
-        new_data['B'] = data['B'][block_mask].tolist()
-        new_data['A'] = data['A'][atom_mask].tolist()
-        new_data['atom_positions'] = data['atom_positions'][atom_mask].tolist()
-        new_data['block_lengths'] = data['block_lengths'][block_mask].tolist()
-        new_data['segment_ids'] = data['segment_ids'][block_mask].tolist()
-        for key in data:
-            if key in ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']:
-                continue
-            new_data[key] = data[key]
-        return new_data
 
     @classmethod
     def collate_fn(cls, batch):
