@@ -10,6 +10,7 @@ from collections import Counter
 import gzip
 import orjson
 import numpy as np
+import pandas as pd
 import torch
 import biotite.structure as bs
 import biotite.structure.io.pdb as pdb
@@ -17,7 +18,7 @@ import biotite.structure.io.pdb as pdb
 from ..utils.logger import print_log
 from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
 
-
+DATA_COLS = ['X','B','A','atom_positions','block_lengths','segment_ids'] 
 MODALITIES = {"PP":0, "PL":1, "Pion":2, "Ppeptide":3, "PRNA":4, "PDNA":5, "RNAL":6, "CSD":7}
 
 class Block:
@@ -593,8 +594,7 @@ class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
         '''
         item = self.data[idx]
         data = item['data']
-        data["label"] = item["label"]
-
+        data['label'] = item['label']
         return data
 
     @classmethod
@@ -763,24 +763,32 @@ def compressed_jsonl_to_dataset(input_file):
             dataset.append(item)
     return dataset
 
+
+def _maybe_convert_numpy_to_list(item):
+    for key, value in item.items():
+        if isinstance(value, np.ndarray):
+            new_value = value.tolist()
+            if key == 'X': # nested list could contain numpy arrays
+                new_value = [v.tolist() if isinstance(v, np.ndarray) else v for v in new_value]
+            item[key] = new_value
+    return item
+
+
 def open_data_file(data_file):
     if data_file.endswith('.jsonl.gz'):
         return compressed_jsonl_to_dataset(data_file)
     elif data_file.endswith('.pkl'):
         with open(data_file, 'rb') as f:
             return pickle.load(f)
+    elif data_file.endswith('.parquet'):
+        df = pd.read_parquet(data_file)
+        data = df[DATA_COLS].to_dict(orient='records')
+        other_cols = [col for col in df.columns if col not in DATA_COLS]
+        other_data = df[other_cols].to_dict(orient='records')
+        items = []
+        for data, other_data in zip(data, other_data):
+            other_data['data'] = _maybe_convert_numpy_to_list(data)
+            items.append(other_data)
+        return items
     else:
         raise ValueError('Unknown file format')
- 
-
-if __name__ == '__main__':
-    args = parse()
-    dataset = BlockGeoAffDataset(args.dataset)
-    print(len(dataset))
-    length = [len(item['B']) for item in dataset]
-    print(f'interface length: min {min(length)}, max {max(length)}, mean {sum(length) / len(length)}')
-    atom_length = [len(item['A']) for item in dataset]
-    print(f'atom number: min {min(atom_length)}, max {max(atom_length)}, mean {sum(atom_length) / len(atom_length)}')
-
-    item = dataset[0]
-    print(item)

@@ -1,7 +1,5 @@
 from math import exp, log
 import torch
-from .abs_trainer import Trainer
-from ..utils.logger import print_log
 from tqdm import tqdm
 import numpy as np
 import wandb
@@ -10,6 +8,10 @@ import os
 import json
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import precision_recall_curve, auc, roc_auc_score
+
+from .abs_trainer import Trainer
+from ..utils.logger import print_log
+from ..data import DynamicBatchWrapper
 
 class AffinityTrainer(Trainer):
 
@@ -46,7 +48,8 @@ class AffinityTrainer(Trainer):
         return self.share_step(batch, batch_idx, val=True)
 
     def _before_train_epoch_start(self):
-        self.train_loader.dataset._form_batch()
+        if isinstance(self.train_loader.dataset, DynamicBatchWrapper):
+            self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 
     def share_step(self, batch, batch_idx, val=False):
@@ -176,7 +179,8 @@ class ClassifierTrainer(Trainer):
         return self.share_step(batch, batch_idx, val=True)
 
     def _before_train_epoch_start(self):
-        self.train_loader.dataset._form_batch()
+        if isinstance(self.train_loader.dataset, DynamicBatchWrapper):
+            self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 
     def share_step(self, batch, batch_idx, val=False):
@@ -312,7 +316,8 @@ class MultiClassClassifierTrainer(Trainer):
         return self.share_step(batch, batch_idx, val=True)
 
     def _before_train_epoch_start(self):
-        self.train_loader.dataset._form_batch()
+        if isinstance(self.train_loader.dataset, DynamicBatchWrapper):
+            self.train_loader.dataset._form_batch()
         return super()._before_train_epoch_start()
 
     def share_step(self, batch, batch_idx, val=False):
