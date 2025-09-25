@@ -14,6 +14,8 @@ import pandas as pd
 import torch
 import biotite.structure as bs
 import biotite.structure.io.pdb as pdb
+from biotite.structure.io.pdb import PDBFile
+import json
 
 from ..utils.logger import print_log
 from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
@@ -255,6 +257,32 @@ def item_to_pdb_file(item, output_pdb_file):
     pdb_file.set_structure(atom_array)
     with open(output_pdb_file, "w") as file:
         pdb_file.write(file)
+
+
+def filter_pdb_with_item(item, pdb_path):
+    """Loads the biotite.structure.AtomArray from the 
+    pdb file and filters it with the item's block_to_pdb_indexes.
+    Returns the pocket atom_array and the protein atom_array.
+    """
+    atom_array = PDBFile.read(pdb_path).get_structure(model=1)
+    atom_array = atom_array[bs.filter_canonical_amino_acids(atom_array)]
+
+    pdb_indexes = []
+    for block_idx, block_type in enumerate(item['data']['B']):
+        if block_type == VOCAB.symbol_to_idx(VOCAB.GLB):
+            continue
+        chain, resi = item["block_to_pdb_indexes"][block_idx].split("_")
+        pdb_indexes.append((chain, int(resi)))
+
+    pocket_atom_array_mask = []
+    for chain, resi in zip(atom_array.chain_id, atom_array.res_id):
+        if (chain, resi) in pdb_indexes:
+            pocket_atom_array_mask.append(True)
+        else:
+            pocket_atom_array_mask.append(False)
+
+    pocket_array = atom_array[pocket_atom_array_mask]
+    return pocket_array, atom_array
 
 
 def filter_for_segment(data, keep_segment):
@@ -788,6 +816,9 @@ def open_data_file(data_file):
         items = []
         for data, other_data in zip(data, other_data):
             other_data['data'] = _maybe_convert_numpy_to_list(data)
+            # block_to_pdb_indexes is a json string, convert it to a dictionary
+            other_data['block_to_pdb_indexes'] = json.loads(other_data['block_to_pdb_indexes'])
+            other_data['block_to_pdb_indexes'] = {int(k): v for k, v in other_data['block_to_pdb_indexes'].items()}
             items.append(other_data)
         return items
     else:
