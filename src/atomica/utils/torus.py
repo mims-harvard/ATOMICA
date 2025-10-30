@@ -10,7 +10,7 @@ from pathlib import Path
 """
 
 
-def p(x, sigma, N=10):
+def p_torus(x, sigma, N=10):
     p_ = 0
     for i in tqdm.trange(-N, N + 1, desc='torus calculating p'):
         p_ += np.exp(-(x + 2 * np.pi * i) ** 2 / 2 / sigma ** 2)
@@ -48,7 +48,7 @@ def _load_torus_data():
         _p_ = np.load(p_file)
         _score_ = np.load(score_file)
     else:
-        _p_ = p(x, sigma[:, None], N=100)
+        _p_ = p_torus(x, sigma[:, None], N=100)
         np.save(p_file, _p_)
 
         _score_ = grad(x, sigma[:, None], N=100) / _p_

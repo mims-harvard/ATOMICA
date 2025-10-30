@@ -7,6 +7,7 @@ from .models.prot_interface_model import ProteinInterfaceModel
 from .trainers.abs_trainer import Trainer
 import torch
 import json
+import pandas as pd
 
 def main(args):
     if args.model_ckpt:
@@ -90,9 +91,29 @@ def main(args):
                 raise e
         embeddings.extend(outputs)
     
-    with open(args.output_path, "wb") as f:
-        pickle.dump(embeddings, f)
-    print(f"Saving processed data to {args.output_path}. Total of {len(embeddings)} items.")
+    if args.output_path.endswith('.parquet'):
+        # Save as parquet file
+        # Convert numpy arrays to lists for parquet compatibility
+        import numpy as np
+        embeddings_parquet = []
+        for emb in embeddings:
+            emb_copy = {
+                "id": emb["id"],
+                "graph_embedding": emb["graph_embedding"].tolist() if isinstance(emb["graph_embedding"], np.ndarray) else emb["graph_embedding"],
+                "block_embedding": emb["block_embedding"].tolist() if isinstance(emb["block_embedding"], np.ndarray) else emb["block_embedding"],
+                "atom_embedding": emb["atom_embedding"].tolist() if isinstance(emb["atom_embedding"], np.ndarray) else emb["atom_embedding"],
+                "block_id": emb["block_id"],
+                "atom_id": emb["atom_id"]
+            }
+            embeddings_parquet.append(emb_copy)
+        df = pd.DataFrame(embeddings_parquet)
+        df.to_parquet(args.output_path, index=False)
+        print(f"Saving processed data to {args.output_path} as parquet. Total of {len(embeddings)} items.")
+    else:
+        # Save as pickle file
+        with open(args.output_path, "wb") as f:
+            pickle.dump(embeddings, f)
+        print(f"Saving processed data to {args.output_path} as pickle. Total of {len(embeddings)} items.")
 
 
 def parse_args():
@@ -101,8 +122,8 @@ def parse_args():
     parser.add_argument('--model_ckpt', type=str, default=None, help='path of the model ckpt to load')
     parser.add_argument('--model_config', type=str, default=None, help='path of the model config to load')
     parser.add_argument('--model_weights', type=str, default=None, help='path of the model weights to load')
-    parser.add_argument("--output_path", type=str, required=True, help='Path to save the output embeddings, should be a .pkl file')
-    parser.add_argument("--data_path", type=str, required=True, help='Path to the data file either in json or pickle format')
+    parser.add_argument("--output_path", type=str, required=True, help='Path to save the output embeddings (supports .pkl or .parquet format)')
+    parser.add_argument("--data_path", type=str, required=True, help='Path to the data file either in json, parquet, or pickle format')
     parser.add_argument("--batch_size", type=int, default=4)
     return parser.parse_args()
 
