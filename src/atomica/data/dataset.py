@@ -589,7 +589,10 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
             for item in batch:
                 val.append(torch.tensor(item[key], dtype=_type))
             if key == 'label':
-                res[key] = torch.tensor(val, dtype=_type)
+                if isinstance(val[0], torch.Tensor):
+                    res[key] = torch.concat(val, dim=0)
+                else:
+                    res[key] = torch.tensor(val, dtype=_type)
             else:
                 res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
@@ -635,7 +638,12 @@ class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
             for item in batch:
                 val.append(torch.tensor(item[key], dtype=_type))
             if key == 'label':
-                res[key] = torch.tensor(val, dtype=_type)
+                if isinstance(val[0], torch.Tensor):
+                    res[key] = torch.stack(val, dim=0)
+                    if res[key].ndim > 1: # [Nbatch, Nclasses], for one hot encoding, the dtype should be float
+                        res[key] = res[key].float()
+                else:
+                    res[key] = torch.tensor(val, dtype=_type)
             else:
                 res[key] = torch.cat(val, dim=0)
         lengths = [len(item['B']) for item in batch]
@@ -819,6 +827,7 @@ def open_data_file(data_file):
             # block_to_pdb_indexes is a json string, convert it to a dictionary
             other_data['block_to_pdb_indexes'] = json.loads(other_data['block_to_pdb_indexes'])
             other_data['block_to_pdb_indexes'] = {int(k): v for k, v in other_data['block_to_pdb_indexes'].items()}
+            other_data['label'] = other_data['label'].tolist() if isinstance(other_data['label'], np.ndarray) else other_data['label']
             items.append(other_data)
         return items
     else:

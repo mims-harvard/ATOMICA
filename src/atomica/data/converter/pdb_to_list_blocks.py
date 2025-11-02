@@ -81,7 +81,7 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
             atoms = [ Atom(atom.get_id(), atom.get_coord().tolist(), atom.element) for atom in residue if atom.element != 'H' ]
             residues.append(Block(symbol, atoms))
             res_ids[res_id] = True
-            indexes.append(f"{_id}_{res_number}")
+            indexes.append(f"{_id}_{res_number}{insert_code.strip()}")
         
         # the last few residues might be non-relevant molecules in the solvent if their types are unk
         end = len(residues) - 1

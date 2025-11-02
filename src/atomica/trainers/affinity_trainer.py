@@ -380,19 +380,31 @@ class MultiClassClassifierTrainer(Trainer):
         label_arr = np.concatenate(label_arr)
         pred_arr = np.concatenate(pred_arr)
 
-        frequency_baseline = np.bincount(label_arr) / len(label_arr)
-        auprc_per_class = []
-        for i in range(self.model.num_classes):
-            if len(label_arr==i) == 0:
-                continue
-            precision, recall, _ = precision_recall_curve(label_arr == i, pred_arr[:, i])
-            auprc = auc(recall, precision)
-            auprc_per_class.append(auprc)
-        
-        mean_auprc = np.mean(auprc_per_class)
-        mean_delta_auprc = mean_auprc - np.mean(frequency_baseline)
-        valid_metric = mean_delta_auprc
-
+        if label_arr.ndim == 1:
+            frequency_baseline = np.bincount(label_arr) / len(label_arr)
+            auprc_per_class = []
+            for i in range(self.model.num_classes):
+                if len(label_arr==i) == 0:
+                    continue
+                precision, recall, _ = precision_recall_curve(label_arr == i, pred_arr[:, i])
+                auprc = auc(recall, precision)
+                auprc_per_class.append(auprc)
+            
+            mean_auprc = np.mean(auprc_per_class)
+            mean_delta_auprc = mean_auprc - np.mean(frequency_baseline)
+            valid_metric = mean_delta_auprc
+        else: # multi-label classification
+            frequency_baseline = np.mean(label_arr, axis=0)
+            auprc_per_class = []
+            for i in range(self.model.num_classes):
+                if len(label_arr[:, i] == 1) == 0:
+                    continue
+                precision, recall, _ = precision_recall_curve(label_arr[:, i], pred_arr[:, i])
+                auprc = auc(recall, precision)
+                auprc_per_class.append(auprc)
+            mean_auprc = np.mean(auprc_per_class)
+            mean_delta_auprc = mean_auprc - np.mean(frequency_baseline)
+            valid_metric = mean_delta_auprc
         if self.use_wandb and self._is_main_proc():
             wandb.log({
                 'val_loss': val_loss,

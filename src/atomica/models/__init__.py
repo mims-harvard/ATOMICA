@@ -1,6 +1,6 @@
 from .pretrain_model import DenoisePretrainModel, DenoisePretrainModelWithBlockEmbedding
 from .affinity_predictor import AffinityPredictor
-from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor
+from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor, ResidueClassifierModel, MultiLabelClassifierModel
 from .masking_model import MaskedNodeModel
 from .prot_interface_model import ProteinInterfaceModel
 import torch
@@ -120,6 +120,24 @@ def create_model(args):
         elif args.task == 'multiclass_classifier':
             Model = MultiClassClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
+        elif args.task == 'multilabel_classifier':
+            Model = MultiLabelClassifierModel
+            add_params["num_classes"] = args.num_classifier_classes
+        elif args.task == 'residue_binary_classifier':
+            Model = ResidueClassifierModel
+            add_params.update({
+                'num_pred_layers': args.num_pred_layers,
+                'pred_dropout': args.pred_dropout,
+                'pred_hidden_size': args.pred_hidden_size,
+            })
+            if args.pred_nonlinearity == 'relu':
+                add_params["nonlinearity"] = torch.nn.ReLU()
+            elif args.pred_nonlinearity == 'gelu':
+                add_params["nonlinearity"] = torch.nn.GELU()
+            elif args.pred_nonlinearity == 'elu':
+                add_params["nonlinearity"] = torch.nn.ELU()
+            else:
+                raise NotImplementedError(f"Nonlinearity {args.pred_nonlinearity} not implemented")
         elif args.task == 'masking':
             Model = MaskedNodeModel
             add_params['num_masked_block_classes'] = args.num_nodes
