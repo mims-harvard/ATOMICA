@@ -333,6 +333,11 @@ def main(args):
 
     ########## define your model/trainer/trainconfig #########
     step_per_epoch = (len(train_set) + args.batch_size - 1) // args.batch_size
+    if args.task in ['binary_classifier', 'multiclass_classifier', 'residue_binary_classifier']:
+        # maximize AURPC
+        metric_min_better = False
+    else:
+        metric_min_better = True
     config = trainers.TrainConfig(
         args.save_dir, args.lr, args.max_epoch,
         cycle_steps=args.cycle_steps,
@@ -342,6 +347,7 @@ def main(args):
         patience=args.patience,
         grad_clip=args.grad_clip,
         save_topk=args.save_topk,
+        metric_min_better=metric_min_better,
     )
     config.add_parameter(step_per_epoch=step_per_epoch,
                          final_lr=args.final_lr if args.final_lr is not None else args.lr)

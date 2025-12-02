@@ -182,6 +182,7 @@ class MLPClassifier(nn.Module):
         num_classes: int, 
         task_type: TaskType,
         hidden_dim: int = 512, 
+        final_hidden_dim: int = 32,
         dropout: float = 0.3
     ):
         """
@@ -195,6 +196,8 @@ class MLPClassifier(nn.Module):
             One of "multilabel", "binary", "multiclass"
         hidden_dim : int
             Hidden layer dimension (default: 512)
+        final_hidden_dim : int
+            Final hidden layer dimension (default: 32)
         dropout : float
             Dropout probability (default: 0.3)
         """
@@ -213,7 +216,12 @@ class MLPClassifier(nn.Module):
         self.relu2 = nn.ReLU()
         self.dropout2 = nn.Dropout(dropout)
         
-        self.fc3 = nn.Linear(hidden_dim, num_classes)
+        self.fc3 = nn.Linear(hidden_dim, final_hidden_dim)
+        self.bn3 = nn.BatchNorm1d(final_hidden_dim)
+        self.relu3 = nn.ReLU()
+        self.dropout3 = nn.Dropout(dropout)
+        
+        self.fc4 = nn.Linear(final_hidden_dim, num_classes)
         
     def forward(self, x, apply_activation: bool = False):
         """

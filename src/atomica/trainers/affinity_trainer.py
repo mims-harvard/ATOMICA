@@ -151,6 +151,7 @@ class ClassifierTrainer(Trainer):
         self.epoch = 0
         self.max_step = config.max_epoch * config.step_per_epoch
         self.log_alpha = log(config.final_lr / config.lr) / self.max_step
+        config.metric_min_better = False # we want to maximize AUPRC
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
@@ -237,17 +238,18 @@ class ClassifierTrainer(Trainer):
                 metric_arr.append(metric.cpu().item())
                 self.valid_global_step += 1
         self.model.train()
-        valid_metric = np.mean(metric_arr)
+        val_loss = np.mean(metric_arr)
         label_arr = np.concatenate(label_arr)
         pred_arr = np.concatenate(pred_arr)
         auroc = roc_auc_score(label_arr, pred_arr)
         precision, recall, _ = precision_recall_curve(label_arr, pred_arr)
         auprc = auc(recall, precision)
         freq_baseline = np.mean(label_arr)
+        valid_metric = auprc
 
         if self.use_wandb and self._is_main_proc():
             wandb.log({
-                'val_loss': valid_metric,
+                'val_loss': val_loss,
                 'val_auroc': auroc,
                 'val_auprc': auprc,
                 'val_delta_auprc': auprc - freq_baseline,
@@ -288,8 +290,6 @@ class MultiClassClassifierTrainer(Trainer):
         self.epoch = 0
         self.max_step = config.max_epoch * config.step_per_epoch
         self.log_alpha = log(config.final_lr / config.lr) / self.max_step
-        # for multi-class classification, we want to maximize the auprc
-        config.metric_min_better = False 
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
@@ -404,7 +404,7 @@ class MultiClassClassifierTrainer(Trainer):
                 auprc_per_class.append(auprc)
             mean_auprc = np.mean(auprc_per_class)
             mean_delta_auprc = mean_auprc - np.mean(frequency_baseline)
-            valid_metric = mean_delta_auprc
+            valid_metric = val_loss
         if self.use_wandb and self._is_main_proc():
             wandb.log({
                 'val_loss': val_loss,
