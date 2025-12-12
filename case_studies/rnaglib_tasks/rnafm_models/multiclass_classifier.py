@@ -18,6 +18,7 @@ from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import os
 import json
+import random
 from typing import Optional, Tuple, Literal, Dict, Any
 from dataclasses import dataclass, asdict
 import sys
@@ -34,6 +35,18 @@ from sklearn.metrics import (
     precision_recall_curve,
     auc,
 )
+
+
+def setup_seed(seed):
+    """Set random seed for reproducibility."""
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 
 @dataclass
@@ -245,13 +258,46 @@ class MLPClassifier(nn.Module):
         x = self.relu2(x)
         x = self.dropout2(x)
         
+        # Final hidden layer
         x = self.fc3(x)
+        x = self.bn3(x)
+        x = self.relu3(x)
+        x = self.dropout3(x)
         
+        # Output layer
+        x = self.fc4(x)
+        
+        # Optional activation for inference
         if apply_activation:
             if self.task_type in ["multilabel", "binary"]:
                 x = torch.sigmoid(x)
             else:  # multiclass
                 x = torch.softmax(x, dim=1)
+        
+        return x
+
+    def get_embedding(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Get the embedding at the final hidden layer (before the classification layer).
+        
+        This is typically used to extract a fixed-size representation for downstream tasks.
+        """
+        self.eval()
+        with torch.no_grad():
+            x = self.fc1(x)
+            x = self.bn1(x)
+            x = self.relu1(x)
+            x = self.dropout1(x)
+            
+            x = self.fc2(x)
+            x = self.bn2(x)
+            x = self.relu2(x)
+            x = self.dropout2(x)
+            
+            x = self.fc3(x)
+            x = self.bn3(x)
+            x = self.relu3(x)
+            x = self.dropout3(x)
         
         return x
 
@@ -421,7 +467,8 @@ def main(
     threshold: float = 0.5,
     patience: int = 10,
     device: Optional[str] = None,
-    output_dir: str = "checkpoints"
+    output_dir: str = "checkpoints",
+    seed: int = 42,
 ):
     """
     Main training function.
@@ -461,6 +508,7 @@ def main(
     output_dir : str
         Directory to save model and predictions
     """
+    setup_seed(seed)
     # Validate task type
     if task_type not in ["multilabel", "binary", "multiclass"]:
         raise ValueError(f"task_type must be one of 'multilabel', 'binary', 'multiclass', got '{task_type}'")
@@ -472,8 +520,8 @@ def main(
     print(f"Task type: {task_type}")
     
     # Create versioned directory
-    version_num = get_next_version_number(output_dir)
-    version_dir = os.path.join(output_dir, f"version_{version_num}")
+    # version_num = get_next_version_number(output_dir)
+    version_dir = output_dir
     os.makedirs(version_dir, exist_ok=True)
     print(f"Created version directory: {version_dir}")
     
@@ -785,6 +833,7 @@ if __name__ == "__main__":
     parser.add_argument("--threshold", type=float, default=0.5, help="Threshold for binary predictions (multilabel/binary only)")
     parser.add_argument("--patience", type=int, default=10, help="Early stopping patience")
     parser.add_argument("--output-dir", type=str, default="checkpoints", help="Output directory")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed")
     
     args = parser.parse_args()
     
@@ -805,4 +854,5 @@ if __name__ == "__main__":
         patience=args.patience,
         device="cuda" if torch.cuda.is_available() else "cpu",
         output_dir=args.output_dir,
+        seed=args.seed,
     )
