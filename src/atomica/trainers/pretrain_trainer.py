@@ -33,7 +33,7 @@ class PretrainTrainer(Trainer):
             self.resume_index = 0                
             
     def get_optimizer(self):
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
         return optimizer
 
     def get_scheduler(self, optimizer):

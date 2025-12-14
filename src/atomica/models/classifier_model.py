@@ -96,6 +96,7 @@ class MultiClassClassifierModel(PredictionModel):
     def __init__(self, num_classes, **kwargs) -> None:
         super().__init__(**kwargs)
         self.num_classes = num_classes
+        self.class_weights = None  # Will be set if weighted_loss is enabled
         self.classifier_ffn = nn.Sequential(
             nn.ReLU(),
             nn.Linear(self.hidden_size, self.hidden_size),
@@ -106,6 +107,17 @@ class MultiClassClassifierModel(PredictionModel):
             nn.ReLU(),
             nn.Linear(self.hidden_size//2, self.num_classes),
         )
+    
+    def set_class_weights(self, class_weights):
+        """Set class weights for weighted cross entropy loss.
+        
+        Args:
+            class_weights: torch.Tensor of shape (num_classes,) with weights for each class
+        """
+        if class_weights.shape[0] != self.num_classes:
+            raise ValueError(f"class_weights must have shape ({self.num_classes},), but got {class_weights.shape}")
+        self.class_weights = class_weights
+        # Device placement will be handled in forward() when needed
     
     @classmethod
     def _load_from_pretrained(cls, pretrained_model, **kwargs):
@@ -153,7 +165,14 @@ class MultiClassClassifierModel(PredictionModel):
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
         logits = self.classifier_ffn(return_value.graph_repr)
         prob = F.softmax(logits, dim=1)
-        return F.cross_entropy(logits, label), prob
+        # Use weighted cross entropy if class weights are set
+        if self.class_weights is not None:
+            # Move weights to the same device as logits if needed
+            weights = self.class_weights.to(logits.device)
+            loss = F.cross_entropy(logits, label, weight=weights)
+        else:
+            loss = F.cross_entropy(logits, label)
+        return loss, prob
     
     def infer(self, batch, extra_info=False):
         self.eval()
@@ -312,7 +331,15 @@ class MultiLabelClassifierModel(MultiClassClassifierModel):
         return_value = PredictionModel.forward(self, Z, B, A, block_lengths, lengths, segment_ids)
         logits = self.classifier_ffn(return_value.graph_repr)
         prob = F.sigmoid(logits)
-        return F.binary_cross_entropy_with_logits(logits, label), prob
+        # Use weighted binary cross entropy if class weights (pos_weight) are set
+        if self.class_weights is not None:
+            # Move weights to the same device as logits if needed
+            # For multilabel, class_weights represents pos_weight (weight for positive examples)
+            pos_weight = self.class_weights.to(logits.device)
+            loss = F.binary_cross_entropy_with_logits(logits, label, pos_weight=pos_weight)
+        else:
+            loss = F.binary_cross_entropy_with_logits(logits, label)
+        return loss, prob
     
     def infer(self, batch, extra_info=False):
         self.eval()

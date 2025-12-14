@@ -47,6 +47,7 @@ def parse():
     parser.add_argument('--dropout', type=float, default=0.0, help='dropout rate')
     parser.add_argument('--max_epoch', type=int, default=10, help='max training epoch')
     parser.add_argument('--grad_clip', type=float, default=None, help='clip gradients with too big norm')
+    parser.add_argument('--weight_decay', type=float, default=1e-3, help='weight decay for optimizer')
     parser.add_argument('--save_dir', type=str, required=True, help='directory to save model and logs')
     parser.add_argument('--batch_size', type=int, default=16, help='batch size')
     parser.add_argument('--valid_batch_size', type=int, default=None, help='batch size of validation, default set to the same as training batch size')
@@ -60,6 +61,9 @@ def parse():
     parser.add_argument('--num_workers', type=int, default=8)
     parser.add_argument('--seed', type=int, default=SEED)
     parser.add_argument('--cycle_steps', type=int, default=100000, help='number of steps per cycle in lr_scheduler.CosineAnnealingWarmRestarts')
+    parser.add_argument('--random_block_sampling', action='store_true', default=False, help='enable random block sampling augmentation during training')
+    parser.add_argument('--block_sampling_p_keep', type=float, default=1.0, help='probability of keeping each non-global block when using random block sampling (0.0 to 1.0)')
+    parser.add_argument('--block_sampling_p_none', type=float, default=0.0, help='probability of skipping augmentation (returning original data unchanged) when using random block sampling (0.0 to 1.0)')
 
     # device
     parser.add_argument('--gpus', type=int, nargs='+', required=True, help='gpu to use, -1 for cpu')
@@ -114,11 +118,15 @@ def parse():
     parser.add_argument('--use_wandb', action="store_true", default=False, help='log to Weights and Biases')
     parser.add_argument('--use_raytune', action="store_true", default=False, help='log to RayTune')
     parser.add_argument('--run_name', type=str, default="test", help='model run name for logging')
+    parser.add_argument('--multiclass_metric', type=str, default=None, choices=['auprc', 'f1_macro'],
+                       help='metric to use for classification: auprc or f1_macro. Both options are supported for multiclass and multilabel classification.')
+    parser.add_argument('--weighted_loss', action='store_true', default=False,
+                       help='use weighted cross entropy loss for multiclass classification. Only valid for MultiClassClassifierModel')
 
     return parser.parse_args()
 
 
-def create_dataset(task, path, path2=None, path3=None, fragment=None):    
+def create_dataset(task, path, path2=None, path3=None, fragment=None, random_block_sampling=False, p_keep=1.0, seed=None, p_none=0.0):    
     if task == 'pretrain_torsion':
         from atomica.data.dataset_pretrain import PretrainTorsionDataset
         dataset1 = PretrainTorsionDataset(path)
@@ -177,24 +185,24 @@ def create_dataset(task, path, path2=None, path3=None, fragment=None):
         dataset = MixDatasetWrapper(*datasets)
         print_log(f'Mixed pretrain dataset size: {len(dataset)}')
     elif task == 'binary_classifier' or task == 'regression' or task == 'residue_binary_classifier':
-        dataset = LabelledPDBDataset(path)
+        dataset = LabelledPDBDataset(path, random_block_sampling=random_block_sampling, p_keep=p_keep, seed=seed, p_none=p_none)
         datasets = [dataset]
         if path2 is not None:
-            dataset2 = LabelledPDBDataset(path2)
+            dataset2 = LabelledPDBDataset(path2, random_block_sampling=random_block_sampling, p_keep=p_keep, seed=seed, p_none=p_none)
             datasets.append(dataset2)
         if path3 is not None:
-            dataset3 = LabelledPDBDataset(path3)
+            dataset3 = LabelledPDBDataset(path3, random_block_sampling=random_block_sampling, p_keep=p_keep, seed=seed, p_none=p_none)
             datasets.append(dataset3)
         if len(datasets) > 1:
             dataset = MixDatasetWrapper(*datasets)
     elif task == 'multiclass_classifier' or task == 'multilabel_classifier':
-        dataset = MultiClassLabelledPDBDataset(path)
+        dataset = MultiClassLabelledPDBDataset(path, random_block_sampling=random_block_sampling, p_keep=p_keep, seed=seed, p_none=p_none)
         datasets = [dataset]
         if path2 is not None:
-            dataset2 = MultiClassLabelledPDBDataset(path2)
+            dataset2 = MultiClassLabelledPDBDataset(path2, random_block_sampling=random_block_sampling, p_keep=p_keep, seed=seed, p_none=p_none)
             datasets.append(dataset2)
         if path3 is not None:
-            dataset3 = MultiClassLabelledPDBDataset(path3)
+            dataset3 = MultiClassLabelledPDBDataset(path3, random_block_sampling=random_block_sampling, p_keep=p_keep, seed=seed, p_none=p_none)
             datasets.append(dataset3)
         if len(datasets) > 1:
             dataset = MixDatasetWrapper(*datasets)
@@ -298,6 +306,10 @@ def main(args):
         args.num_nodes = len(VOCAB.aas + VOCAB.bases + VOCAB.sms + VOCAB.frags)
     else:
         args.num_nodes = None
+    # Validate weighted_loss is only used for multiclass_classifier or multilabel_classifier
+    if args.weighted_loss and args.task not in ['multiclass_classifier', 'multilabel_classifier']:
+        raise ValueError(f"weighted_loss option can only be used for multiclass_classifier or multilabel_classifier task, but got task={args.task}")
+    
     model = models.create_model(args)
 
     ########### load your train / valid set ###########
@@ -305,17 +317,117 @@ def main(args):
         train_task = 'PLA_noisy_nodes_train'
     else:
         train_task = args.task
-    train_set = create_dataset(train_task, args.train_set, args.train_set2, args.train_set3, args.fragmentation_method)
+    train_set = create_dataset(train_task, args.train_set, args.train_set2, args.train_set3, args.fragmentation_method, 
+                               random_block_sampling=args.random_block_sampling, p_keep=args.block_sampling_p_keep, seed=args.seed, p_none=args.block_sampling_p_none)
     if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'PLA_noisy_nodes', 'pretrain_torsion_masking'}:
         train_set = set_noise(train_set, args)
     if args.valid_set is not None:
-        valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragmentation_method)
+        valid_set = create_dataset(args.task, args.valid_set, args.valid_set2, args.valid_set3, fragment=args.fragmentation_method,
+                                   random_block_sampling=False, p_keep=1.0)  # Disable augmentation for validation
         if args.task in {'pretrain_torsion', 'pretrain_gaussian', 'masking', 'pretrain_torsion_masking'}:
             valid_set = set_noise(valid_set, args)
         print_log(f'Train: {len(train_set)}, validation: {len(valid_set)}')
     else:
         valid_set = None
         print_log(f'Train: {len(train_set)}, no validation')
+    
+    # Calculate class weights for weighted loss if requested
+    class_weights = None
+    if args.weighted_loss:
+        from collections import Counter
+        # Get labels from the dataset (handle both wrapped and unwrapped datasets)
+        # Unwrap dataset if it's wrapped (e.g., DynamicBatchWrapper, BalancedDynamicBatchWrapper)
+        dataset_for_labels = train_set
+        while hasattr(dataset_for_labels, 'dataset'):
+            dataset_for_labels = dataset_for_labels.dataset
+        
+        # Handle MixDatasetWrapper
+        if isinstance(dataset_for_labels, MixDatasetWrapper):
+            labels = []
+            for dataset in dataset_for_labels.datasets:
+                labels.extend([item['label'] for item in dataset.data])
+        else:
+            labels = [item['label'] for item in dataset_for_labels.data]
+        
+        num_classes = args.num_classifier_classes
+        
+        if args.task == 'multilabel_classifier':
+            # For multilabel: calculate pos_weight (weight for positive examples relative to negative)
+            # pos_weight[i] = num_negatives[i] / num_positives[i] for each class i
+            # Convert labels to numpy array to compute per-class statistics
+            # Handle various label formats (list of lists, list of arrays, etc.)
+            if isinstance(labels[0], (list, np.ndarray, torch.Tensor)):
+                # Convert each label to numpy array
+                labels_list = []
+                for l in labels:
+                    if isinstance(l, torch.Tensor):
+                        labels_list.append(l.cpu().numpy() if l.is_cuda else l.numpy())
+                    elif isinstance(l, np.ndarray):
+                        labels_list.append(l)
+                    else:
+                        labels_list.append(np.array(l))
+                labels_array = np.stack(labels_list)
+            else:
+                # Try direct conversion, if it fails, handle as scalar labels
+                try:
+                    labels_array = np.array(labels)
+                    if labels_array.ndim == 1:
+                        # Single label per sample - convert to 2D
+                        labels_array = labels_array.reshape(-1, 1)
+                except:
+                    raise ValueError(f"Unable to parse multilabel labels. Expected 2D array (N, num_classes), got labels of type {type(labels[0])}")
+            
+            if labels_array.ndim != 2:
+                raise ValueError(f"Multilabel labels must be 2D array (N, num_classes), got shape {labels_array.shape}")
+            
+            if labels_array.shape[1] != num_classes:
+                print_log(f"Warning: labels have {labels_array.shape[1]} classes but num_classifier_classes={num_classes}")
+            
+            class_weights = torch.zeros(num_classes, dtype=torch.float32)
+            num_samples = labels_array.shape[0]
+            
+            for class_idx in range(num_classes):
+                if labels_array.shape[1] > class_idx:
+                    positives = labels_array[:, class_idx].sum()
+                    negatives = num_samples - positives
+                    
+                    if positives > 0:
+                        # pos_weight = num_negatives / num_positives
+                        class_weights[class_idx] = float(negatives) / float(positives)
+                    else:
+                        # If no positive examples, set weight to 1.0 (no weighting)
+                        class_weights[class_idx] = 1.0
+                else:
+                    class_weights[class_idx] = 1.0
+            
+            # Log per-class statistics
+            print_log(f'Pos weights for multilabel weighted loss: {class_weights.tolist()}')
+            for class_idx in range(num_classes):
+                if labels_array.shape[1] > class_idx:
+                    positives = int(labels_array[:, class_idx].sum())
+                    negatives = int(num_samples - positives)
+                    print_log(f'Class {class_idx}: {positives} positives, {negatives} negatives, pos_weight={class_weights[class_idx]:.4f}')
+        else:
+            # For multiclass: calculate inverse frequency weights
+            label_counts = Counter(labels)
+            # Calculate inverse frequency weights (similar to BalancedDynamicBatchWrapper)
+            class_weights = torch.zeros(num_classes, dtype=torch.float32)
+            for class_idx in range(num_classes):
+                if class_idx in label_counts:
+                    class_weights[class_idx] = 1.0 / label_counts[class_idx]
+                else:
+                    class_weights[class_idx] = 0.0
+            
+            # Normalize weights
+            total_weight = class_weights.sum()
+            if total_weight > 0:
+                class_weights = class_weights / total_weight * num_classes  # Normalize so average weight is 1
+            else:
+                class_weights = torch.ones(num_classes, dtype=torch.float32)
+            
+            print_log(f'Class weights for weighted loss: {class_weights.tolist()}')
+            print_log(f'Class distribution: {dict(label_counts)}')
+    
     if args.max_n_vertex_per_gpu is not None:
         if args.valid_max_n_vertex_per_gpu is None:
             args.valid_max_n_vertex_per_gpu = args.max_n_vertex_per_gpu
@@ -334,7 +446,10 @@ def main(args):
     ########## define your model/trainer/trainconfig #########
     step_per_epoch = (len(train_set) + args.batch_size - 1) // args.batch_size
     if args.task in ['binary_classifier', 'multiclass_classifier', 'residue_binary_classifier']:
-        # maximize AURPC
+        # maximize AURPC (or F1 macro if specified)
+        metric_min_better = False
+    elif args.task == 'multilabel_classifier' and args.multiclass_metric in ['auprc', 'f1_macro', None]:
+        # maximize AUPRC or F1 macro for multilabel classification
         metric_min_better = False
     else:
         metric_min_better = True
@@ -347,10 +462,12 @@ def main(args):
         patience=args.patience,
         grad_clip=args.grad_clip,
         save_topk=args.save_topk,
+        weight_decay=args.weight_decay,
         metric_min_better=metric_min_better,
     )
     config.add_parameter(step_per_epoch=step_per_epoch,
-                         final_lr=args.final_lr if args.final_lr is not None else args.lr)
+                         final_lr=args.final_lr if args.final_lr is not None else args.lr,
+                         multiclass_metric=args.multiclass_metric)
     if args.valid_batch_size is None:
         args.valid_batch_size = args.batch_size
 
@@ -367,6 +484,13 @@ def main(args):
         args.local_rank = -1
         train_sampler = None
 
+    # Set class weights on model if weighted_loss is enabled
+    if args.weighted_loss and class_weights is not None:
+        if hasattr(model, 'set_class_weights'):
+            model.set_class_weights(class_weights)
+        else:
+            raise ValueError(f"Model {type(model)} does not support weighted_loss. Only MultiClassClassifierModel and MultiLabelClassifierModel support this option.")
+    
     if args.local_rank <= 0:
         if args.max_n_vertex_per_gpu is not None:
             print_log(f'Dynamic batch enabled. Max number of vertex per GPU: {args.max_n_vertex_per_gpu}')

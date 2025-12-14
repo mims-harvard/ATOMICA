@@ -16,6 +16,7 @@ import biotite.structure as bs
 import biotite.structure.io.pdb as pdb
 from biotite.structure.io.pdb import PDBFile
 import json
+import copy
 
 from ..utils.logger import print_log
 from .pdb_utils import Atom, VOCAB, dist_matrix_from_coords
@@ -311,6 +312,76 @@ def filter_for_segment(data, keep_segment):
         new_data[key] = data[key]
     return new_data
 
+def randomly_sample_blocks(data, p_keep=1.0, rng=None, p_none=0.0):
+    # Use provided RNG or fall back to global numpy random state
+    if rng is None:
+        rng = np.random
+    
+    # With probability p_none, return data unchanged (no augmentation)
+    if p_none > 0.0 and rng.random() < p_none:
+        # Return data as-is, ensuring lists are preserved if that's what we got
+        return data
+    
+    # Convert lists to numpy arrays if needed
+    for k, v in data.items():
+        if type(v) is list:
+            data[k] = np.array(v)
+    
+    # Identify global blocks for segment 0 and segment 1
+    # Global blocks have B[idx] == VOCAB.symbol_to_idx(VOCAB.GLB)
+    global_block_idx = VOCAB.symbol_to_idx(VOCAB.GLB)
+    is_global_block = data['B'] == global_block_idx
+    
+    # Find global blocks for segment 0 and segment 1
+    global_block_segment_0 = is_global_block & (data['segment_ids'] == 0)
+    global_block_segment_1 = is_global_block & (data['segment_ids'] == 1)
+    
+    # Find all non-global blocks
+    non_global_blocks = ~is_global_block
+    non_global_indices = np.where(non_global_blocks)[0]
+    
+    # For each non-global block, independently decide whether to keep it with probability p_keep
+    # Ensure at least one block is kept if there are any non-global blocks
+    sampled_non_global_mask = np.zeros(len(data['B']), dtype=bool)
+    if len(non_global_indices) > 0:
+        # Vectorized: create random vector of shape (num_non_global_blocks,) and compare with p_keep
+        random_vector = rng.random(len(non_global_indices))
+        keep_decisions = random_vector < p_keep
+        sampled_non_global_mask[non_global_indices] = keep_decisions
+        
+        # Ensure at least one non-global block is kept if there are any non-global blocks
+        if not np.any(keep_decisions):
+            # If no blocks were kept, randomly select one
+            chosen_idx = rng.choice(non_global_indices)
+            sampled_non_global_mask[chosen_idx] = True
+    
+    # Create block_mask: always keep global blocks for segment 0 and 1, plus sampled non-global blocks
+    block_mask = global_block_segment_0 | global_block_segment_1 | sampled_non_global_mask
+    
+    # Create atom_mask similar to filter_for_segment
+    # Map each atom to its block index
+    block_id = np.zeros_like(data["A"])  # [Nu]
+    block_id[np.cumsum(data["block_lengths"], axis=0)[:-1]] = 1
+    block_id = np.cumsum(block_id, axis=0)
+    atom_mask = block_mask[block_id]
+    
+    # Create new_data with filtered arrays
+    new_data = {}
+    new_data['X'] = data['X'][atom_mask].tolist()
+    new_data['B'] = data['B'][block_mask].tolist()
+    new_data['A'] = data['A'][atom_mask].tolist()
+    new_data['atom_positions'] = data['atom_positions'][atom_mask].tolist()
+    new_data['block_lengths'] = data['block_lengths'][block_mask].tolist()
+    new_data['segment_ids'] = data['segment_ids'][block_mask].tolist()
+    
+    # Copy other keys that are not in the standard data columns
+    for key in data:
+        if key in ['X', 'B', 'A', 'atom_positions', 'block_lengths', 'segment_ids']:
+            continue
+        new_data[key] = data[key]
+    
+    return new_data
+
 
 class BlockGeoAffDataset(torch.utils.data.Dataset):
 
@@ -550,10 +621,19 @@ class ProtInterfaceDataset(PDBDataset):
 
 class LabelledPDBDataset(torch.utils.data.Dataset):
 
-    def __init__(self, data_file):
+    def __init__(self, data_file, random_block_sampling=False, p_keep=1.0, seed=None, p_none=0.0):
         super().__init__()
         self.data = open_data_file(data_file)
         self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
+        self.random_block_sampling = random_block_sampling
+        self.p_keep = p_keep
+        self.p_none = p_none
+        self.seed = seed
+        # Create RNG from seed if provided, otherwise will use global numpy random state
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        else:
+            self.rng = None
 
     def __len__(self):
         return len(self.data)
@@ -572,11 +652,20 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
         }        
         '''
         item = self.data[idx]
-        data = item['data']
+        # Only deep copy if we need to apply augmentation to avoid modifying original data
+        if self.random_block_sampling:
+            data = copy.deepcopy(item['data'])
+        else:
+            data = item['data']
         if "label" in item.keys():
             data["label"] = item["label"]
         else:
             data['label'] = item['affinity']['neglog_aff']
+        
+        # Apply random block sampling augmentation if enabled
+        if self.random_block_sampling:
+            data = randomly_sample_blocks(data, self.p_keep, rng=self.rng, p_none=self.p_none)
+        
         return data
 
     @classmethod
@@ -602,10 +691,19 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
 
 class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
 
-    def __init__(self, data_file):
+    def __init__(self, data_file, random_block_sampling=False, p_keep=1.0, seed=None, p_none=0.0):
         super().__init__()
         self.data = open_data_file(data_file)
         self.indexes = [ item['id'] for item in self.data ]  # to satify the requirements of inference.py
+        self.random_block_sampling = random_block_sampling
+        self.p_keep = p_keep
+        self.p_none = p_none
+        self.seed = seed
+        # Create RNG from seed if provided, otherwise will use global numpy random state
+        if seed is not None:
+            self.rng = np.random.default_rng(seed)
+        else:
+            self.rng = None
 
     def __len__(self):
         return len(self.data)
@@ -624,8 +722,17 @@ class MultiClassLabelledPDBDataset(torch.utils.data.Dataset):
         }        
         '''
         item = self.data[idx]
-        data = item['data']
+        # Only deep copy if we need to apply augmentation to avoid modifying original data
+        if self.random_block_sampling:
+            data = copy.deepcopy(item['data'])
+        else:
+            data = item['data']
         data['label'] = item['label']
+        
+        # Apply random block sampling augmentation if enabled
+        if self.random_block_sampling:
+            data = randomly_sample_blocks(data, self.p_keep, rng=self.rng, p_none=self.p_none)
+        
         return data
 
     @classmethod

@@ -14,7 +14,7 @@ class TrainConfig:
     def __init__(self, save_dir, lr, max_epoch,
                  warmup_epochs=0, warmup_start_lr=1e-5, warmup_end_lr=1e-4,
                  metric_min_better=True, patience=3, cycle_steps=1,
-                 grad_clip=None, save_topk=-1, # -1 for save all
+                 grad_clip=None, save_topk=-1, weight_decay=1e-3, # -1 for save all
                  **kwargs):
         self.save_dir = save_dir
         self.lr = lr
@@ -27,6 +27,7 @@ class TrainConfig:
         self.grad_clip = grad_clip
         self.save_topk = save_topk
         self.cycle_steps = cycle_steps # for cyclic learning rate
+        self.weight_decay = weight_decay
         self.__dict__.update(kwargs)
 
     def add_parameter(self, **kwargs):

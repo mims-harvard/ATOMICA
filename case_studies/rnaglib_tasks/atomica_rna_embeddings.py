@@ -88,7 +88,7 @@ RNA_GO = RNAGlibTask(
     task_name="RNAGo",
     residue_level=False,
     task_type="multilabel",
-    atomica_model_weights="version_48/checkpoint/epoch219_step32780.pt",
+    atomica_model_weights="version_28/checkpoint/epoch362_step55539.pt",
     rnafm_model_checkpoint="/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/rnaglib_tasks/rinalmo/RNAGo/version_lr_1e-3_dropout_0.4_hidden_dim_256/seed_0/best_model.pt",
     rnafm_name="rinalmo",
     split="test",
@@ -114,7 +114,7 @@ def get_model_trainer_dataset(task: RNAGlibTask):
         raise ValueError(f"Unknown task_type: {task.task_type}")
 
 def get_atomica_embeddings(task: RNAGlibTask):
-    batch_size = 4
+    batch_size = 2
     results = []
     Model, Trainer, Dataset = get_model_trainer_dataset(task)
     dataset = Dataset(task.get_atomica_dataset_path())

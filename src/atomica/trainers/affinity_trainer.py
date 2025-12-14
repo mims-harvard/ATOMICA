@@ -7,7 +7,7 @@ from scipy.stats import spearmanr
 import os
 import json
 from torch.optim.lr_scheduler import LambdaLR
-from sklearn.metrics import precision_recall_curve, auc, roc_auc_score
+from sklearn.metrics import precision_recall_curve, auc, roc_auc_score, f1_score
 
 from .abs_trainer import Trainer
 from ..utils.logger import print_log
@@ -23,7 +23,7 @@ class AffinityTrainer(Trainer):
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
         return optimizer
 
     def get_scheduler(self, optimizer):
@@ -155,7 +155,7 @@ class ClassifierTrainer(Trainer):
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
         return optimizer
 
     def get_scheduler(self, optimizer):
@@ -293,7 +293,7 @@ class MultiClassClassifierTrainer(Trainer):
         super().__init__(model, train_loader, valid_loader, config)
 
     def get_optimizer(self):
-        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=1e-3)
+        optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.config.lr, weight_decay=self.config.weight_decay)
         return optimizer
 
     def get_scheduler(self, optimizer):
@@ -380,20 +380,42 @@ class MultiClassClassifierTrainer(Trainer):
         label_arr = np.concatenate(label_arr)
         pred_arr = np.concatenate(pred_arr)
 
+        # Get multiclass_metric option from config (default None)
+        multiclass_metric = getattr(self.config, 'multiclass_metric', None)
+
         if label_arr.ndim == 1:
+            # Multiclass classification
+            pred_classes = np.argmax(pred_arr, axis=1)
+            f1_macro = f1_score(label_arr, pred_classes, average='macro')
+            
+            # Compute AUPRC
             frequency_baseline = np.bincount(label_arr) / len(label_arr)
             auprc_per_class = []
             for i in range(self.model.num_classes):
-                if len(label_arr==i) == 0:
+                if len(label_arr[label_arr == i]) == 0:
                     continue
                 precision, recall, _ = precision_recall_curve(label_arr == i, pred_arr[:, i])
                 auprc = auc(recall, precision)
                 auprc_per_class.append(auprc)
-            
-            mean_auprc = np.mean(auprc_per_class)
+            mean_auprc = np.mean(auprc_per_class) if auprc_per_class else 0.0
             mean_delta_auprc = mean_auprc - np.mean(frequency_baseline)
-            valid_metric = mean_delta_auprc
+            
+            # Choose metric based on option
+            if multiclass_metric == 'auprc' or multiclass_metric is None:
+                valid_metric = mean_delta_auprc
+            elif multiclass_metric == 'f1_macro':
+                valid_metric = f1_macro
+            
+            # Log both metrics to wandb
+            if self.use_wandb and self._is_main_proc():
+                wandb.log({
+                    'val_loss': val_loss,
+                    'val_auprc': mean_auprc,
+                    'val_delta_auprc': mean_delta_auprc,
+                    'val_f1_macro': f1_macro,
+                }, step=self.global_step)
         else: # multi-label classification
+            # Compute metrics for multilabel classification
             frequency_baseline = np.mean(label_arr, axis=0)
             auprc_per_class = []
             for i in range(self.model.num_classes):
@@ -404,13 +426,27 @@ class MultiClassClassifierTrainer(Trainer):
                 auprc_per_class.append(auprc)
             mean_auprc = np.mean(auprc_per_class)
             mean_delta_auprc = mean_auprc - np.mean(frequency_baseline)
-            valid_metric = val_loss
-        if self.use_wandb and self._is_main_proc():
-            wandb.log({
-                'val_loss': val_loss,
-                'val_auprc': mean_auprc,
-                'val_delta_auprc': mean_delta_auprc,
-            }, step=self.global_step)
+            
+            # Compute F1 macro for logging (and potentially as validation metric)
+            pred_binary = (pred_arr > 0.5).astype(int)
+            f1_macro = f1_score(label_arr, pred_binary, average='macro', zero_division=0)
+            
+            # Support both AUPRC and F1 macro for multilabel classification
+            if multiclass_metric == 'auprc' or multiclass_metric is None:
+                valid_metric = mean_delta_auprc
+            elif multiclass_metric == 'f1_macro':
+                valid_metric = f1_macro
+            else:
+                raise ValueError(f"multiclass_metric='{multiclass_metric}' is not supported for multilabel classification. Supported options are 'auprc' and 'f1_macro'.")
+            
+            if self.use_wandb and self._is_main_proc():
+                log_dict = {
+                    'val_loss': val_loss,
+                    'val_auprc': mean_auprc,
+                    'val_delta_auprc': mean_delta_auprc,
+                    'val_f1_macro': f1_macro,
+                }
+                wandb.log(log_dict, step=self.global_step)
         if self.use_raytune:
             from ray import train as ray_train
             ray_train.report({'val_RMSELoss': float(valid_metric), "epoch": self.epoch})
