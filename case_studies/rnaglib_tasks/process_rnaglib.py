@@ -4,16 +4,16 @@ import argparse
 import json
 import numpy as np
 
-from atomica.data.dataset import blocks_to_data
+from atomica.data.dataset import blocks_to_data, VOCAB
 from atomica.data.converter.pdb_to_list_blocks import pdb_to_list_blocks
 
 DATA_DIR = "/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/rnaglib_tasks"
 
-def process_pdb(row):
+def process_pdb(row, residue_level_labels: bool):
     try:
         # For one of the pdbs the whole chain is HETATM entries, so no residues are returned
         # This raises an error, but we can skip this.
-        blocks, pdb_indexes = pdb_to_list_blocks(row['pdb_path'], row['chain1'].split(','), return_indexes=True, is_rna=True, is_dna=True)
+        blocks, pdb_indexes = pdb_to_list_blocks(row['pdb_path'], row['chain1'].split(','), return_indexes=True, is_rna=True, only_rna=True)
     except Exception as e:
         print(f"Error processing {row['pdb_id']}: {e}")
         return None
@@ -38,13 +38,22 @@ def process_pdb(row):
     if missing_indexes:
         print("Missing residues in ", row['pdb_id'], missing_indexes)
     
+    # Check all residues are RNA
+    for block in data['B']:
+        if VOCAB.idx_to_abrv(block) not in {'RA', 'RU', 'RG', 'RC', 'UNK', '<G>'}:
+            print(f"[WARNING] Residue {VOCAB.idx_to_abrv(block)} in {row['pdb_id']} is not RNA.")
+    
     # Fill out the label field
-    if isinstance(row['label'], list) or isinstance(row['label'], np.ndarray):
-        kept_pdb_indexes = [pdb_indexes.index(pdb_index) for pdb_index in row['pdb_indexes'].tolist() if pdb_index in pdb_indexes]
-        label = [row['label'][i] for i in kept_pdb_indexes]
-        assert len(kept_pdb_indexes) == len(blocks)
-        if len(label) != len(blocks):
-            print("Label length mismatch in ", row['pdb_id'], len(label), len(blocks))
+    if residue_level_labels:
+        if isinstance(row['label'], list) or isinstance(row['label'], np.ndarray):
+            kept_pdb_indexes = [pdb_indexes.index(pdb_index) for pdb_index in row['pdb_indexes'].tolist() if pdb_index in pdb_indexes]
+            label = [row['label'][i] for i in kept_pdb_indexes]
+            assert len(kept_pdb_indexes) == len(blocks)
+            if len(label) != len(blocks):
+                print("Label length mismatch in ", row['pdb_id'], len(label), len(blocks))
+                return None
+        else:
+            print("Label for residue-level labels is not a list or numpy array. Skipping...")
             return None
     else:
         label = row['label']
@@ -52,11 +61,11 @@ def process_pdb(row):
     return data
 
 
-def main(df_path: str, out_path: str):
+def main(df_path: str, out_path: str, residue_level_labels: bool):
     df = pd.read_parquet(df_path)
     items = []
     for idx, row in tqdm(df.iterrows(), total=len(df)):
-        data = process_pdb(row)
+        data = process_pdb(row, residue_level_labels)
         if data is None:
             continue
         items.append(data)
@@ -70,8 +79,9 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument('--df_path', type=str, required=True)
     parser.add_argument('--out_path', type=str, required=True)
+    parser.add_argument('--residue_level_labels', action='store_true', default=False)
     return parser.parse_args()
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.df_path, args.out_path)
+    main(args.df_path, args.out_path, args.residue_level_labels)

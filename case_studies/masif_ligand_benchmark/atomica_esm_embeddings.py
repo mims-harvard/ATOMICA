@@ -75,52 +75,18 @@ def get_esm_embeddings(dist_th, seed, split, model_type):
 
 
 model_checkpoints={
-    5: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_24/checkpoint/epoch92_step2976.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_25/checkpoint/epoch104_step3360.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_33/checkpoint/epoch127_step4096.pt",
-    ],
-    6: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_21/checkpoint/epoch147_step6808.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_27/checkpoint/epoch106_step4922.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_34/checkpoint/epoch98_step4554.pt",
-    ],
-    7: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_22/checkpoint/epoch55_step3528.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_28/checkpoint/epoch197_step12474.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_35/checkpoint/epoch183_step11592.pt",
-    ],
-    8: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_15/checkpoint/epoch59_step5100.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_29/checkpoint/epoch146_step12495.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_36/checkpoint/epoch68_step5865.pt",
-    ],
-    9: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_16/checkpoint/epoch47_step5280.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_26/checkpoint/epoch197_step21780.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_37/checkpoint/epoch199_step22200.pt",
-    ],
-    10: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_19/checkpoint/epoch48_step6664.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_31/checkpoint/epoch187_step25568.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_39/checkpoint/epoch193_step26384.pt",
-    ],
-    11: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_20/checkpoint/epoch34_step5740.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_30/checkpoint/epoch187_step30644.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_38/checkpoint/epoch81_step13366.pt"
-    ],
-    12: [
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_14/checkpoint/epoch64_step12545.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_32/checkpoint/epoch140_step27072.pt",
-        "/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_40/checkpoint/epoch151_step29032.pt",
+    8: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_142/checkpoint/epoch186_step15895.pt',
+        '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_206/checkpoint/epoch138_step11815.pt',
+        '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_174/checkpoint/epoch140_step11985.pt',
+        '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_196/checkpoint/epoch253_step21590.pt',
+        '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_150/checkpoint/epoch286_step24395.pt',
     ],
 }
 
 
 if __name__ == "__main__":
     for model_type in ['esm2', 'esm3']:
-        for dist_th in range(5, 13):
+        for dist_th in range(8, 9):
             for seed in range(0, 3):
                 for split in ['train', 'val', 'test']:
                     model_weights = model_checkpoints[dist_th][seed]

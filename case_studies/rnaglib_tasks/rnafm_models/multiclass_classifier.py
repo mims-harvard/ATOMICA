@@ -355,9 +355,14 @@ def train_epoch(model, train_loader, criterion, optimizer, device, task_type: Ta
     for embeddings, labels in tqdm(train_loader, desc="Training", leave=False):
         embeddings = embeddings.to(device)
         labels = labels.to(device)
-        
+
         optimizer.zero_grad()
         outputs = model(embeddings, apply_activation=False)  # Get logits for loss computation
+
+        # For binary classification, reshape labels to match outputs shape
+        if task_type == "binary" and labels.ndim == 1:
+            labels = labels.unsqueeze(1).float()  # (batch,) -> (batch, 1)
+
         loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
@@ -406,8 +411,13 @@ def evaluate(
         for embeddings, labels in tqdm(data_loader, desc="Evaluating", leave=False):
             embeddings = embeddings.to(device)
             labels = labels.to(device)
-            
+
             logits = model(embeddings, apply_activation=False)
+
+            # For binary classification, reshape labels to match logits shape
+            if task_type == "binary" and labels.ndim == 1:
+                labels = labels.unsqueeze(1).float()  # (batch,) -> (batch, 1)
+
             loss = criterion(logits, labels)
             
             total_loss += loss.item()
@@ -421,7 +431,7 @@ def evaluate(
                 prob_class0 = 1.0 - prob_class1
                 probabilities = np.concatenate([prob_class0, prob_class1], axis=1)  # (batch, 2)
                 # Predictions: class index (0 or 1)
-                predictions = (prob_class1.squeeze() >= threshold).astype(int)  # (batch,)
+                predictions = (prob_class1.squeeze(1) >= threshold).astype(int)  # (batch,)
                 # Labels: squeeze to (batch,)
                 labels_np = labels.cpu().numpy()
                 if labels_np.ndim == 2:

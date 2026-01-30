@@ -13,6 +13,7 @@ from ..dataset import Block, Atom, VOCAB
 
 def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None, 
                        return_indexes: bool =False, is_rna: bool=False, is_dna: bool=False, 
+                       only_rna: bool=False, only_dna: bool=False,
                        use_model:int =None) -> Tuple[List[List[Block]], Optional[Dict[str, int]]]:
     '''
         Convert pdb file to a list of lists of blocks using Biopython.
@@ -75,6 +76,14 @@ def pdb_to_list_blocks(pdb: str, selected_chains: Optional[List[str]]=None,
                 abrv = "D" + abrv
             if is_rna and abrv in {'A', 'U', 'G', 'C'} and not abrv.startswith("R"):
                 abrv = "R" + abrv
+
+            # this setting is useful when there are some DNA/RNA residues that use the same single letter code as amino acids
+            # e.g. inosine (I) shares the same single letter code as isoleucine (I)
+            if only_rna and abrv not in {'RA', 'RU', 'RG', 'RC', 'UNK'}:
+                abrv = 'UNK'
+            if only_dna and abrv not in {'DA', 'DG', 'DC', 'DT', 'UNK'}:
+                abrv = 'UNK'
+
             symbol = VOCAB.abrv_to_symbol(abrv)
                 
             # filter Hs because not all data include them
