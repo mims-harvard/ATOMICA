@@ -122,7 +122,8 @@ def parse():
                        help='metric to use for classification: auprc or f1_macro. Both options are supported for multiclass and multilabel classification.')
     parser.add_argument('--weighted_loss', action='store_true', default=False,
                        help='use weighted cross entropy loss for multiclass classification. Only valid for MultiClassClassifierModel')
-
+    parser.add_argument('--square_weights', action='store_true', default=False, help='square the weights')
+    parser.add_argument('--inverse_weights', action='store_true', default=False, help='inverse the weights')
     return parser.parse_args()
 
 
@@ -392,7 +393,6 @@ def main(args):
                     negatives = num_samples - positives
                     
                     if positives > 0:
-                        # pos_weight = num_negatives / num_positives
                         class_weights[class_idx] = float(negatives) / float(positives)
                     else:
                         # If no positive examples, set weight to 1.0 (no weighting)
@@ -412,11 +412,21 @@ def main(args):
             label_counts = Counter(labels)
             # Calculate inverse frequency weights (similar to BalancedDynamicBatchWrapper)
             class_weights = torch.zeros(num_classes, dtype=torch.float32)
+            total_positives = sum(label_counts.values())
             for class_idx in range(num_classes):
                 if class_idx in label_counts:
-                    class_weights[class_idx] = 1.0 / label_counts[class_idx]
+                    if args.inverse_weights:
+                        print_log(f'Using inverse weights for class {class_idx}')
+                        class_weights[class_idx] = 1.0 / label_counts[class_idx]
+                    elif args.square_weights:
+                        print_log(f'Using square of ratio of negatives to positives for class {class_idx}')
+                        class_weights[class_idx] = (float(total_positives-label_counts[class_idx]) / float(label_counts[class_idx])) ** 2
+                    else:
+                        print_log(f'Using ratio of negatives to positives for class {class_idx}')
+                        class_weights[class_idx] = float(total_positives-label_counts[class_idx]) / float(label_counts[class_idx])
                 else:
                     class_weights[class_idx] = 0.0
+                
             
             # Normalize weights
             total_weight = class_weights.sum()

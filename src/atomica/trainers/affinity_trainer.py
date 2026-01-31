@@ -387,7 +387,8 @@ class MultiClassClassifierTrainer(Trainer):
             # Multiclass classification
             pred_classes = np.argmax(pred_arr, axis=1)
             f1_macro = f1_score(label_arr, pred_classes, average='macro')
-            
+            f1_class = f1_score(label_arr, pred_classes, average=None)
+
             # Compute AUPRC
             frequency_baseline = np.bincount(label_arr) / len(label_arr)
             auprc_per_class = []
@@ -408,11 +409,13 @@ class MultiClassClassifierTrainer(Trainer):
             
             # Log both metrics to wandb
             if self.use_wandb and self._is_main_proc():
+                f1_class_dict = {f'val_f1_class_{i}': f1_class[i] for i in range(self.model.num_classes)}
                 wandb.log({
                     'val_loss': val_loss,
                     'val_auprc': mean_auprc,
                     'val_delta_auprc': mean_delta_auprc,
                     'val_f1_macro': f1_macro,
+                    **f1_class_dict,
                 }, step=self.global_step)
         else: # multi-label classification
             # Compute metrics for multilabel classification
