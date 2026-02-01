@@ -14,7 +14,7 @@ from .data.dataset import (
     PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper,
     BalancedDynamicBatchWrapper, PretrainBalancedDynamicBatchWrapper,
     LabelledPDBDataset, MultiClassLabelledPDBDataset,
-    ProtInterfaceDataset
+    ProtInterfaceDataset, DistillationDatasetWrapper
 )
 from .data.distributed_sampler import DistributedSamplerResume
 from . import models
@@ -124,6 +124,23 @@ def parse():
                        help='use weighted cross entropy loss for multiclass classification. Only valid for MultiClassClassifierModel')
     parser.add_argument('--square_weights', action='store_true', default=False, help='square the weights')
     parser.add_argument('--inverse_weights', action='store_true', default=False, help='inverse the weights')
+
+    # knowledge distillation
+    parser.add_argument('--teacher_logits_file', type=str, default=None,
+                       help='path to parquet file containing teacher logits with "id" and "teacher_logits" columns for knowledge distillation')
+    parser.add_argument('--distillation_alpha', type=float, default=0.5,
+                       help='weight for distillation loss vs supervised loss. Total loss = (1-alpha)*supervised + alpha*distillation. Default: 0.5')
+    parser.add_argument('--distillation_temperature', type=float, default=1.0,
+                       help='temperature for softening probability distributions in distillation. Higher values create softer distributions. Default: 1.0')
+
+    # focal loss
+    parser.add_argument('--use_focal_loss', action='store_true', default=False,
+                       help='use focal loss instead of cross-entropy for classification tasks. Helps with class imbalance.')
+    parser.add_argument('--focal_gamma', type=float, default=2.0,
+                       help='focusing parameter for focal loss. Higher values focus more on hard examples. Default: 2.0')
+    parser.add_argument('--focal_alpha', type=float, nargs='*', default=None,
+                       help='class weighting for focal loss. Can be a single value or per-class weights. If not specified, no weighting is applied.')
+
     return parser.parse_args()
 
 
@@ -331,7 +348,16 @@ def main(args):
     else:
         valid_set = None
         print_log(f'Train: {len(train_set)}, no validation')
-    
+
+    # Wrap datasets with DistillationDatasetWrapper if teacher logits are provided
+    if args.teacher_logits_file is not None:
+        if args.task not in {'binary_classifier', 'multiclass_classifier', 'multilabel_classifier'}:
+            raise ValueError(f"Knowledge distillation is only supported for classification tasks, but got task={args.task}")
+        print_log(f'Enabling knowledge distillation with teacher logits from {args.teacher_logits_file}')
+        print_log(f'Distillation alpha: {args.distillation_alpha}, temperature: {args.distillation_temperature}')
+        train_set = DistillationDatasetWrapper(train_set, args.teacher_logits_file)
+        # Note: We don't wrap validation set with teacher logits since distillation is only applied during training
+
     # Calculate class weights for weighted loss if requested
     class_weights = None
     if args.weighted_loss:
@@ -477,7 +503,9 @@ def main(args):
     )
     config.add_parameter(step_per_epoch=step_per_epoch,
                          final_lr=args.final_lr if args.final_lr is not None else args.lr,
-                         multiclass_metric=args.multiclass_metric)
+                         multiclass_metric=args.multiclass_metric,
+                         distillation_alpha=args.distillation_alpha if args.teacher_logits_file else None,
+                         distillation_temperature=args.distillation_temperature if args.teacher_logits_file else None)
     if args.valid_batch_size is None:
         args.valid_batch_size = args.batch_size
 

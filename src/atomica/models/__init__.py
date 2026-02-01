@@ -120,9 +120,21 @@ def create_model(args):
         elif args.task == 'multiclass_classifier':
             Model = MultiClassClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
+            # Add focal loss parameters
+            if args.use_focal_loss:
+                add_params["loss_type"] = "focal"
+                add_params["focal_gamma"] = args.focal_gamma
+                if args.focal_alpha is not None:
+                    add_params["focal_alpha"] = args.focal_alpha
         elif args.task == 'multilabel_classifier':
             Model = MultiLabelClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
+            # Add focal loss parameters
+            if args.use_focal_loss:
+                add_params["loss_type"] = "focal"
+                add_params["focal_gamma"] = args.focal_gamma
+                if args.focal_alpha is not None:
+                    add_params["focal_alpha"] = args.focal_alpha
         elif args.task == 'residue_binary_classifier':
             Model = ResidueClassifierModel
             add_params.update({

@@ -1,5 +1,6 @@
 from math import exp, log
 import torch
+import torch.nn.functional as F
 from tqdm import tqdm
 import numpy as np
 import wandb
@@ -185,6 +186,7 @@ class ClassifierTrainer(Trainer):
         return super()._before_train_epoch_start()
 
     def share_step(self, batch, batch_idx, val=False):
+        # Get model output (supervised loss and predictions)
         loss, pred = self.model(
             Z=batch['X'], B=batch['B'], A=batch['A'],
             block_lengths=batch['block_lengths'],
@@ -196,9 +198,56 @@ class ClassifierTrainer(Trainer):
             block_embeddings1=batch.get('block_embeddings1', None),
         )
 
-        log_type = 'Validation' if val else 'Train'
+        # Add distillation loss if teacher logits are available and not in validation
+        # For binary classification, teacher_logits should be shape [batch_size, 1] or [batch_size]
+        if not val and batch.get('teacher_logits', None) is not None:
+            distillation_alpha = getattr(self.config, 'distillation_alpha', 0.5)
+            distillation_temperature = getattr(self.config, 'distillation_temperature', 1.0)
 
-        self.log(f'Loss/{log_type}', loss, batch_idx, val)
+            # Get student logits from model
+            actual_model = self.model.module if hasattr(self.model, 'module') else self.model
+
+            from ..models.prediction_model import PredictionModel
+            return_value = PredictionModel.forward(
+                actual_model,
+                Z=batch['X'], B=batch['B'], A=batch['A'],
+                block_lengths=batch['block_lengths'],
+                lengths=batch['lengths'],
+                segment_ids=batch['segment_ids'],
+            )
+
+            # Get student logits before sigmoid
+            student_logits = actual_model.classifier_ffn(return_value.graph_repr).squeeze(-1)
+
+            teacher_logits = batch['teacher_logits'].to(student_logits.device)
+            if teacher_logits.ndim > 1:
+                teacher_logits = teacher_logits.squeeze(-1)
+
+            # For binary classification, use binary cross entropy with temperature
+            # Convert logits to probabilities with temperature
+            student_probs = torch.sigmoid(student_logits / distillation_temperature)
+            teacher_probs = torch.sigmoid(teacher_logits / distillation_temperature)
+
+            # Binary cross entropy between teacher and student probs
+            kl_loss = F.binary_cross_entropy(
+                student_probs,
+                teacher_probs,
+                reduction='mean'
+            ) * (distillation_temperature ** 2)
+
+            # Combine supervised and distillation loss
+            total_loss = (1 - distillation_alpha) * loss + distillation_alpha * kl_loss
+
+            # Log both losses
+            log_type = 'Train'
+            self.log(f'Loss/Supervised_{log_type}', loss, batch_idx, val)
+            self.log(f'Loss/Distillation_{log_type}', kl_loss, batch_idx, val)
+            self.log(f'Loss/{log_type}', total_loss, batch_idx, val)
+
+            loss = total_loss
+        else:
+            log_type = 'Validation' if val else 'Train'
+            self.log(f'Loss/{log_type}', loss, batch_idx, val)
 
         if not val:
             lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
@@ -323,6 +372,7 @@ class MultiClassClassifierTrainer(Trainer):
         return super()._before_train_epoch_start()
 
     def share_step(self, batch, batch_idx, val=False):
+        # Get model output (supervised loss and predictions)
         loss, pred = self.model(
             Z=batch['X'], B=batch['B'], A=batch['A'],
             block_lengths=batch['block_lengths'],
@@ -334,9 +384,55 @@ class MultiClassClassifierTrainer(Trainer):
             block_embeddings1=batch.get('block_embeddings1', None),
         )
 
-        log_type = 'Validation' if val else 'Train'
+        # Add distillation loss if teacher logits are available and not in validation
+        if not val and batch.get('teacher_logits', None) is not None:
+            distillation_alpha = getattr(self.config, 'distillation_alpha', 0.5)
+            distillation_temperature = getattr(self.config, 'distillation_temperature', 1.0)
 
-        self.log(f'Loss/{log_type}', loss, batch_idx, val)
+            # Get student logits from model (need to compute them without softmax)
+            # Re-run forward pass through the model's encoder to get graph representation
+            actual_model = self.model.module if hasattr(self.model, 'module') else self.model
+
+            # Import PredictionModel to call its forward method
+            from ..models.prediction_model import PredictionModel
+            return_value = PredictionModel.forward(
+                actual_model,
+                Z=batch['X'], B=batch['B'], A=batch['A'],
+                block_lengths=batch['block_lengths'],
+                lengths=batch['lengths'],
+                segment_ids=batch['segment_ids'],
+            )
+
+            # Get student logits before softmax
+            student_logits = actual_model.classifier_ffn(return_value.graph_repr)
+
+            teacher_logits = batch['teacher_logits'].to(student_logits.device)
+
+            # Compute KL divergence loss with temperature scaling
+            # KL(teacher || student) = sum(teacher * log(teacher / student))
+            student_log_probs = F.log_softmax(student_logits / distillation_temperature, dim=1)
+            teacher_probs = F.softmax(teacher_logits / distillation_temperature, dim=1)
+
+            # KL divergence
+            kl_loss = F.kl_div(
+                student_log_probs,
+                teacher_probs,
+                reduction='batchmean'
+            ) * (distillation_temperature ** 2)
+
+            # Combine supervised and distillation loss
+            total_loss = (1 - distillation_alpha) * loss + distillation_alpha * kl_loss
+
+            # Log both losses
+            log_type = 'Train'
+            self.log(f'Loss/Supervised_{log_type}', loss, batch_idx, val)
+            self.log(f'Loss/Distillation_{log_type}', kl_loss, batch_idx, val)
+            self.log(f'Loss/{log_type}', total_loss, batch_idx, val)
+
+            loss = total_loss
+        else:
+            log_type = 'Validation' if val else 'Train'
+            self.log(f'Loss/{log_type}', loss, batch_idx, val)
 
         if not val:
             lr = self.config.lr if self.scheduler is None else self.scheduler.get_last_lr()
@@ -433,6 +529,7 @@ class MultiClassClassifierTrainer(Trainer):
             # Compute F1 macro for logging (and potentially as validation metric)
             pred_binary = (pred_arr > 0.5).astype(int)
             f1_macro = f1_score(label_arr, pred_binary, average='macro', zero_division=0)
+            f1_class = f1_score(label_arr, pred_binary, average=None, zero_division=0)
             
             # Support both AUPRC and F1 macro for multilabel classification
             if multiclass_metric == 'auprc' or multiclass_metric is None:
@@ -443,11 +540,13 @@ class MultiClassClassifierTrainer(Trainer):
                 raise ValueError(f"multiclass_metric='{multiclass_metric}' is not supported for multilabel classification. Supported options are 'auprc' and 'f1_macro'.")
             
             if self.use_wandb and self._is_main_proc():
+                f1_class_dict = {f'val_f1_class_{i}': f1_class[i] for i in range(self.model.num_classes)}
                 log_dict = {
                     'val_loss': val_loss,
                     'val_auprc': mean_auprc,
                     'val_delta_auprc': mean_delta_auprc,
                     'val_f1_macro': f1_macro,
+                    **f1_class_dict,
                 }
                 wandb.log(log_dict, step=self.global_step)
         if self.use_raytune:

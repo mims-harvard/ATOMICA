@@ -95,6 +95,16 @@ class PredictionModel(DenoisePretrainModel):
             else:
                 raise NotImplementedError(f"Nonlinearity {config['nonlinearity']} not implemented")
 
+        # Add default focal loss parameters for backward compatibility with old models
+        # If these are not in the config (old models), use defaults
+        if model_type in ['MultiClassClassifierModel', 'MultiLabelClassifierModel']:
+            if 'loss_type' not in config:
+                config['loss_type'] = 'binary_cross_entropy' if model_type == 'MultiLabelClassifierModel' else 'cross_entropy'
+            if 'focal_alpha' not in config:
+                config['focal_alpha'] = None
+            if 'focal_gamma' not in config:
+                config['focal_gamma'] = 2.0
+
         if model_type == 'DenoisePretrainModel':
             pretrained_model = DenoisePretrainModel.load_from_config_and_weights(config_path, weights_path)
             return cls._load_from_pretrained(pretrained_model, **kwargs)

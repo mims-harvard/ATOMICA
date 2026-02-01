@@ -883,6 +883,87 @@ class PretrainBalancedDynamicBatchWrapper(DynamicBatchWrapper):
         print(f'Number of items in each class: {Counter([self.dataset_labels[i] for i in self.indexes])}. Original class distribution: {self.labels}')
 
 
+class DistillationDatasetWrapper(torch.utils.data.Dataset):
+    """
+    Wrapper for adding teacher logits from a parquet file to an existing dataset.
+
+    Args:
+        base_dataset: The base dataset to wrap
+        teacher_logits_file: Path to parquet file containing teacher logits with 'id' and 'teacher_logits' columns
+    """
+
+    def __init__(self, base_dataset, teacher_logits_file):
+        super().__init__()
+        self.base_dataset = base_dataset
+
+        # Load teacher logits from parquet
+        print_log(f'Loading teacher logits from {teacher_logits_file}')
+        df = pd.read_parquet(teacher_logits_file)
+
+        # Create a mapping from id to teacher logits
+        self.teacher_logits_map = {}
+        for _, row in df.iterrows():
+            sample_id = row['id']
+            teacher_logits = row['teacher_logits']
+            # Convert to numpy array if it's a list
+            if isinstance(teacher_logits, list):
+                teacher_logits = np.array(teacher_logits)
+            self.teacher_logits_map[sample_id] = teacher_logits
+
+        print_log(f'Loaded teacher logits for {len(self.teacher_logits_map)} samples')
+
+        # Inherit indexes from base dataset
+        self.indexes = base_dataset.indexes
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        # Get the base data
+        data = self.base_dataset[idx]
+
+        # Get the sample ID from the base dataset's indexes
+        sample_id = self.base_dataset.indexes[idx]
+        if isinstance(sample_id, dict):
+            sample_id = sample_id['id']
+
+        # Add teacher logits if available for this sample
+        if sample_id in self.teacher_logits_map:
+            data['teacher_logits'] = self.teacher_logits_map[sample_id]
+        else:
+            print_log(f'Warning: No teacher logits found for sample {sample_id}')
+            # Add None or a zero tensor as placeholder
+            data['teacher_logits'] = None
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        # Separate teacher_logits from the batch items before collating
+        teacher_logits_list = []
+        batch_without_teacher = []
+
+        for item in batch:
+            # Extract teacher logits
+            teacher_logits = item.pop('teacher_logits', None)
+            teacher_logits_list.append(teacher_logits)
+            batch_without_teacher.append(item)
+
+        # Use MultiClassLabelledPDBDataset's collate function for the base data
+        # This handles both multiclass and multilabel cases correctly
+        res = MultiClassLabelledPDBDataset.collate_fn(batch_without_teacher)
+
+        # Add teacher logits to the result
+        # Stack them into a tensor, filtering out None values
+        valid_teacher_logits = [tl for tl in teacher_logits_list if tl is not None]
+        if valid_teacher_logits:
+            res['teacher_logits'] = torch.tensor(np.stack(valid_teacher_logits), dtype=torch.float)
+        else:
+            res['teacher_logits'] = None
+
+        return res
+
+
 def parse():
     parser = argparse.ArgumentParser(description='Process data')
     parser.add_argument('--dataset', type=str, required=True, help='dataset')
