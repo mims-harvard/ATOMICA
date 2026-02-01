@@ -14,7 +14,7 @@ from .data.dataset import (
     PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper,
     BalancedDynamicBatchWrapper, PretrainBalancedDynamicBatchWrapper,
     LabelledPDBDataset, MultiClassLabelledPDBDataset,
-    ProtInterfaceDataset, DistillationDatasetWrapper
+    ProtInterfaceDataset, DistillationDatasetWrapper, ResidueDistillationDatasetWrapper
 )
 from .data.distributed_sampler import DistributedSamplerResume
 from . import models
@@ -351,11 +351,19 @@ def main(args):
 
     # Wrap datasets with DistillationDatasetWrapper if teacher logits are provided
     if args.teacher_logits_file is not None:
-        if args.task not in {'binary_classifier', 'multiclass_classifier', 'multilabel_classifier'}:
+        if args.task not in {'binary_classifier', 'multiclass_classifier', 'multilabel_classifier', 'residue_binary_classifier'}:
             raise ValueError(f"Knowledge distillation is only supported for classification tasks, but got task={args.task}")
         print_log(f'Enabling knowledge distillation with teacher logits from {args.teacher_logits_file}')
         print_log(f'Distillation alpha: {args.distillation_alpha}, temperature: {args.distillation_temperature}')
-        train_set = DistillationDatasetWrapper(train_set, args.teacher_logits_file)
+
+        # Use appropriate wrapper based on task type
+        if args.task == 'residue_binary_classifier':
+            # For residue-level tasks, use ResidueDistillationDatasetWrapper
+            print_log('Using ResidueDistillationDatasetWrapper for residue-level task')
+            train_set = ResidueDistillationDatasetWrapper(train_set, args.teacher_logits_file)
+        else:
+            # For graph-level tasks, use standard DistillationDatasetWrapper
+            train_set = DistillationDatasetWrapper(train_set, args.teacher_logits_file)
         # Note: We don't wrap validation set with teacher logits since distillation is only applied during training
 
     # Calculate class weights for weighted loss if requested

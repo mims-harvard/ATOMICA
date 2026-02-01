@@ -10,6 +10,7 @@ import json
 from torch.optim.lr_scheduler import LambdaLR
 from sklearn.metrics import precision_recall_curve, auc, roc_auc_score, f1_score
 
+from ..models.classifier_model import ResidueClassifierModel
 from .abs_trainer import Trainer
 from ..utils.logger import print_log
 from ..data import DynamicBatchWrapper
@@ -199,7 +200,8 @@ class ClassifierTrainer(Trainer):
         )
 
         # Add distillation loss if teacher logits are available and not in validation
-        # For binary classification, teacher_logits should be shape [batch_size, 1] or [batch_size]
+        # For binary classification, teacher_logits should be shape [batch_size] for graph-level
+        # or [num_residues] for residue-level tasks
         if not val and batch.get('teacher_logits', None) is not None:
             distillation_alpha = getattr(self.config, 'distillation_alpha', 0.5)
             distillation_temperature = getattr(self.config, 'distillation_temperature', 1.0)
@@ -216,33 +218,50 @@ class ClassifierTrainer(Trainer):
                 segment_ids=batch['segment_ids'],
             )
 
-            # Get student logits before sigmoid
-            student_logits = actual_model.classifier_ffn(return_value.graph_repr).squeeze(-1)
+            is_residue_level = isinstance(actual_model, ResidueClassifierModel)
+
+            if is_residue_level:
+                # For residue-level: use block representations and apply global masking
+                student_logits = actual_model.classifier_ffn(return_value.block_repr).squeeze(-1)
+                global_mask = batch['B'] != actual_model.global_block_id
+                student_logits = student_logits[global_mask]
+            else:
+                # For graph-level: use graph representation
+                student_logits = actual_model.classifier_ffn(return_value.graph_repr).squeeze(-1)
 
             teacher_logits = batch['teacher_logits'].to(student_logits.device)
             if teacher_logits.ndim > 1:
                 teacher_logits = teacher_logits.squeeze(-1)
 
-            # For binary classification, use binary cross entropy with temperature
-            # Convert logits to probabilities with temperature
-            student_probs = torch.sigmoid(student_logits / distillation_temperature)
-            teacher_probs = torch.sigmoid(teacher_logits / distillation_temperature)
+            # For binary classification, use BCE on logits with temperature scaling
+            # This is more stable than applying sigmoid then BCE
+            student_logits_scaled = student_logits / distillation_temperature
+            teacher_logits_scaled = teacher_logits / distillation_temperature
 
-            # Binary cross entropy between teacher and student probs
-            kl_loss = F.binary_cross_entropy(
-                student_probs,
-                teacher_probs,
+            # BCE with logits for numerical stability
+            # Teacher logits are converted to probabilities
+            distill_loss = F.binary_cross_entropy_with_logits(
+                student_logits_scaled,
+                torch.sigmoid(teacher_logits_scaled),
                 reduction='mean'
             ) * (distillation_temperature ** 2)
 
             # Combine supervised and distillation loss
-            total_loss = (1 - distillation_alpha) * loss + distillation_alpha * kl_loss
+            total_loss = (1 - distillation_alpha) * loss + distillation_alpha * distill_loss
 
             # Log both losses
             log_type = 'Train'
             self.log(f'Loss/Supervised_{log_type}', loss, batch_idx, val)
-            self.log(f'Loss/Distillation_{log_type}', kl_loss, batch_idx, val)
+            self.log(f'Loss/Distillation_{log_type}', distill_loss, batch_idx, val)
             self.log(f'Loss/{log_type}', total_loss, batch_idx, val)
+
+            # Also log to wandb during training
+            if self.use_wandb and self._is_main_proc():
+                wandb.log({
+                    'train_supervised_loss': loss.item() if isinstance(loss, torch.Tensor) else loss,
+                    'train_distillation_loss': distill_loss.item() if isinstance(distill_loss, torch.Tensor) else distill_loss,
+                    'train_total_loss': total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss,
+                }, step=self.global_step)
 
             loss = total_loss
         else:
@@ -428,6 +447,14 @@ class MultiClassClassifierTrainer(Trainer):
             self.log(f'Loss/Supervised_{log_type}', loss, batch_idx, val)
             self.log(f'Loss/Distillation_{log_type}', kl_loss, batch_idx, val)
             self.log(f'Loss/{log_type}', total_loss, batch_idx, val)
+
+            # Also log to wandb during training
+            if self.use_wandb and self._is_main_proc():
+                wandb.log({
+                    'train_supervised_loss': loss.item() if isinstance(loss, torch.Tensor) else loss,
+                    'train_distillation_loss': kl_loss.item() if isinstance(kl_loss, torch.Tensor) else kl_loss,
+                    'train_total_loss': total_loss.item() if isinstance(total_loss, torch.Tensor) else total_loss,
+                }, step=self.global_step)
 
             loss = total_loss
         else:

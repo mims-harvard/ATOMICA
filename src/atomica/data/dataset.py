@@ -964,6 +964,118 @@ class DistillationDatasetWrapper(torch.utils.data.Dataset):
         return res
 
 
+class ResidueDistillationDatasetWrapper(torch.utils.data.Dataset):
+    """
+    Wrapper for adding residue-level teacher logits from a parquet file to an existing dataset.
+
+    For residue-level tasks (e.g., RNA_Site), each sample can have multiple residues,
+    and each residue has its own teacher logit. The teacher logits file should contain
+    composite IDs in the format: sample_id + '_' + block_idx
+
+    Args:
+        base_dataset: The base dataset to wrap (e.g., LabelledPDBDataset)
+        teacher_logits_file: Path to parquet file containing teacher logits with 'id' and 'teacher_logits' columns
+    """
+
+    def __init__(self, base_dataset, teacher_logits_file):
+        super().__init__()
+        self.base_dataset = base_dataset
+
+        # Load teacher logits from parquet
+        print_log(f'Loading residue-level teacher logits from {teacher_logits_file}')
+        df = pd.read_parquet(teacher_logits_file)
+
+        # Create a mapping from composite id to teacher logits
+        # For residue-level: id format is "sample_id_block_idx"
+        self.teacher_logits_map = {}
+        for _, row in df.iterrows():
+            composite_id = row['id']
+            teacher_logit = row['teacher_logits']
+            # Store as scalar (single logit per residue)
+            if isinstance(teacher_logit, (list, np.ndarray)):
+                # If it's an array with single element, extract it
+                if len(teacher_logit) == 1:
+                    teacher_logit = float(teacher_logit[0])
+                else:
+                    teacher_logit = float(teacher_logit)
+            self.teacher_logits_map[composite_id] = teacher_logit
+
+        print_log(f'Loaded teacher logits for {len(self.teacher_logits_map)} residues')
+
+        # Inherit indexes from base dataset
+        self.indexes = base_dataset.indexes
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        # Get the base data
+        data = self.base_dataset[idx]
+
+        # Get the sample ID from the base dataset's indexes
+        sample_id = self.base_dataset.indexes[idx]
+        if isinstance(sample_id, dict):
+            sample_id = sample_id['id']
+
+        # For residue-level tasks, we need to get teacher logits for each block
+        # The label should be an array (one per residue)
+        label = data.get('label')
+
+        if isinstance(label, (list, np.ndarray)):
+            # Residue-level task: multiple labels per sample
+            num_residues = len(label)
+            teacher_logits = []
+
+            for block_idx in range(num_residues):
+                composite_id = f"{sample_id}_{block_idx}"
+                if composite_id in self.teacher_logits_map:
+                    teacher_logits.append(self.teacher_logits_map[composite_id])
+                else:
+                    print_log(f'Warning: No teacher logits found for {composite_id}')
+                    teacher_logits.append(None)
+
+            # Store as numpy array or None if all are missing
+            if all(tl is None for tl in teacher_logits):
+                data['teacher_logits'] = None
+            else:
+                # Replace None with 0.0 if some are present
+                teacher_logits = [tl if tl is not None else 0.0 for tl in teacher_logits]
+                data['teacher_logits'] = np.array(teacher_logits, dtype=np.float32)
+        else:
+            # Shouldn't happen for residue-level tasks, but handle gracefully
+            print_log(f'Warning: Expected array of labels for residue-level task, got scalar for sample {sample_id}')
+            data['teacher_logits'] = None
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        # Separate teacher_logits from the batch items before collating
+        teacher_logits_list = []
+        batch_without_teacher = []
+
+        for item in batch:
+            # Extract teacher logits
+            teacher_logits = item.pop('teacher_logits', None)
+            teacher_logits_list.append(teacher_logits)
+            batch_without_teacher.append(item)
+
+        # Use LabelledPDBDataset's collate function for the base data
+        res = LabelledPDBDataset.collate_fn(batch_without_teacher)
+
+        # Concatenate teacher logits similar to how labels are concatenated
+        # Filter out None values and concatenate
+        valid_teacher_logits = [tl for tl in teacher_logits_list if tl is not None]
+        if valid_teacher_logits:
+            # Concatenate along the residue dimension
+            teacher_logits_tensors = [torch.tensor(tl, dtype=torch.float) for tl in valid_teacher_logits]
+            res['teacher_logits'] = torch.cat(teacher_logits_tensors, dim=0)
+        else:
+            res['teacher_logits'] = None
+
+        return res
+
+
 def parse():
     parser = argparse.ArgumentParser(description='Process data')
     parser.add_argument('--dataset', type=str, required=True, help='dataset')
