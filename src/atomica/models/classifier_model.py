@@ -222,7 +222,12 @@ class MultiClassClassifierModel(PredictionModel):
         graph_repr = return_value.graph_repr
 
         # Concatenate pocket embeddings if available
-        if self.pocket_embedding_size is not None and pocket_embeddings is not None:
+        if self.pocket_embedding_size is not None:
+            if pocket_embeddings is None:
+                raise ValueError(
+                    f"Model was trained with pocket embeddings (embedding_size={self.pocket_embedding_size}) "
+                    f"but pocket_embeddings is None. Please provide pocket embeddings."
+                )
             # Project pocket embeddings to hidden_size
             pocket_proj = self.pocket_projector(pocket_embeddings)
             # Concatenate with ATOMICA graph representation
@@ -259,7 +264,12 @@ class MultiClassClassifierModel(PredictionModel):
         graph_repr = return_value.graph_repr
 
         # Concatenate pocket embeddings if available
-        if self.pocket_embedding_size is not None and 'pocket_embeddings' in batch:
+        if self.pocket_embedding_size is not None:
+            if 'pocket_embeddings' not in batch:
+                raise ValueError(
+                    f"Model was trained with pocket embeddings (embedding_size={self.pocket_embedding_size}) "
+                    f"but batch does not contain 'pocket_embeddings'. Please provide pocket embeddings during inference."
+                )
             pocket_embeddings = batch['pocket_embeddings'].to(graph_repr.device)
             pocket_proj = self.pocket_projector(pocket_embeddings)
             combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
@@ -424,7 +434,12 @@ class MultiLabelClassifierModel(MultiClassClassifierModel):
         graph_repr = return_value.graph_repr
 
         # Concatenate pocket embeddings if available
-        if self.pocket_embedding_size is not None and pocket_embeddings is not None:
+        if self.pocket_embedding_size is not None:
+            if pocket_embeddings is None:
+                raise ValueError(
+                    f"Model was trained with pocket embeddings (embedding_size={self.pocket_embedding_size}) "
+                    f"but pocket_embeddings is None. Please provide pocket embeddings."
+                )
             # Project pocket embeddings to hidden_size
             pocket_proj = self.pocket_projector(pocket_embeddings)
             # Concatenate with ATOMICA graph representation
@@ -462,7 +477,12 @@ class MultiLabelClassifierModel(MultiClassClassifierModel):
         graph_repr = return_value.graph_repr
 
         # Concatenate pocket embeddings if available
-        if self.pocket_embedding_size is not None and 'pocket_embeddings' in batch:
+        if self.pocket_embedding_size is not None:
+            if 'pocket_embeddings' not in batch:
+                raise ValueError(
+                    f"Model was trained with pocket embeddings (embedding_size={self.pocket_embedding_size}) "
+                    f"but batch does not contain 'pocket_embeddings'. Please provide pocket embeddings during inference."
+                )
             pocket_embeddings = batch['pocket_embeddings'].to(graph_repr.device)
             pocket_proj = self.pocket_projector(pocket_embeddings)
             combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
