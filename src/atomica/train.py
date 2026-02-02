@@ -14,7 +14,8 @@ from .data.dataset import (
     PDBBindBenchmark, MixDatasetWrapper, DynamicBatchWrapper,
     BalancedDynamicBatchWrapper, PretrainBalancedDynamicBatchWrapper,
     LabelledPDBDataset, MultiClassLabelledPDBDataset,
-    ProtInterfaceDataset, DistillationDatasetWrapper, ResidueDistillationDatasetWrapper
+    ProtInterfaceDataset, DistillationDatasetWrapper, ResidueDistillationDatasetWrapper,
+    PocketEmbeddingDatasetWrapper
 )
 from .data.distributed_sampler import DistributedSamplerResume
 from . import models
@@ -132,6 +133,12 @@ def parse():
                        help='weight for distillation loss vs supervised loss. Total loss = (1-alpha)*supervised + alpha*distillation. Default: 0.5')
     parser.add_argument('--distillation_temperature', type=float, default=1.0,
                        help='temperature for softening probability distributions in distillation. Higher values create softer distributions. Default: 1.0')
+
+    # pocket embeddings
+    parser.add_argument('--pocket_embeddings_train_file', type=str, default=None,
+                       help='path to .npy file containing pocket embeddings for training set (e.g., from RNAFM, RNA-FM, ESM). Embedding dimension is auto-detected.')
+    parser.add_argument('--pocket_embeddings_val_file', type=str, default=None,
+                       help='path to .npy file containing pocket embeddings for validation set.')
 
     # focal loss
     parser.add_argument('--use_focal_loss', action='store_true', default=False,
@@ -327,7 +334,19 @@ def main(args):
     # Validate weighted_loss is only used for multiclass_classifier or multilabel_classifier
     if args.weighted_loss and args.task not in ['multiclass_classifier', 'multilabel_classifier']:
         raise ValueError(f"weighted_loss option can only be used for multiclass_classifier or multilabel_classifier task, but got task={args.task}")
-    
+
+    # Auto-detect pocket embedding size if provided (before model creation)
+    if args.pocket_embeddings_train_file is not None:
+        if args.task not in {'multiclass_classifier', 'multilabel_classifier'}:
+            raise ValueError(f"Pocket embeddings are only supported for multiclass_classifier and multilabel_classifier tasks, but got task={args.task}")
+        print_log(f'Loading pocket embeddings to detect embedding size from {args.pocket_embeddings_train_file}')
+        pocket_emb = np.load(args.pocket_embeddings_train_file)
+        args.pocket_embedding_size = pocket_emb.shape[1] if pocket_emb.ndim == 2 else 1
+        print_log(f'Auto-detected pocket embedding size: {args.pocket_embedding_size}')
+        del pocket_emb  # Free memory
+    else:
+        args.pocket_embedding_size = None
+
     model = models.create_model(args)
 
     ########### load your train / valid set ###########
@@ -366,16 +385,31 @@ def main(args):
             train_set = DistillationDatasetWrapper(train_set, args.teacher_logits_file)
         # Note: We don't wrap validation set with teacher logits since distillation is only applied during training
 
+    # Wrap datasets with PocketEmbeddingDatasetWrapper if pocket embeddings are provided
+    if args.pocket_embeddings_train_file is not None:
+        print_log(f'Wrapping train dataset with pocket embeddings from {args.pocket_embeddings_train_file}')
+        train_set = PocketEmbeddingDatasetWrapper(train_set, args.pocket_embeddings_train_file)
+
+        # Wrap validation set with pocket embeddings if provided
+        if valid_set is not None and args.pocket_embeddings_val_file is not None:
+            print_log(f'Wrapping validation dataset with pocket embeddings from {args.pocket_embeddings_val_file}')
+            valid_set = PocketEmbeddingDatasetWrapper(valid_set, args.pocket_embeddings_val_file)
+
     # Calculate class weights for weighted loss if requested
     class_weights = None
     if args.weighted_loss:
         from collections import Counter
         # Get labels from the dataset (handle both wrapped and unwrapped datasets)
-        # Unwrap dataset if it's wrapped (e.g., DynamicBatchWrapper, BalancedDynamicBatchWrapper)
+        # Unwrap dataset if it's wrapped
+        # Wrappers with 'dataset' attribute: DynamicBatchWrapper, BalancedDynamicBatchWrapper
+        # Wrappers with 'base_dataset' attribute: DistillationDatasetWrapper, ResidueDistillationDatasetWrapper, PocketEmbeddingDatasetWrapper
         dataset_for_labels = train_set
-        while hasattr(dataset_for_labels, 'dataset'):
-            dataset_for_labels = dataset_for_labels.dataset
-        
+        while hasattr(dataset_for_labels, 'dataset') or hasattr(dataset_for_labels, 'base_dataset'):
+            if hasattr(dataset_for_labels, 'dataset'):
+                dataset_for_labels = dataset_for_labels.dataset
+            elif hasattr(dataset_for_labels, 'base_dataset'):
+                dataset_for_labels = dataset_for_labels.base_dataset
+
         # Handle MixDatasetWrapper
         if isinstance(dataset_for_labels, MixDatasetWrapper):
             labels = []

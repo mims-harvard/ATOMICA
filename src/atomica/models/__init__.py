@@ -126,6 +126,9 @@ def create_model(args):
                 add_params["focal_gamma"] = args.focal_gamma
                 if args.focal_alpha is not None:
                     add_params["focal_alpha"] = args.focal_alpha
+            # Add pocket embedding size if provided
+            if hasattr(args, 'pocket_embedding_size') and args.pocket_embedding_size is not None:
+                add_params["pocket_embedding_size"] = args.pocket_embedding_size
         elif args.task == 'multilabel_classifier':
             Model = MultiLabelClassifierModel
             add_params["num_classes"] = args.num_classifier_classes
@@ -135,6 +138,9 @@ def create_model(args):
                 add_params["focal_gamma"] = args.focal_gamma
                 if args.focal_alpha is not None:
                     add_params["focal_alpha"] = args.focal_alpha
+            # Add pocket embedding size if provided
+            if hasattr(args, 'pocket_embedding_size') and args.pocket_embedding_size is not None:
+                add_params["pocket_embedding_size"] = args.pocket_embedding_size
         elif args.task == 'residue_binary_classifier':
             Model = ResidueClassifierModel
             add_params.update({

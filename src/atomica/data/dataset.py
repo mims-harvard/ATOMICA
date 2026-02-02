@@ -1076,6 +1076,88 @@ class ResidueDistillationDatasetWrapper(torch.utils.data.Dataset):
         return res
 
 
+class PocketEmbeddingDatasetWrapper(torch.utils.data.Dataset):
+    """
+    Wrapper for adding pocket embeddings from a .npy file to an existing dataset.
+
+    Pocket embeddings can come from various sources (RNAFM, RNA-FM, ESM, etc.) and are
+    graph-level representations that will be concatenated with ATOMICA's learned representations.
+
+    Args:
+        base_dataset: The base dataset to wrap (e.g., MultiClassLabelledPDBDataset)
+        embeddings_file: Path to .npy file containing embeddings with shape (num_samples, embedding_dim)
+    """
+
+    def __init__(self, base_dataset, embeddings_file):
+        super().__init__()
+        self.base_dataset = base_dataset
+
+        # Load pocket embeddings from .npy file
+        print_log(f'Loading pocket embeddings from {embeddings_file}')
+        self.embeddings = np.load(embeddings_file)
+
+        # Auto-detect embedding size from the loaded array
+        if self.embeddings.ndim == 2:
+            self.pocket_embedding_size = self.embeddings.shape[1]
+        elif self.embeddings.ndim == 1:
+            # Single-dimensional embeddings - treat as (num_samples, 1)
+            self.embeddings = self.embeddings.reshape(-1, 1)
+            self.pocket_embedding_size = 1
+        else:
+            raise ValueError(f"Expected 2D embeddings array, got shape {self.embeddings.shape}")
+
+        # Verify dimensions match
+        if len(self.embeddings) != len(base_dataset):
+            raise ValueError(
+                f"Embeddings file has {len(self.embeddings)} samples but dataset has {len(base_dataset)} samples. "
+                f"They must match 1:1 by index."
+            )
+
+        print_log(f'Loaded {len(self.embeddings)} pocket embeddings with dimension {self.pocket_embedding_size}')
+
+        # Inherit indexes from base dataset
+        self.indexes = base_dataset.indexes
+
+    def __len__(self):
+        return len(self.base_dataset)
+
+    def __getitem__(self, idx):
+        # Get the base data
+        data = self.base_dataset[idx]
+
+        # Add pocket embedding for this sample
+        data['pocket_embeddings'] = self.embeddings[idx]
+
+        return data
+
+    @classmethod
+    def collate_fn(cls, batch):
+        # Separate pocket_embeddings from the batch items before collating
+        pocket_embeddings_list = []
+        batch_without_pocket = []
+
+        for item in batch:
+            # Extract pocket embeddings
+            pocket_emb = item.pop('pocket_embeddings', None)
+            pocket_embeddings_list.append(pocket_emb)
+            batch_without_pocket.append(item)
+
+        # Determine which collate function to use based on the batch structure
+        # Try MultiClassLabelledPDBDataset first, fall back to LabelledPDBDataset
+        try:
+            res = MultiClassLabelledPDBDataset.collate_fn(batch_without_pocket)
+        except:
+            res = LabelledPDBDataset.collate_fn(batch_without_pocket)
+
+        # Stack pocket embeddings into a tensor
+        if all(emb is not None for emb in pocket_embeddings_list):
+            res['pocket_embeddings'] = torch.tensor(np.stack(pocket_embeddings_list), dtype=torch.float)
+        else:
+            res['pocket_embeddings'] = None
+
+        return res
+
+
 def parse():
     parser = argparse.ArgumentParser(description='Process data')
     parser.add_argument('--dataset', type=str, required=True, help='dataset')

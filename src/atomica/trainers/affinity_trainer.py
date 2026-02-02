@@ -401,6 +401,7 @@ class MultiClassClassifierTrainer(Trainer):
             block_embeddings=batch.get('block_embeddings', None),
             block_embeddings0=batch.get('block_embeddings0', None),
             block_embeddings1=batch.get('block_embeddings1', None),
+            pocket_embeddings=batch.get('pocket_embeddings', None),
         )
 
         # Add distillation loss if teacher logits are available and not in validation
@@ -422,8 +423,16 @@ class MultiClassClassifierTrainer(Trainer):
                 segment_ids=batch['segment_ids'],
             )
 
-            # Get student logits before softmax
-            student_logits = actual_model.classifier_ffn(return_value.graph_repr)
+            # Get student logits before softmax, with pocket embeddings if available
+            graph_repr = return_value.graph_repr
+            if actual_model.pocket_embedding_size is not None and batch.get('pocket_embeddings', None) is not None:
+                pocket_embeddings = batch['pocket_embeddings'].to(graph_repr.device)
+                pocket_proj = actual_model.pocket_projector(pocket_embeddings)
+                combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
+            else:
+                combined_repr = graph_repr
+
+            student_logits = actual_model.classifier_ffn(combined_repr)
 
             teacher_logits = batch['teacher_logits'].to(student_logits.device)
 

@@ -95,21 +95,31 @@ class ClassifierModel(PredictionModel):
 
 class MultiClassClassifierModel(PredictionModel):
 
-    def __init__(self, num_classes, loss_type='cross_entropy', focal_alpha=None, focal_gamma=2.0, **kwargs) -> None:
+    def __init__(self, num_classes, loss_type='cross_entropy', focal_alpha=None, focal_gamma=2.0, pocket_embedding_size=None, **kwargs) -> None:
         super().__init__(**kwargs)
         self.num_classes = num_classes
         self.class_weights = None  # Will be set if weighted_loss is enabled
         self.loss_type = loss_type  # 'cross_entropy' or 'focal'
         self.focal_alpha = focal_alpha
         self.focal_gamma = focal_gamma
+        self.pocket_embedding_size = pocket_embedding_size
 
         # Initialize focal loss if specified
         if self.loss_type == 'focal':
             self.focal_loss = FocalLoss(alpha=focal_alpha, gamma=focal_gamma, reduction='mean')
 
+        # Add pocket embedding projector if specified
+        if self.pocket_embedding_size is not None:
+            self.pocket_projector = nn.Linear(self.pocket_embedding_size, self.hidden_size)
+            classifier_input_size = 2 * self.hidden_size  # Concatenate ATOMICA + pocket
+        else:
+            self.pocket_projector = None
+            classifier_input_size = self.hidden_size
+
+        # Build classifier FFN with appropriate input size
         self.classifier_ffn = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(self.hidden_size, self.hidden_size),
+            nn.Linear(classifier_input_size, self.hidden_size),
             nn.ReLU(),
             nn.Linear(self.hidden_size, self.hidden_size),
             nn.ReLU(),
@@ -155,6 +165,12 @@ class MultiClassClassifierModel(PredictionModel):
         else:
             focal_gamma = kwargs.get('focal_gamma', 2.0)
 
+        # Handle pocket embedding size with backward compatibility
+        if hasattr(pretrained_model, 'pocket_embedding_size'):
+            pocket_embedding_size = kwargs.get('pocket_embedding_size', pretrained_model.pocket_embedding_size)
+        else:
+            pocket_embedding_size = kwargs.get('pocket_embedding_size', None)
+
         model = cls(
             atom_hidden_size=pretrained_model.atom_hidden_size,
             block_hidden_size=pretrained_model.hidden_size,
@@ -169,6 +185,7 @@ class MultiClassClassifierModel(PredictionModel):
             loss_type=loss_type,
             focal_alpha=focal_alpha,
             focal_gamma=focal_gamma,
+            pocket_embedding_size=pocket_embedding_size,
         )
         print(f"""Pretrained model params: hidden_size={model.hidden_size},
                edge_size={model.edge_size}, k_neighbors={model.k_neighbors}, 
@@ -197,11 +214,23 @@ class MultiClassClassifierModel(PredictionModel):
         config_dict['loss_type'] = self.loss_type
         config_dict['focal_alpha'] = self.focal_alpha
         config_dict['focal_gamma'] = self.focal_gamma
+        config_dict['pocket_embedding_size'] = self.pocket_embedding_size
         return config_dict
     
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None, pocket_embeddings=None) -> PredictionReturnValue:
         return_value = super().forward(Z, B, A, block_lengths, lengths, segment_ids)
-        logits = self.classifier_ffn(return_value.graph_repr)
+        graph_repr = return_value.graph_repr
+
+        # Concatenate pocket embeddings if available
+        if self.pocket_embedding_size is not None and pocket_embeddings is not None:
+            # Project pocket embeddings to hidden_size
+            pocket_proj = self.pocket_projector(pocket_embeddings)
+            # Concatenate with ATOMICA graph representation
+            combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
+        else:
+            combined_repr = graph_repr
+
+        logits = self.classifier_ffn(combined_repr)
         prob = F.softmax(logits, dim=1)
 
         # Compute loss based on loss type
@@ -227,7 +256,17 @@ class MultiClassClassifierModel(PredictionModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         )
-        logits = self.classifier_ffn(return_value.graph_repr)
+        graph_repr = return_value.graph_repr
+
+        # Concatenate pocket embeddings if available
+        if self.pocket_embedding_size is not None and 'pocket_embeddings' in batch:
+            pocket_embeddings = batch['pocket_embeddings'].to(graph_repr.device)
+            pocket_proj = self.pocket_projector(pocket_embeddings)
+            combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
+        else:
+            combined_repr = graph_repr
+
+        logits = self.classifier_ffn(combined_repr)
         pred_label = F.softmax(logits, dim=1)
         if extra_info:
             return pred_label, return_value
@@ -380,9 +419,20 @@ class MultiLabelClassifierModel(MultiClassClassifierModel):
         if self.loss_type == 'focal':
             self.focal_loss = MultiLabelFocalLoss(alpha=focal_alpha, gamma=focal_gamma, reduction='mean')
 
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, label, block_embeddings=None, block_embeddings0=None, block_embeddings1=None, pocket_embeddings=None) -> PredictionReturnValue:
         return_value = PredictionModel.forward(self, Z, B, A, block_lengths, lengths, segment_ids)
-        logits = self.classifier_ffn(return_value.graph_repr)
+        graph_repr = return_value.graph_repr
+
+        # Concatenate pocket embeddings if available
+        if self.pocket_embedding_size is not None and pocket_embeddings is not None:
+            # Project pocket embeddings to hidden_size
+            pocket_proj = self.pocket_projector(pocket_embeddings)
+            # Concatenate with ATOMICA graph representation
+            combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
+        else:
+            combined_repr = graph_repr
+
+        logits = self.classifier_ffn(combined_repr)
         prob = F.sigmoid(logits)
 
         # Compute loss based on loss type
@@ -409,7 +459,17 @@ class MultiLabelClassifierModel(MultiClassClassifierModel):
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
         )
-        logits = self.classifier_ffn(return_value.graph_repr)
+        graph_repr = return_value.graph_repr
+
+        # Concatenate pocket embeddings if available
+        if self.pocket_embedding_size is not None and 'pocket_embeddings' in batch:
+            pocket_embeddings = batch['pocket_embeddings'].to(graph_repr.device)
+            pocket_proj = self.pocket_projector(pocket_embeddings)
+            combined_repr = torch.cat([graph_repr, pocket_proj], dim=-1)
+        else:
+            combined_repr = graph_repr
+
+        logits = self.classifier_ffn(combined_repr)
         pred_label = F.sigmoid(logits)
         if extra_info:
             return pred_label, return_value
