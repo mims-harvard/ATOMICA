@@ -9,8 +9,7 @@ from torch.utils.data import DataLoader, TensorDataset
 
 
 DATA_PATH = "/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/MASIF/dpocket/dpocket_out_4A_exp_with_split.csv"
-MODEL_OUT_PATH = "/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/MASIF/dpocket/dpocket_mlp_model.pt"
-PREDICTIONS_OUT_PATH = "/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/MASIF/dpocket/dpocket_mlp_predictions.parquet"
+OUT_DIR = "/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/MASIF/dpocket"
 
 
 class MLP(nn.Module):
@@ -183,10 +182,10 @@ def collect_predictions(
     return out_df
 
 
-def main():
+def main(seed: int = 42):
     # Reproducibility
-    torch.manual_seed(42)
-    np.random.seed(42)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
     df = pd.read_csv(DATA_PATH)
     # df = df.drop(columns=[
@@ -327,7 +326,10 @@ def main():
         model.load_state_dict(best_state_dict_overall)
 
     # Save final model (only for best learning rate)
-    os.makedirs(os.path.dirname(MODEL_OUT_PATH), exist_ok=True)
+    model_out_path = f"{OUT_DIR}/seed{seed}/dpocket_mlp_model.pt"
+    predictions_out_path = f"{OUT_DIR}/seed{seed}/dpocket_mlp_predictions.parquet"
+    os.makedirs(os.path.dirname(model_out_path), exist_ok=True)
+    os.makedirs(os.path.dirname(predictions_out_path), exist_ok=True)
     torch.save(
         {
             "model_state_dict": model.state_dict(),
@@ -340,19 +342,25 @@ def main():
             "best_val_loss": best_val_loss_overall,
             "feature_mean": feature_mean,
             "feature_std": feature_std,
+            "seed": seed,
         },
-        MODEL_OUT_PATH,
+        model_out_path,
     )
-    print(f"Saved model to {MODEL_OUT_PATH}")
+    print(f"Saved model to {model_out_path}")
 
     # Collect predictions for the entire dataset (train/val/test combined)
     preds_df = collect_predictions(model, df, feature_cols, label_map, device,
                                    feature_mean=feature_mean, feature_std=feature_std)
 
-    os.makedirs(os.path.dirname(PREDICTIONS_OUT_PATH), exist_ok=True)
-    preds_df.to_parquet(PREDICTIONS_OUT_PATH)
-    print(f"Saved predictions to {PREDICTIONS_OUT_PATH}")
+    os.makedirs(os.path.dirname(predictions_out_path), exist_ok=True)
+    preds_df.to_parquet(predictions_out_path)
+    print(f"Saved predictions to {predictions_out_path}")
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    parser = argparse.ArgumentParser(description='Train D-Pocket MLP for ligand classification')
+    parser.add_argument('--seed', type=int, default=42,
+                       help='Random seed for training')
+    args = parser.parse_args()
+    main(seed=args.seed)

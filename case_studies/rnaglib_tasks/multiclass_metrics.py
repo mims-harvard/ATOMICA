@@ -20,12 +20,13 @@ Author: ChatGPT
 from __future__ import annotations
 
 from dataclasses import dataclass, asdict
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple, Union
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 from sklearn.metrics import (
     f1_score,
     jaccard_score,
+    average_precision_score,
     balanced_accuracy_score,
     roc_auc_score,
     classification_report,
@@ -36,7 +37,7 @@ from sklearn.preprocessing import label_binarize
 
 @dataclass
 class MetricsResult:
-    # Global metrics
+    # Global metrics (non-optional)
     accuracy: float
     balanced_accuracy: float
 
@@ -48,16 +49,22 @@ class MetricsResult:
     jaccard_micro: float
     jaccard_weighted: float
 
-    roc_auc_ovr_macro: Optional[float]
-    roc_auc_ovr_weighted: Optional[float]
-    roc_auc_ovo_macro: Optional[float]
-    roc_auc_ovo_weighted: Optional[float]
-
-    # Per-class summaries
+    # Per-class summaries (non-optional)
     per_class: Dict[Any, Dict[str, float]]
 
-    # Optionally include per-class OvR AUCs if y_proba provided
+    # Optional metrics (require probabilities)
+    roc_auc_ovr_macro: Optional[float] = None
+    roc_auc_ovr_weighted: Optional[float] = None
+    roc_auc_ovo_macro: Optional[float] = None
+    roc_auc_ovo_weighted: Optional[float] = None
+
+    auprc_ovr_macro: Optional[float] = None
+    auprc_ovr_weighted: Optional[float] = None
+    auprc_ovo_macro: Optional[float] = None
+    auprc_ovo_weighted: Optional[float] = None
+
     per_class_ovr_auc: Optional[Dict[Any, float]] = None
+    per_class_auprc_ovr: Optional[Dict[Any, float]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         d = asdict(self)
@@ -170,45 +177,60 @@ def compute_multiclass_metrics(
 
         # Per-class OvR AUCs
         per_class_auc_ovr = {}
+        per_class_auprc_ovr = {}
         for i, lab in enumerate(labels_list):
             # Only compute if both positive and negative examples exist; otherwise roc_auc_score raises
             if np.unique(Y_true_bin[:, i]).size == 2:
                 try:
                     auc_i = roc_auc_score(Y_true_bin[:, i], y_proba[:, i])
+                    auprc_i = average_precision_score(Y_true_bin[:, i], y_proba[:, i])
                 except ValueError:
                     auc_i = np.nan
+                    auprc_i = np.nan
             else:
                 auc_i = np.nan
+                auprc_i = np.nan
             per_class_auc_ovr[lab] = float(auc_i) if auc_i == auc_i else None  # NaN -> None
+            per_class_auprc_ovr[lab] = float(auprc_i) if auprc_i == auprc_i else None  # NaN -> None
 
         # Aggregate AUCs using sklearn's multiclass handling
         try:
             roc_auc_ovr_macro = float(
                 roc_auc_score(y_true_idx, y_proba, multi_class="ovr", average="macro", labels=list(range(n_classes)))
             )
+            auprc_ovr_macro = float(average_precision_score(y_true_idx, y_proba, average="macro"))
         except ValueError:
             roc_auc_ovr_macro = None
+            auprc_ovr_macro = None
 
         try:
             roc_auc_ovr_weighted = float(
                 roc_auc_score(y_true_idx, y_proba, multi_class="ovr", average="weighted", labels=list(range(n_classes)))
             )
+            auprc_ovr_weighted = float(average_precision_score(y_true_idx, y_proba, average="weighted"))
         except ValueError:
             roc_auc_ovr_weighted = None
+            auprc_ovr_weighted = None
 
         try:
             roc_auc_ovo_macro = float(
                 roc_auc_score(y_true_idx, y_proba, multi_class="ovo", average="macro", labels=list(range(n_classes)))
             )
+            # OvO is not supported for AUPRC
+            auprc_ovo_macro = None
         except ValueError:
             roc_auc_ovo_macro = None
+            auprc_ovo_macro = None
 
         try:
             roc_auc_ovo_weighted = float(
                 roc_auc_score(y_true_idx, y_proba, multi_class="ovo", average="weighted", labels=list(range(n_classes)))
             )
+            # OvO is not supported for AUPRC
+            auprc_ovo_weighted = None
         except ValueError:
             roc_auc_ovo_weighted = None
+            auprc_ovo_weighted = None
 
     return MetricsResult(
         accuracy=acc,
@@ -225,6 +247,11 @@ def compute_multiclass_metrics(
         roc_auc_ovo_weighted=roc_auc_ovo_weighted,
         per_class=per_class,
         per_class_ovr_auc=per_class_auc_ovr,
+        per_class_auprc_ovr=per_class_auprc_ovr,
+        auprc_ovr_macro=auprc_ovr_macro,
+        auprc_ovr_weighted=auprc_ovr_weighted,
+        auprc_ovo_macro=auprc_ovo_macro,
+        auprc_ovo_weighted=auprc_ovo_weighted,
     )
 
 

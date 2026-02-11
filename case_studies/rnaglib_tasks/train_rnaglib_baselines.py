@@ -18,6 +18,7 @@ import argparse
 from sklearn.metrics import roc_auc_score, precision_recall_curve, auc, f1_score
 from multiclass_metrics import compute_multiclass_metrics
 from multilabel_metrics import compute_multilabel_metrics
+import json
 
 DATA_DIR = "/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/rnaglib_tasks"
 
@@ -47,7 +48,7 @@ def sigmoid(x):
     x_clipped = np.clip(x, -500, 500)
     return 1 / (1 + np.exp(-x_clipped))
 
-def compute_metrics(all_preds, all_probs, all_labels, task_name, task_metadata):
+def compute_metrics(all_preds, all_probs, all_labels, task_name, task_metadata, output_dir):
     """Compute metrics based on task type, matching inference.ipynb"""
     multi_label = task_metadata['multi_label']
     num_classes = task_metadata['num_classes']
@@ -61,7 +62,7 @@ def compute_metrics(all_preds, all_probs, all_labels, task_name, task_metadata):
             all_probs = np.concatenate(all_probs)
         if isinstance(all_labels, list):
             all_labels = np.concatenate(all_labels)
-    
+
     if multi_label:
         # RNAGo: multilabel classification
         # Convert logits to probabilities (model outputs logits for multilabel)
@@ -77,12 +78,11 @@ def compute_metrics(all_preds, all_probs, all_labels, task_name, task_metadata):
             y_proba=y_proba,
             threshold=threshold
         )
-        return {
-            'subset_accuracy': metrics.subset_accuracy,
-            'f1_macro': metrics.f1_macro,
-            'f1_micro': metrics.f1_micro,
-            'f1_weighted': metrics.f1_weighted,
-        }
+        os.makedirs(output_dir, exist_ok=True)
+        np.save(f"{output_dir}/test_probabilities.npy", y_proba)
+        np.save(f"{output_dir}/test_labels.npy", y_true)
+        with open(f"{output_dir}/test_metrics.json", "w") as f:
+            json.dump(metrics.to_dict(), f, indent=2)
     elif num_classes > 2:
         # RNA_Ligand: multiclass classification
         y_pred = np.stack(all_preds) if isinstance(all_preds[0], np.ndarray) else np.array(all_preds)
@@ -101,13 +101,11 @@ def compute_metrics(all_preds, all_probs, all_labels, task_name, task_metadata):
             y_proba=y_proba,
             labels=labels
         )
-        return {
-            'accuracy': metrics.accuracy,
-            'balanced_accuracy': metrics.balanced_accuracy,
-            'f1_macro': metrics.f1_macro,
-            'f1_micro': metrics.f1_micro,
-            'f1_weighted': metrics.f1_weighted,
-        }
+        os.makedirs(output_dir, exist_ok=True)
+        np.save(f"{output_dir}/test_probabilities.npy", y_proba)
+        np.save(f"{output_dir}/test_labels.npy", y_true)
+        with open(f"{output_dir}/test_metrics.json", "w") as f:
+            json.dump(metrics.to_dict(), f, indent=2)
     else:
         # RNA_Protein, RNA_Site: binary classification (residue-level)
         y_proba_logits = np.array(all_probs).flatten()
@@ -122,14 +120,19 @@ def compute_metrics(all_preds, all_probs, all_labels, task_name, task_metadata):
         
         precision, recall, _ = precision_recall_curve(y_true, y_proba)
         auprc = auc(recall, precision)
-        
-        return {
+
+        os.makedirs(output_dir, exist_ok=True)
+        np.save(f"{output_dir}/test_probabilities.npy", y_proba)
+        np.save(f"{output_dir}/test_labels.npy", y_true)
+        metrics = {
             'accuracy': np.mean(y_true == best_pred),
             'roc_auc': roc_auc_score(y_true, y_proba),
             'auprc': auprc,
         }
+        with open(f"{output_dir}/test_metrics.json", "w") as f:
+            json.dump(metrics, f, indent=2)
 
-def run_task(task, task_name, num_layers, hidden_channels, dropout_rate, learning_rate, seed=None, use_gvp=False):
+def run_task(task, task_name, num_layers, hidden_channels, dropout_rate, learning_rate, output_dir, seed=None, use_gvp=False):
     # Set random seed for reproducibility (must be called before model creation)
     if seed is not None:
         setup_seed(seed)
@@ -178,10 +181,10 @@ def run_task(task, task_name, num_layers, hidden_channels, dropout_rate, learnin
     test_metrics = model.evaluate(task, split='test')
     print("RNAGlib test metrics: ", test_metrics) # keep for reference to the paper evals
     
-    test_metrics = compute_metrics(all_preds, all_probs, all_labels, task_name, task.metadata)
-    test_metrics['loss'] = mean_loss
-    print("Test metrics evaluated, time taken: ", time() - start_time)
-    print(f"Test metrics: {test_metrics}")
+    compute_metrics(all_preds, all_probs, all_labels, task_name, task.metadata, output_dir)
+    # test_metrics['loss'] = mean_loss
+    # print("Test metrics evaluated, time taken: ", time() - start_time)
+    # print(f"Test metrics: {test_metrics}")
 
 
 def main():
@@ -197,8 +200,8 @@ def main():
         '--seeds',
         type=int,
         nargs='+',
-        default=[42, 43, 44],
-        help='List of random seeds to use (default: [42, 43, 44])'
+        default=[0, 1, 2, 3, 4],
+        help='List of random seeds to use (default: [0, 1, 2, 3, 4])'
     )
     parser.add_argument(
         '--use_gvp',
@@ -206,7 +209,12 @@ def main():
         default=False,
         help='Use GVP model instead of Pyg model'
     )
-    
+    parser.add_argument(
+        '--output_dir',
+        type=str,
+        default="/n/holylfs06/LABS/mzitnik_lab/Lab/afang/ATOMICA/baselines/rnaglib_tasks/rnaglib",
+        help='Output directory for checkpoints and results'
+    )
     args = parser.parse_args()
     
     task_name = args.task_type
@@ -225,7 +233,8 @@ def main():
         )
         print(f"Running task: {task_name}, with seed: {seed}")
         print("--------------------------------")
-        run_task(task, task_name, num_layers, hidden_channels, dropout_rate, learning_rate, seed=seed, use_gvp=use_gvp)
+        output_dir = f"{args.output_dir}/{task_name}/seed{seed}"
+        run_task(task, task_name, num_layers, hidden_channels, dropout_rate, learning_rate, output_dir, seed=seed, use_gvp=use_gvp)
         print("--------------------------------")
         print()
 

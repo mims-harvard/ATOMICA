@@ -52,27 +52,28 @@ def run_model(ckpt_path, split, dist_th):
 
 
 if __name__ == "__main__":
-    model_ckpts = {
-        8: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_142/checkpoint/epoch186_step15895.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_206/checkpoint/epoch138_step11815.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_174/checkpoint/epoch140_step11985.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_196/checkpoint/epoch253_step21590.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_150/checkpoint/epoch286_step24395.ckpt',
-            ],
-        7: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_204/checkpoint/epoch299_step18900.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_143/checkpoint/epoch236_step14931.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_181/checkpoint/epoch275_step17388.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_162/checkpoint/epoch284_step17955.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_190/checkpoint/epoch196_step12411.ckpt',],
+    # model_ckpts = {
+    #     8: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_142/checkpoint/epoch186_step15895.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_206/checkpoint/epoch138_step11815.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_174/checkpoint/epoch140_step11985.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_196/checkpoint/epoch253_step21590.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_150/checkpoint/epoch286_step24395.ckpt',
+    #         ],
+    #     7: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_204/checkpoint/epoch299_step18900.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_143/checkpoint/epoch236_step14931.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_181/checkpoint/epoch275_step17388.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_162/checkpoint/epoch284_step17955.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_190/checkpoint/epoch196_step12411.ckpt',],
 
-        6: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_205/checkpoint/epoch222_step10258.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_180/checkpoint/epoch176_step8142.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_198/checkpoint/epoch273_step12604.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_149/checkpoint/epoch185_step8556.ckpt',
-            '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_188/checkpoint/epoch223_step10304.ckpt',
-            ],
-    }
+    #     6: ['/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_205/checkpoint/epoch222_step10258.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_180/checkpoint/epoch176_step8142.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_198/checkpoint/epoch273_step12604.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_149/checkpoint/epoch185_step8556.ckpt',
+    #         '/n/netscratch/mzitnik_lab/Lab/afang/ATOMICA/baselines/masif_benchmark/models/version_188/checkpoint/epoch223_step10304.ckpt',
+    #         ],
+    # }
 
-    for dist_th, ckpt_paths in model_ckpts.items():
-        for ckpt_path in ckpt_paths:
-            run_model(ckpt_path, "train", dist_th)
+    for dist_th in [8, 7, 6]:
+        for seed in range(0,5):
+            ckpt_path = f"/n/holylabs/LABS/mzitnik_lab/Users/afang/ATOMICA/checkpoints/benchmarks/masif/{dist_th}A/seed{seed}/model.ckpt"
+            run_model(ckpt_path, "test", dist_th)

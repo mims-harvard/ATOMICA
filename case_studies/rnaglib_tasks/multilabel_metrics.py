@@ -31,6 +31,7 @@ from sklearn.metrics import (
     roc_auc_score,
     classification_report,
     accuracy_score,  # used for subset accuracy via exact match
+    average_precision_score
 )
 
 
@@ -51,16 +52,22 @@ class MultilabelMetricsResult:
     jaccard_weighted: float
     jaccard_samples: float
 
-    # ROC-AUC (OvR)
-    roc_auc_ovr_macro: Optional[float]
-    roc_auc_ovr_weighted: Optional[float]
-    roc_auc_ovr_micro: Optional[float]
-
-    # Per-label summaries
+    # Per-label summaries (non-optional)
     per_label: Dict[Any, Dict[str, float]]  # precision/recall/f1/support/jaccard per label
 
-    # Optional per-label OvR AUCs
+    # Optional ROC-AUC (OvR)
+    roc_auc_ovr_macro: Optional[float] = None
+    roc_auc_ovr_weighted: Optional[float] = None
+    roc_auc_ovr_micro: Optional[float] = None
+
+    # Optional AUPRC
+    auprc_macro: Optional[float] = None
+    auprc_weighted: Optional[float] = None
+    auprc_micro: Optional[float] = None
+
+    # Optional per-label AUCs and AUPRCs
     per_label_ovr_auc: Optional[Dict[Any, Optional[float]]] = None
+    per_label_auprc: Optional[Dict[Any, Optional[float]]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
@@ -183,11 +190,14 @@ def compute_multilabel_metrics(
         else:
             per_label[name] = {"precision": 0.0, "recall": 0.0, "f1": 0.0, "support": 0.0, "jaccard": 0.0}
 
-    # ROC AUC (OvR) — only if y_proba provided; per-label + aggregates
+    # ROC AUC (OvR) and AUPRC — only if y_proba provided; per-label + aggregates
     auc_macro = auc_weighted = auc_micro = None
+    auprc_macro = auprc_weighted = auprc_micro = None
     per_label_auc: Optional[Dict[Any, Optional[float]]] = None
+    per_label_auprc: Optional[Dict[Any, Optional[float]]] = None
     if y_proba is not None:
         per_label_auc = {}
+        per_label_auprc = {}
         for j, name in enumerate(label_names):
             yt = y_true[:, j]
             yp = y_proba[:, j]
@@ -195,11 +205,31 @@ def compute_multilabel_metrics(
             if np.unique(yt).size == 2:
                 try:
                     auc_j = float(roc_auc_score(yt, yp))
+                    auprc_j = float(average_precision_score(yt, yp))
                 except ValueError:
                     auc_j = None
+                    auprc_j = None
             else:
                 auc_j = None
+                auprc_j = None
             per_label_auc[name] = auc_j
+            per_label_auprc[name] = auprc_j
+
+        # Compute aggregate AUPRC metrics
+        auprc_values = np.array([per_label_auprc[name] for name in label_names if per_label_auprc[name] is not None])
+        auprc_weights = np.array([y_true[:, j].sum() for j, name in enumerate(label_names) if per_label_auprc[name] is not None])
+
+        if len(auprc_values) > 0:
+            auprc_macro = float(np.mean(auprc_values))
+            auprc_weighted = float(np.average(auprc_values, weights=auprc_weights)) if auprc_weights.sum() > 0 else None
+        else:
+            auprc_macro = None
+            auprc_weighted = None
+
+        try:
+            auprc_micro = float(average_precision_score(y_true.ravel(), y_proba.ravel()))
+        except ValueError:
+            auprc_micro = None
 
         # Aggregates
         try:
@@ -230,6 +260,10 @@ def compute_multilabel_metrics(
         roc_auc_ovr_micro=auc_micro,
         per_label=per_label,
         per_label_ovr_auc=per_label_auc,
+        per_label_auprc=per_label_auprc,
+        auprc_macro=auprc_macro,
+        auprc_weighted=auprc_weighted,
+        auprc_micro=auprc_micro,
     )
 
 

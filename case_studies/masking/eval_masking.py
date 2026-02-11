@@ -1,20 +1,15 @@
 import torch
-from collections import defaultdict, Counter
 from torch_scatter import scatter_mean
 from tqdm import tqdm
-from sklearn.metrics import precision_recall_fscore_support
 import numpy as np
-import seaborn as sns
 import pickle
 import numpy as np
 from scipy.spatial import distance_matrix
 
 from atomica.trainers.abs_trainer import Trainer
-import atomica.models.masking_model
-import atomica.data.dataset_pretrain
 from atomica.data.pdb_utils import VOCAB
 from atomica.utils.random_seed import setup_seed
-from atomica.data.dataset_pretrain import PretrainMaskedDataset, PretrainMaskedTorsionDataset
+from atomica.data.dataset_pretrain import PretrainMaskedDataset
 from atomica.models.masking_model import MaskedNodeModel
 import argparse
 
@@ -59,7 +54,7 @@ def get_masking_predictions(model, test_dataset, CA_avg_distances, edge_distance
     labels_list = torch.cat(labels_list, dim=0)
     return id_list, preds_list, labels_list, CA_distances_list, intra_distances_list, inter_distances_list
 
-def main(modality, data_file, model_ckpt, model1_ckpt, model_is_mask_only, model1_is_mask_only, output_path):
+def main(modality, data_file, model_ckpt, model1_ckpt, model2_ckpt, model_config, model1_config, model2_config, output_path):
     VOCAB.load_tokenizer('PS_300')
     modality = modality
     test_dataset = PretrainMaskedDataset(
@@ -70,20 +65,14 @@ def main(modality, data_file, model_ckpt, model1_ckpt, model_is_mask_only, model
         atom_mask_token= VOCAB.get_atom_mask_idx(),
     )
 
-    if model_is_mask_only:
-        model: MaskedNodeModel = torch.load(model_ckpt)
-    else:
-        model = MaskedNodeModel.load_from_pretrained(model_ckpt, 
-                                                num_masked_block_classes=len(test_dataset.vocab_to_mask))
-    if model1_is_mask_only:
-        model1: MaskedNodeModel = torch.load(model1_ckpt)
-    else:
-        model1 = MaskedNodeModel.load_from_pretrained(model1_ckpt, 
-                                                    num_masked_block_classes=len(test_dataset.vocab_to_mask))
+    model: MaskedNodeModel = MaskedNodeModel.load_from_config_and_weights(model_config, model_ckpt)
+    model1: MaskedNodeModel = MaskedNodeModel.load_from_config_and_weights(model1_config, model1_ckpt)
+    model2: MaskedNodeModel = MaskedNodeModel.load_from_config_and_weights(model2_config, model2_ckpt)
 
     num_params = sum(p.numel() for p in model.parameters())
     num_params1 = sum(p.numel() for p in model1.parameters())
-    print("Num params", num_params, num_params1)
+    num_params2 = sum(p.numel() for p in model2.parameters())
+    print("Num params", num_params, num_params1, num_params2)
 
     CA_avg_distances = {}
     k = 8
@@ -130,9 +119,14 @@ def main(modality, data_file, model_ckpt, model1_ckpt, model_is_mask_only, model
             model1, test_dataset, CA_avg_distances, edge_distances, seed)
         results1.append((id_list1, preds_list1, labels_list1, CA_distances_list1, intra_distances_list1, inter_distances_list1))
     
+    results2 = []
+    for seed in [0, 1, 2, 3, 4]:
+        id_list2, preds_list2, labels_list2, CA_distances_list2, intra_distances_list2, inter_distances_list2 = get_masking_predictions(
+            model2, test_dataset, CA_avg_distances, edge_distances, seed)
+        results2.append((id_list2, preds_list2, labels_list2, CA_distances_list2, intra_distances_list2, inter_distances_list2))
 
     with open(output_path, "wb") as f:
-        pickle.dump((model_ckpt, results, model1_ckpt, results1), f)
+        pickle.dump((model_ckpt, results, model1_ckpt, results1, model2_ckpt, results2), f)
 
 
 def parse_args():
@@ -141,8 +135,10 @@ def parse_args():
     parser.add_argument("--data_file", type=str, help="Data file")
     parser.add_argument("--model_ckpt", type=str, help="Model (single modality) checkpoint")
     parser.add_argument("--model1_ckpt", type=str, help="Model1 (InteractNN) checkpoint")
-    parser.add_argument("--model_is_mask_only", action="store_true", help="Model is mask only", default=False)
-    parser.add_argument("--model1_is_mask_only", action="store_true", help="Model is mask only", default=False)
+    parser.add_argument("--model2_ckpt", type=str, help="Model2 (leave that modality out) checkpoint")
+    parser.add_argument("--model_config", type=str, help="Model (single modality) config")
+    parser.add_argument("--model1_config", type=str, help="Model1 (InteractNN) config")
+    parser.add_argument("--model2_config", type=str, help="Model2 (leave that modality out) config")
     parser.add_argument("--output_path", type=str, help="Path to save results")
     args = parser.parse_args()
     return args
@@ -150,4 +146,4 @@ def parse_args():
 
 if __name__ == "__main__":
     args = parse_args()
-    main(args.modality, args.data_file, args.model_ckpt, args.model1_ckpt, args.model_is_mask_only, args.model1_is_mask_only, args.output_path)
+    main(args.modality, args.data_file, args.model_ckpt, args.model1_ckpt, args.model2_ckpt, args.model_config, args.model1_config, args.model2_config, args.output_path)
