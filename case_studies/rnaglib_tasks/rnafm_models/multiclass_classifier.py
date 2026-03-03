@@ -35,6 +35,94 @@ from sklearn.metrics import (
     precision_recall_curve,
     auc,
 )
+from collections import Counter
+
+
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for addressing class imbalance.
+
+    For multiclass: FL(p_t) = -alpha_t * (1 - p_t)^gamma * log(p_t)
+    For multilabel: Applied per-label with BCEWithLogitsLoss base
+
+    Parameters
+    ----------
+    gamma : float
+        Focusing parameter. Higher values focus more on hard examples. Default: 2.0
+    alpha : float, list, or torch.Tensor, optional
+        Class weighting. Can be:
+        - float: same weight for all classes
+        - list/tensor: per-class weights
+        - None: no weighting
+    task_type : str
+        One of "multiclass" or "multilabel"
+    """
+    def __init__(self, gamma: float = 2.0, alpha=None, task_type: str = "multiclass"):
+        super(FocalLoss, self).__init__()
+        self.gamma = gamma
+        self.task_type = task_type
+
+        # Handle alpha (class weights)
+        if alpha is not None:
+            if isinstance(alpha, (list, tuple)):
+                self.alpha = torch.tensor(alpha, dtype=torch.float32)
+            elif isinstance(alpha, (int, float)):
+                self.alpha = torch.tensor([alpha], dtype=torch.float32)
+            elif isinstance(alpha, torch.Tensor):
+                self.alpha = alpha.float()
+            else:
+                raise TypeError(f"alpha must be float, list, or tensor, got {type(alpha)}")
+        else:
+            self.alpha = None
+
+    def forward(self, inputs, targets):
+        """
+        Parameters
+        ----------
+        inputs : torch.Tensor
+            Logits from model (before activation)
+            - Multiclass: shape (N, num_classes)
+            - Multilabel/Binary: shape (N, num_classes) or (N, 1)
+        targets : torch.Tensor
+            True labels
+            - Multiclass: shape (N,) with class indices
+            - Multilabel/Binary: shape (N, num_classes) or (N, 1) with {0, 1}
+        """
+        if self.task_type == "multiclass":
+            # Multiclass focal loss
+            ce_loss = nn.functional.cross_entropy(inputs, targets, reduction='none')
+            p = torch.exp(-ce_loss)  # p_t
+            focal_loss = (1 - p) ** self.gamma * ce_loss
+
+            if self.alpha is not None:
+                if self.alpha.device != inputs.device:
+                    self.alpha = self.alpha.to(inputs.device)
+                # Apply per-class weights
+                alpha_t = self.alpha[targets]
+                focal_loss = alpha_t * focal_loss
+
+            return focal_loss.mean()
+
+        elif self.task_type == "multilabel":
+            # Multilabel focal loss (per-label binary focal loss)
+            bce_loss = nn.functional.binary_cross_entropy_with_logits(
+                inputs, targets, reduction='none'
+            )
+            p = torch.sigmoid(inputs)
+            p_t = p * targets + (1 - p) * (1 - targets)  # p if y=1, 1-p if y=0
+            focal_loss = (1 - p_t) ** self.gamma * bce_loss
+
+            if self.alpha is not None:
+                if self.alpha.device != inputs.device:
+                    self.alpha = self.alpha.to(inputs.device)
+                # Apply per-class weights (alpha for positive class)
+                alpha_t = self.alpha.unsqueeze(0) * targets + (1 - targets)
+                focal_loss = alpha_t * focal_loss
+
+            return focal_loss.mean()
+
+        else:
+            raise ValueError(f"task_type must be 'multiclass' or 'multilabel', got {self.task_type}")
 
 
 def setup_seed(seed):
@@ -306,10 +394,100 @@ def load_data(embeddings_path: str, labels_path: str) -> Tuple[np.ndarray, np.nd
     """Load embeddings and labels from given paths."""
     embeddings = np.load(embeddings_path)
     labels = np.load(labels_path)
-    
+
     print(f"Loaded: embeddings shape {embeddings.shape}, labels shape {labels.shape}")
-    
+
     return embeddings, labels
+
+
+def compute_class_weights(
+    labels: np.ndarray,
+    task_type: TaskType,
+    num_classes: int,
+) -> torch.Tensor:
+    """
+    Compute class weights for weighted loss. For multiclass: use 1/count instead of (total-count)/count
+
+    Parameters
+    ----------
+    labels : np.ndarray
+        Labels array
+        - For multiclass: shape (N,) with class indices
+        - For multilabel: shape (N, num_classes) with {0, 1}
+    task_type : str
+        One of "multiclass" or "multilabel"
+    num_classes : int
+        Number of classes
+
+    Returns
+    -------
+    torch.Tensor
+        Class weights
+        - For multiclass: shape (num_classes,) - weights for each class
+        - For multilabel: shape (num_classes,) - pos_weight for each class
+    """
+    if task_type == "multilabel":
+        # For multilabel: calculate pos_weight (weight for positive examples relative to negative)
+        # pos_weight[i] = num_negatives[i] / num_positives[i] for each class i
+        labels_array = np.asarray(labels)
+
+        if labels_array.ndim != 2:
+            raise ValueError(f"Multilabel labels must be 2D array (N, num_classes), got shape {labels_array.shape}")
+
+        if labels_array.shape[1] != num_classes:
+            print(f"Warning: labels have {labels_array.shape[1]} classes but num_classes={num_classes}")
+
+        class_weights = torch.zeros(num_classes, dtype=torch.float32)
+        num_samples = labels_array.shape[0]
+
+        for class_idx in range(num_classes):
+            if labels_array.shape[1] > class_idx:
+                positives = labels_array[:, class_idx].sum()
+                negatives = num_samples - positives
+
+                if positives > 0:
+                    class_weights[class_idx] = float(negatives) / float(positives)
+                else:
+                    # If no positive examples, set weight to 1.0 (no weighting)
+                    class_weights[class_idx] = 1.0
+            else:
+                class_weights[class_idx] = 1.0
+
+        # Log per-class statistics
+        print(f'Pos weights for multilabel weighted loss: {class_weights.tolist()}')
+        for class_idx in range(num_classes):
+            if labels_array.shape[1] > class_idx:
+                positives = int(labels_array[:, class_idx].sum())
+                negatives = int(num_samples - positives)
+                print(f'Class {class_idx}: {positives} positives, {negatives} negatives, pos_weight={class_weights[class_idx]:.4f}')
+
+    else:  # multiclass
+        # For multiclass: calculate inverse frequency weights
+        labels = np.asarray(labels)
+        if labels.ndim != 1:
+            raise ValueError(f"Multiclass labels must be 1D array (N,), got shape {labels.shape}")
+
+        label_counts = Counter(labels)
+        class_weights = torch.zeros(num_classes, dtype=torch.float32)
+        total_samples = len(labels)
+
+        for class_idx in range(num_classes):
+            if class_idx in label_counts:
+                class_weights[class_idx] = 1.0 / label_counts[class_idx]
+            else:
+                class_weights[class_idx] = 0.0
+
+        # Normalize weights so average weight is 1
+        total_weight = class_weights.sum()
+        if total_weight > 0:
+            class_weights = class_weights / total_weight * num_classes
+        else:
+            class_weights = torch.ones(num_classes, dtype=torch.float32)
+
+        print(f'Class weights for weighted loss: {class_weights.tolist()}')
+        print(f'Class distribution: {dict(label_counts)}')
+
+    return class_weights
 
 
 def get_next_version_number(output_dir: str) -> int:
@@ -479,10 +657,14 @@ def main(
     device: Optional[str] = None,
     output_dir: str = "checkpoints",
     seed: int = 42,
+    use_focal_loss: bool = False,
+    focal_gamma: float = 2.0,
+    focal_alpha: Optional[list] = None,
+    weighted_loss: bool = False,
 ):
     """
     Main training function.
-    
+
     Parameters
     ----------
     train_embeddings_path : str
@@ -517,6 +699,14 @@ def main(
         Device to use (cuda/cpu). If None, auto-detect.
     output_dir : str
         Directory to save model and predictions
+    use_focal_loss : bool
+        Use focal loss instead of cross-entropy (default: False)
+    focal_gamma : float
+        Focusing parameter for focal loss (default: 2.0)
+    focal_alpha : list, optional
+        Class weighting for focal loss
+    weighted_loss : bool
+        Use weighted cross-entropy/BCE loss (default: False)
     """
     setup_seed(seed)
     # Validate task type
@@ -557,6 +747,30 @@ def main(
         num_classes = train_labels.shape[1]
         print(f"Input dimension: {input_dim}, Number of classes: {num_classes}")
     
+    # Compute class weights if requested
+    class_weights = None
+    if weighted_loss or use_focal_loss:
+        if task_type == "binary":
+            print("Warning: weighted_loss and focal_loss are not supported for binary classification in this script")
+        else:
+            print("Computing class weights...")
+            class_weights = compute_class_weights(
+                train_labels,
+                task_type,
+                num_classes,
+            )
+
+    # Determine loss function name for logging
+    if use_focal_loss:
+        loss_name = "FocalLoss"
+    elif weighted_loss:
+        if task_type == "multilabel":
+            loss_name = "WeightedBCEWithLogitsLoss"
+        else:  # multiclass
+            loss_name = "WeightedCrossEntropyLoss"
+    else:
+        loss_name = "BCEWithLogitsLoss" if task_type in ["multilabel", "binary"] else "CrossEntropyLoss"
+
     # Save hyperparameters
     hyperparameters = {
         "task_type": task_type,
@@ -569,7 +783,11 @@ def main(
         "patience": patience,
         "device": device,
         "optimizer": "Adam",
-        "loss": "BCEWithLogitsLoss" if task_type in ["multilabel", "binary"] else "CrossEntropyLoss",
+        "loss": loss_name,
+        "use_focal_loss": use_focal_loss,
+        "focal_gamma": focal_gamma if use_focal_loss else None,
+        "focal_alpha": focal_alpha if use_focal_loss else None,
+        "weighted_loss": weighted_loss,
         "input_dim": int(input_dim),
         "num_classes": int(num_classes),
         "train_size": int(len(train_embeddings)),
@@ -605,13 +823,41 @@ def main(
         dropout=dropout
     )
     model = model.to(device)
-    
+
     # Loss and optimizer
-    if task_type in ["multilabel", "binary"]:
-        criterion = nn.BCEWithLogitsLoss()  # Use logits version for numerical stability
-    else:  # multiclass
-        criterion = nn.CrossEntropyLoss()
-    
+    if use_focal_loss:
+        # Use focal loss
+        if focal_alpha is not None:
+            alpha = focal_alpha
+        elif class_weights is not None:
+            alpha = class_weights
+        else:
+            alpha = None
+
+        criterion = FocalLoss(
+            gamma=focal_gamma,
+            alpha=alpha,
+            task_type="multilabel" if task_type == "multilabel" else "multiclass"
+        )
+        print(f"Using Focal Loss with gamma={focal_gamma}, alpha={'custom' if alpha is not None else 'none'}")
+    elif weighted_loss and class_weights is not None:
+        # Use weighted loss
+        if task_type == "multilabel":
+            # For multilabel, use pos_weight parameter
+            criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights.to(device))
+            print(f"Using Weighted BCEWithLogitsLoss with pos_weight")
+        else:  # multiclass
+            # For multiclass, use weight parameter
+            criterion = nn.CrossEntropyLoss(weight=class_weights.to(device))
+            print(f"Using Weighted CrossEntropyLoss")
+    else:
+        # Standard loss
+        if task_type in ["multilabel", "binary"]:
+            criterion = nn.BCEWithLogitsLoss()
+        else:  # multiclass
+            criterion = nn.CrossEntropyLoss()
+        print(f"Using standard {'BCEWithLogitsLoss' if task_type in ['multilabel', 'binary'] else 'CrossEntropyLoss'}")
+
     optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     
     # Training loop with early stopping
@@ -844,7 +1090,19 @@ if __name__ == "__main__":
     parser.add_argument("--patience", type=int, default=10, help="Early stopping patience")
     parser.add_argument("--output-dir", type=str, default="checkpoints", help="Output directory")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
-    
+
+    # Focal loss arguments
+    parser.add_argument("--use-focal-loss", action="store_true", default=False,
+                       help="Use focal loss instead of cross-entropy for classification tasks. Helps with class imbalance.")
+    parser.add_argument("--focal-gamma", type=float, default=2.0,
+                       help="Focusing parameter for focal loss. Higher values focus more on hard examples. Default: 2.0")
+    parser.add_argument("--focal-alpha", type=float, nargs='*', default=None,
+                       help="Class weighting for focal loss. Can be a single value or per-class weights. If not specified, computed weights are used if weighted-loss is also enabled.")
+
+    # Weighted loss arguments
+    parser.add_argument("--weighted-loss", action="store_true", default=False,
+                       help="Use weighted cross-entropy/BCE loss for classification tasks. Helps with class imbalance.")
+
     args = parser.parse_args()
     
     main(
@@ -865,4 +1123,8 @@ if __name__ == "__main__":
         device="cuda" if torch.cuda.is_available() else "cpu",
         output_dir=args.output_dir,
         seed=args.seed,
+        use_focal_loss=args.use_focal_loss,
+        focal_gamma=args.focal_gamma,
+        focal_alpha=args.focal_alpha,
+        weighted_loss=args.weighted_loss,
     )

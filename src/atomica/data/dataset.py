@@ -679,7 +679,9 @@ class LabelledPDBDataset(torch.utils.data.Dataset):
                 val.append(torch.tensor(item[key], dtype=_type))
             if key == 'label':
                 if isinstance(val[0], torch.Tensor):
-                    res[key] = torch.concat(val, dim=0)
+                    # Ensure tensors have at least 1 dimension before concatenating
+                    val_1d = [v.unsqueeze(0) if v.ndim == 0 else v for v in val]
+                    res[key] = torch.concat(val_1d, dim=0)
                 else:
                     res[key] = torch.tensor(val, dtype=_type)
             else:
@@ -1204,13 +1206,16 @@ def open_data_file(data_file):
         other_cols = [col for col in df.columns if col not in DATA_COLS]
         other_data = df[other_cols].to_dict(orient='records')
         items = []
-        for data, other_data in zip(data, other_data):
-            other_data['data'] = _maybe_convert_numpy_to_list(data)
+        for item_data, item_other_data in zip(data, other_data):
+            item_other_data['data'] = _maybe_convert_numpy_to_list(item_data)
             # block_to_pdb_indexes is a json string, convert it to a dictionary
-            other_data['block_to_pdb_indexes'] = json.loads(other_data['block_to_pdb_indexes'])
-            other_data['block_to_pdb_indexes'] = {int(k): v for k, v in other_data['block_to_pdb_indexes'].items()}
-            other_data['label'] = other_data['label'].tolist() if isinstance(other_data['label'], np.ndarray) else other_data['label']
-            items.append(other_data)
+            item_other_data['block_to_pdb_indexes'] = json.loads(item_other_data['block_to_pdb_indexes'])
+            item_other_data['block_to_pdb_indexes'] = {int(k): v for k, v in item_other_data['block_to_pdb_indexes'].items()}
+            if 'label' in item_other_data:
+                item_other_data['label'] = item_other_data['label'].tolist() if isinstance(item_other_data['label'], np.ndarray) else item_other_data['label']
+            else:
+                item_other_data['label'] = None
+            items.append(item_other_data)
         return items
     else:
         raise ValueError('Unknown file format')

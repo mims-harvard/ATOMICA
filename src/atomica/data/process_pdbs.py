@@ -15,8 +15,8 @@ import pyarrow as pa
 def parse_args():
     parser = argparse.ArgumentParser(description='Process PDB data for embedding with ATOMICA')
     parser.add_argument('--data_index_file', type=str, required=True, help="""CSV file containing the following headers [ pdb_id | pdb_path | chain1 | chain2 | lig_code | lig_smiles ]
-                            pdb_id: 4 letter pdb code, 
-                            pdb_path: path to the pdb file, 
+                            pdb_id: unique identifier, does not have to be 4 letter pdb code, 
+                            pdb_path: path to the pdb/cif file, 
                             chain1: chain of the protein delimited with '_', 
                             chain2: chain of the ligand delimited with '_', 
                             lig_code: ligand code if ligand, leave empty/None if the interface is chain 2. If lig, then chain2 must refer to the chain the ligand is on.
