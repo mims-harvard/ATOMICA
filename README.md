@@ -24,6 +24,8 @@ ATOMICA requires PyTorch with CUDA support. Please refer to the installation ins
 Generate embeddings from list of PDB files with ATOMICA model in just a few lines. See the tutorial at [tutorials/1_get_embeddings](https://github.com/mims-harvard/ATOMICA/tree/main/tutorials/1_get_embeddings) for more details.
 
 ## :star: Other setup
+Optional steps, only required if you plan on training your own ATOMICA model.
+
 ### Download All Processed Datasets
 The data for pretraining and downstream analyses is hosted at [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
 
