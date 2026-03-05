@@ -16,86 +16,15 @@ ATOMICA is a geometric AI model that learns universal representations of molecul
 
 ## :rocket: Installation and Setup
 
-### Installation (GPU with CUDA 11.8 - Recommended)
+ATOMICA requires PyTorch with CUDA support. Please refer to the installation instructions in [setup](https://github.com/mims-harvard/ATOMICA/tree/main/setup) which provides instructions for setting up with uv or mamba/conda.
 
-ATOMICA requires PyTorch with CUDA support. Follow these steps in order:
-
-```bash
-# Step 1: Install PyTorch with CUDA 11.8
-pip install torch==2.1.1 --extra-index-url https://download.pytorch.org/whl/cu118
-
-# Step 2: Install PyTorch Geometric dependencies
-pip install torch-scatter==2.1.2 torch-cluster==1.6.3 \
-    --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
-
-# Step 3: Install ATOMICA
-pip install git+https://github.com/mims-harvard/ATOMICA.git
-```
-
-After installation, you can use the command-line tools:
-```bash
-atomica-embeddings --help
-atomica-train --help
-```
-
-### Development Installation
-
-For development or if you want to modify the code:
-
-```bash
-# Clone the repository
-git clone https://github.com/mims-harvard/ATOMICA
-cd ATOMICA
-
-# Install PyTorch and dependencies first (see steps 1-2 above)
-pip install torch==2.1.1 --extra-index-url https://download.pytorch.org/whl/cu118
-pip install torch-scatter==2.1.2 torch-cluster==1.6.3 \
-    --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
-
-# Install ATOMICA in editable mode
-pip install -e .
-```
-
-### CPU-Only Installation (Not Recommended)
-
-For CPU-only installation (much slower, not recommended for production use):
-```bash
-pip install torch==2.1.1
-pip install git+https://github.com/mims-harvard/ATOMICA.git
-```
-
-**Note:** torch-scatter and torch-cluster may fail to build without CUDA. Use the GPU installation method for best results.
 
 ## :zap: Quick Start
 
-Generate embeddings from a PDB file in just a few lines:
+Generate embeddings from list of PDB files with ATOMICA model in just a few lines. See the tutorial at [tutorials/1_get_embeddings](https://github.com/mims-harvard/ATOMICA/tree/main/tutorials/1_get_embeddings) for more details.
 
-```python
-from atomica.get_embeddings import main
-import argparse
-
-# Set up arguments
-args = argparse.Namespace(
-    model_ckpt="path/to/atomica_checkpoint.ckpt",  # Download from HuggingFace
-    data_path="path/to/your_data.pkl",  # Processed PDB data
-    output_path="embeddings.pkl",
-    batch_size=4
-)
-
-# Generate embeddings
-main(args)
-```
-
-Or use the command-line interface:
-```bash
-atomica-embeddings \
-    --model_ckpt path/to/atomica_checkpoint.ckpt \
-    --data_path path/to/your_data.pkl \
-    --output_path embeddings.pkl \
-    --batch_size 4
-```
-
-### 3. (optional) Download Processed Datasets
+## :star: Other setup
+### Download All Processed Datasets
 The data for pretraining and downstream analyses is hosted at [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
 
 We provide the following datasets:
@@ -103,7 +32,7 @@ We provide the following datasets:
 * Processed protein interfaces of human proteome binding sites to ion, small molecule, lipid, nucleic acid, and protein modalities
 * Processed protein interfaces of dark proteome binding sites to ion and small molecules
 
-### 4. Download Model Checkpoints
+### Download All Model Checkpoints
 Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/ATOMICA). The following models are available:
 * ATOMICA model
 * Pretrained ATOMICA-Interface model
@@ -111,22 +40,18 @@ Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/AT
     * metal ions: Ca, Co, Cu, Fe, K, Mg, Mn, Na, Zn
     * small molecules: ADP, ATP, GTP, GDP, FAD, NAD, NAP, NDP, HEM, HEC, CIT, CLA
 
-## :star: Training
+### Training / Finetuning your own ATOMICA model
 Training scripts for pretraining ATOMICA and finetuning ATOMICA-Interface and ATOMICA-Ligand are provided in `scripts/`.
 
 ## :seedling: Tutorials
+### Get embeddings from ATOMICA model
+Refer to the tutorial at `tutorials/1_get_embeddings` for more details.
+
 ### Inference with ATOMICA-Ligand
-Refer to the jupyter notebook at `tutorials/atomica_ligand/example_run_atomica_ligand.ipynb` for an example of how to use the model for binder prediction.
+Refer to the jupyter notebook at `tutorials/2_atomica_ligand` for an example of how to use the model for dark proteome ligand predictions.
 
-### Explore ATOMICANets
-Refer to the jupyter notebook at `tutorials/atomica_net/example_atomica_net.ipynb`
-
-### Embedding your own structures
-Make sure to download the ATOMICA model weights and config files from [Hugging Face](https://huggingface.co/ada-f/ATOMICA).
-
-**For embedding biomolecular complexes:** process .pdb files with `data/process_pdbs.py` and embed with `get_embeddings.py`. See the tutorial for data processing at `data/README.md` [here](https://github.com/mims-harvard/ATOMICA/tree/main/data) and the examples at `data/example`.
-
-**For embedding protein-(ion/small molecule/lipid/nucleic acid/protein) interfaces:** first predict (ion/small molecule/lipid/nucleic acid/protein) binding sites with [PeSTo](https://github.com/LBM-EPFL/PeSTo), second process the PeSTo output .pdb files with `data/process_PeSTo_results.py`, finally embed with `get_embeddings.py`.
+### Other tutorials
+Coming soon!
 
 ## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.
