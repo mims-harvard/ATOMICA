@@ -322,6 +322,29 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
 
 
 def main(args):
+    """Main training function for ATOMICA models.
+
+    This function handles the complete training pipeline for ATOMICA models,
+    including model initialization, data loading, and training execution.
+
+    Args:
+        args: Namespace or object with training configuration attributes including:
+            - task (str): Task type ('pretrain', 'multiclass_classifier', etc.)
+            - seed (int): Random seed for reproducibility
+            - fragmentation_method (str): Method for molecular fragmentation
+            - gpus (list): GPU IDs to use for training
+            - local_rank (int): Local rank for distributed training
+            - use_wandb (bool): Whether to use Weights & Biases logging
+            - use_raytune (bool): Whether to use Ray Tune for hyperparameter optimization
+            And many other task-specific parameters.
+
+    Returns:
+        dict: Dictionary mapping top-k checkpoint paths to their validation metrics.
+
+    Raises:
+        NotImplementedError: If the model type or task is not supported.
+        ValueError: If invalid configuration options are provided.
+    """
     setup_seed(args.seed)
     VOCAB.load_tokenizer(args.fragmentation_method)
     # torch.autograd.set_detect_anomaly(True)
@@ -602,6 +625,18 @@ def main(args):
     return trainer.topk_ckpt_map
 
 
-if __name__ == '__main__':
+def cli():
+    """Console script entry point for atomica-train command.
+
+    This function is called when running 'atomica-train' from the command line.
+    It parses command-line arguments and passes them to the main() training function.
+
+    Command-line usage:
+        atomica-train --task pretrain --data_path DATA/ --save_dir CHECKPOINTS/
+    """
     args = parse()
     main(args)
+
+
+if __name__ == '__main__':
+    cli()

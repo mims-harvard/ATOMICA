@@ -10,6 +10,44 @@ import json
 import pandas as pd
 
 def main(args):
+    """Generate embeddings for molecular structures using ATOMICA models.
+
+    This function loads a pre-trained ATOMICA model and generates embeddings
+    for molecular structures from a dataset. The embeddings include graph-level,
+    block-level (residue/fragment), and atom-level representations.
+
+    Args:
+        args: Namespace or object with the following attributes:
+            - model_ckpt (str, optional): Path to model checkpoint file (.ckpt)
+            - model_config (str, optional): Path to model config JSON file
+            - model_weights (str, optional): Path to model weights file
+            - data_path (str): Path to input data file (.pkl, .parquet, or .json)
+            - output_path (str): Path to save output embeddings (.pkl or .parquet)
+            - batch_size (int): Batch size for processing (default: 4)
+
+    Returns:
+        None. Saves embeddings to the file specified in args.output_path.
+
+        For pickle output: Saves list of dicts with keys:
+            - 'id': Structure identifier
+            - 'graph_embedding': Whole graph/complex embedding
+            - 'block_embedding': Per-residue/fragment embeddings
+            - 'atom_embedding': Per-atom embeddings
+            - 'block_id': Block identifiers
+            - 'atom_id': Atom identifiers
+
+        For parquet output: Same structure saved as a pandas DataFrame.
+
+    Example:
+        >>> import argparse
+        >>> args = argparse.Namespace(
+        ...     model_ckpt='atomica.ckpt',
+        ...     data_path='structures.pkl',
+        ...     output_path='embeddings.pkl',
+        ...     batch_size=4
+        ... )
+        >>> main(args)
+    """
     if args.model_ckpt:
         model = torch.load(args.model_ckpt)
     elif args.model_config and args.model_weights:
@@ -127,6 +165,19 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=4)
     return parser.parse_args()
 
-if __name__ == "__main__":
+
+def cli():
+    """Console script entry point for atomica-embeddings command.
+
+    This function is called when running 'atomica-embeddings' from the command line.
+    It parses command-line arguments and passes them to the main() function.
+
+    Command-line usage:
+        atomica-embeddings --model_ckpt MODEL.ckpt --data_path DATA.pkl --output_path OUTPUT.pkl
+    """
     args = parse_args()
     main(args)
+
+
+if __name__ == "__main__":
+    cli()

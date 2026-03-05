@@ -9,26 +9,43 @@ description = "ATOMICA"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    # Core PyTorch and ML libraries
     "torch==2.1.1",
-    "torch-scatter",
-    "torch-cluster",
+    "torch-scatter==2.1.2",
+    "torch-cluster==1.6.3",
     "numpy==1.26.4",
     "scipy==1.13.1",
-    "tqdm",
-    "wandb==0.18.2",
-    "tensorboard==2.18.0",
-    "e3nn==0.5.1",
+
+    # Chemistry and structure libraries
     "rdkit-pypi==2022.9.5",
     "openbabel-wheel==3.1.1.20",
     "biopython==1.84",
     "biotite==0.40.0",
-    "atom3d",
-    "orjson",
-    "matplotlib",
-    "seaborn",
-    "plotly",
-    "umap-learn",
+    "e3nn==0.5.1",
+
+    # Data processing
+    "pandas==2.2.3",
     "pyarrow==21.0.0",
+    "orjson==3.10.16",
+
+    # Utilities
+    "tqdm==4.66.5",
+    "joblib==1.4.2",
+    "networkx==3.2.1",
+    "sympy==1.13.3",
+
+    # ML utilities
+    "scikit-learn==1.5.2",
+
+    # Logging and experiment tracking
+    "wandb==0.18.2",
+    "tensorboard==2.18.0",
+
+    # Visualization
+    "matplotlib==3.9.2",
+    "seaborn==0.13.2",
+    "plotly==5.24.1",
+    "umap-learn==0.5.6",
 ]
 
 [project.optional-dependencies]
@@ -37,13 +54,25 @@ dev = [
     "black",
     "flake8",
     "jupyter",
+    "ipywidgets",
+]
+
+# Interaction profiling features (optional)
+interaction_profiler = [
+    "plip",  # Protein-Ligand Interaction Profiler
+]
+
+# GPU acceleration (install with --extra-index-url for CUDA builds)
+gpu = []  # Instructions in README for torch+cu118, torch-scatter+cu118, torch-cluster+cu118
+
+# All optional features
+all = [
+    "atomica[dev,interaction_profiler]",
 ]
 
 [project.scripts]
-atomica-train = "atomica.scripts.train:main"
-atomica-embeddings = "atomica.scripts.get_embeddings:main"
-atomica-evaluate = "atomica.scripts.evaluate:main"
-atomica-inference = "atomica.scripts.inference:main"
+atomica-train = "atomica.train:cli"
+atomica-embeddings = "atomica.get_embeddings:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -56,3 +85,8 @@ atomica = [
     "data/tokenizer/vocabs/*.txt",
     "data/converter/*.txt",
 ]
+
+# Build dependencies for packages that need torch at build time
+[tool.uv.extra-build-dependencies]
+torch-scatter = ["torch==2.1.1"]
+torch-cluster = ["torch==2.1.1"]

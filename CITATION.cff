@@ -1,0 +1,43 @@
+cff-version: 1.2.0
+message: "If you use ATOMICA in your research, please cite it as below."
+title: "ATOMICA: Learning Universal Representations of Intermolecular Interactions"
+authors:
+  - family-names: "Fang"
+    given-names: "Ada"
+  - family-names: "Desgagné"
+    given-names: "Michael"
+  - family-names: "Zhang"
+    given-names: "Zaixi"
+  - family-names: "Zhou"
+    given-names: "Andrew"
+  - family-names: "Loscalzo"
+    given-names: "Joseph"
+  - family-names: "Pentelute"
+    given-names: "Bradley L"
+  - family-names: "Zitnik"
+    given-names: "Marinka"
+type: software
+year: 2025
+url: "https://github.com/mims-harvard/ATOMICA"
+repository-code: "https://github.com/mims-harvard/ATOMICA"
+preferred-citation:
+  type: article
+  title: "Learning Universal Representations of Intermolecular Interactions with ATOMICA"
+  authors:
+    - family-names: "Fang"
+      given-names: "Ada"
+    - family-names: "Desgagné"
+      given-names: "Michael"
+    - family-names: "Zhang"
+      given-names: "Zaixi"
+    - family-names: "Zhou"
+      given-names: "Andrew"
+    - family-names: "Loscalzo"
+      given-names: "Joseph"
+    - family-names: "Pentelute"
+      given-names: "Bradley L"
+    - family-names: "Zitnik"
+      given-names: "Marinka"
+  journal: "bioRxiv"
+  year: 2025
+  url: "https://www.biorxiv.org/content/10.1101/2025.04.02.646906"

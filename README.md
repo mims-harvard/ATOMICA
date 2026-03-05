@@ -16,15 +16,84 @@ ATOMICA is a geometric AI model that learns universal representations of molecul
 
 ## :rocket: Installation and Setup
 
-### 1. Download the Repository
-Clone the Gihub Repository:
+### Installation (GPU with CUDA 11.8 - Recommended)
+
+ATOMICA requires PyTorch with CUDA support. Follow these steps in order:
+
 ```bash
-git clone https://github.com/mims-harvard/ATOMICA
-cd ATOMICA
+# Step 1: Install PyTorch with CUDA 11.8
+pip install torch==2.1.1 --extra-index-url https://download.pytorch.org/whl/cu118
+
+# Step 2: Install PyTorch Geometric dependencies
+pip install torch-scatter==2.1.2 torch-cluster==1.6.3 \
+    --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
+
+# Step 3: Install ATOMICA
+pip install git+https://github.com/mims-harvard/ATOMICA.git
 ```
 
-### 2. Set Up Environment
-Set up the environment according to `setup_env.sh`.
+After installation, you can use the command-line tools:
+```bash
+atomica-embeddings --help
+atomica-train --help
+```
+
+### Development Installation
+
+For development or if you want to modify the code:
+
+```bash
+# Clone the repository
+git clone https://github.com/mims-harvard/ATOMICA
+cd ATOMICA
+
+# Install PyTorch and dependencies first (see steps 1-2 above)
+pip install torch==2.1.1 --extra-index-url https://download.pytorch.org/whl/cu118
+pip install torch-scatter==2.1.2 torch-cluster==1.6.3 \
+    --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
+
+# Install ATOMICA in editable mode
+pip install -e .
+```
+
+### CPU-Only Installation (Not Recommended)
+
+For CPU-only installation (much slower, not recommended for production use):
+```bash
+pip install torch==2.1.1
+pip install git+https://github.com/mims-harvard/ATOMICA.git
+```
+
+**Note:** torch-scatter and torch-cluster may fail to build without CUDA. Use the GPU installation method for best results.
+
+## :zap: Quick Start
+
+Generate embeddings from a PDB file in just a few lines:
+
+```python
+from atomica.get_embeddings import main
+import argparse
+
+# Set up arguments
+args = argparse.Namespace(
+    model_ckpt="path/to/atomica_checkpoint.ckpt",  # Download from HuggingFace
+    data_path="path/to/your_data.pkl",  # Processed PDB data
+    output_path="embeddings.pkl",
+    batch_size=4
+)
+
+# Generate embeddings
+main(args)
+```
+
+Or use the command-line interface:
+```bash
+atomica-embeddings \
+    --model_ckpt path/to/atomica_checkpoint.ckpt \
+    --data_path path/to/your_data.pkl \
+    --output_path embeddings.pkl \
+    --batch_size 4
+```
 
 ### 3. (optional) Download Processed Datasets
 The data for pretraining and downstream analyses is hosted at [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
