@@ -63,7 +63,7 @@ interaction_profiler = [
 ]
 
 # GPU acceleration (install with --extra-index-url for CUDA builds)
-gpu = []  # Instructions in README for torch+cu118, torch-scatter+cu118, torch-cluster+cu118
+gpu = []  # Instructions in https://github.com/mims-harvard/ATOMICA/blob/main/setup/install_atomica_uv.sh for torch+cu118, torch-scatter+cu118, torch-cluster+cu118
 
 # All optional features
 all = [
