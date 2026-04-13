@@ -21,6 +21,36 @@ match those reported in the paper.
 - A working ATOMICA Python environment
   (`~/.conda/envs/interactenv/bin/python` on our cluster)
 
+## Download checkpoints
+
+Fetch the five-seed fine-tuned checkpoints for the four RNAglib tasks
+from [Hugging Face](https://huggingface.co/ada-f/ATOMICA) and place
+them where `tutorial.py` expects them. Run from the repository root:
+
+```bash
+# 1. Download the rnaglib checkpoints from Hugging Face.
+hf download ada-f/ATOMICA --repo-type model \
+  --local-dir checkpoints --include "ATOMICA_checkpoints/rnaglib/**"
+
+# 2. Move them to the layout tutorial.py expects
+#    (rna_go stays flat; the other three nest under an "atomica/" subdir).
+mkdir -p checkpoints/benchmarks
+mv checkpoints/ATOMICA_checkpoints/rnaglib/rna_go \
+   checkpoints/benchmarks/rna_go
+for task in rna_ligand rna_protein rna_site; do
+  mkdir -p checkpoints/benchmarks/${task}
+  mv checkpoints/ATOMICA_checkpoints/rnaglib/${task} \
+     checkpoints/benchmarks/${task}/atomica
+done
+```
+
+After this, `checkpoints/benchmarks/{rna_go,rna_ligand/atomica,rna_protein/atomica,rna_site/atomica}/seed{0..4}/{config.json,model.pt}`
+exist.
+
+## Download data
+
+Download the `RNAGlib/` directory from [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
+
 ## Quick start
 
 ```bash

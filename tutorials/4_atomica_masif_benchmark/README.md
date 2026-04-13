@@ -67,6 +67,30 @@ checkpoints/benchmarks/masif/
 - The conda environment with ATOMICA installed (see the
   top-level `README.md` / `install_atomica_conda.sh`).
 
+## Download checkpoints
+
+Fetch the five-seed MaSIF-ligand fine-tuned checkpoints from
+[Hugging Face](https://huggingface.co/ada-f/ATOMICA) and place them
+where `tutorial.py` expects them. Run from the repository root:
+
+```bash
+# 1. Download from Hugging Face.
+hf download ada-f/ATOMICA --repo-type model \
+  --local-dir checkpoints --include "ATOMICA_checkpoints/masif_ligand/**"
+
+# 2. Move to the layout tutorial.py expects (under 8A/).
+mkdir -p checkpoints/benchmarks/masif/8A
+mv checkpoints/ATOMICA_checkpoints/masif_ligand/seed{0,1,2,3,4} \
+   checkpoints/benchmarks/masif/8A/
+```
+
+After this, `checkpoints/benchmarks/masif/8A/seed{0..4}/{config.json,model.pt}`
+exist.
+
+## Download data
+
+Download the `MASIF_ligand_benchmark/` directory from [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
+
 ## Usage
 
 From this directory:

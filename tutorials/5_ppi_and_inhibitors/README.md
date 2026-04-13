@@ -61,6 +61,8 @@ The featured swarm-plot examples are selected by system identity
 
 ## Data layout
 
+Download the `PPI_inhibitor/` directory from [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX). The directory contains the following files:
+
 ```
 data/
 ├── 2p2idb.csv                                          # 2P2IDB database export
