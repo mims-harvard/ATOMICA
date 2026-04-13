@@ -31,16 +31,23 @@ The data for pretraining and downstream analyses is hosted at [Harvard Dataverse
 
 We provide the following datasets:
 * Processed CSD and QBioLiP (based on PDB) interaction complex graphs for pretraining
-* Processed protein interfaces of human proteome binding sites to ion, small molecule, lipid, nucleic acid, and protein modalities
+* Processed datasets for four RNAGlib benchmark tasks: RNA-GO, RNA-Ligand, RNA-Protein, RNA-Site
+* Processed datasets for the MASIF-Ligand benchmark.
+* Processed datasets for the PPI and orthosteric inhibitors analysis.
 * Processed protein interfaces of dark proteome binding sites to ion and small molecules
 
 ### Download All Model Checkpoints
 Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/ATOMICA). The following models are available:
-* ATOMICA model
-* Pretrained ATOMICA-Interface model
+* ATOMICA pretrained model
 * Finetuned ATOMICA-Ligand prediction models for the following ligands:
     * metal ions: Ca, Co, Cu, Fe, K, Mg, Mn, Na, Zn
     * small molecules: ADP, ATP, GTP, GDP, FAD, NAD, NAP, NDP, HEM, HEC, CIT, CLA
+* Finetuned MaSIF-ligand pocket classification models (5 seeds) — protein pocket classification across 7 small-molecule ligands (ADP, CoA, FAD, heme, NAD, NAP, SAM)
+* Finetuned RNAglib prediction models (5 seeds each) for four RNA structure-function tasks:
+    * `rna_go` — RNA Gene Ontology term prediction (multi-label)
+    * `rna_ligand` — RNA pocket ligand classification (multi-class)
+    * `rna_protein` — RNA residue protein-binding prediction (binary)
+    * `rna_site` — RNA residue small-molecule-binding prediction (binary)
 
 ### Training / Finetuning your own ATOMICA model
 Training scripts for pretraining ATOMICA and finetuning ATOMICA-Interface and ATOMICA-Ligand are provided in `scripts/`.
@@ -52,8 +59,17 @@ Refer to the tutorial at `tutorials/1_get_embeddings` for more details.
 ### Inference with ATOMICA-Ligand
 Refer to the jupyter notebook at `tutorials/2_atomica_ligand` for an example of how to use the model for dark proteome ligand predictions.
 
-### Other tutorials
-Coming soon!
+### RNA structure-function prediction (RNAglib benchmarks)
+Refer to `tutorials/3_rna_structure_function` for reproducing the ATOMICA paper results on four RNAglib benchmarks (RNA-GO, RNA-Ligand, RNA-Protein, RNA-Site) using the finetuned checkpoints.
+
+### MaSIF-Ligand benchmark
+Refer to `tutorials/4_atomica_masif_benchmark` for the protein pocket classification benchmark across 7 small-molecule ligands, using the finetuned checkpoints.
+
+### PPI and orthosteric inhibitors
+Refer to `tutorials/5_ppi_and_inhibitors` for comparing ATOMICA embeddings of orthosteric PPI inhibitors against embeddings of the native protein-protein / protein-peptide complexes they inhibit (2P2IDB).
+
+### InteractScore: per-residue importance at an interface
+Refer to the jupyter notebook at `tutorials/6_interact_score` for computing per-residue InteractScores at a protein-ligand interface via masked-embedding cosine similarity.
 
 ## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.
