@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 from e3nn import o3
-from torch_scatter import scatter
+from ...utils.scatter import scatter
 import torch.nn.functional as F
 from e3nn.nn import BatchNorm
 import torch
@@ -38,7 +38,7 @@ class EquivariantLayerNorm(nn.Module):
     def __repr__(self):
         return f"{self.__class__.__name__}({self.irreps}, eps={self.eps})"
 
-    @torch.cuda.amp.autocast(enabled=False)
+    @torch.amp.autocast("cuda", enabled=False)
     def forward(self, node_input, **kwargs):
         # batch, *size, dim = node_input.shape  # TODO: deal with batch
         # node_input = node_input.reshape(batch, -1, dim)  # [batch, sample, stacked features]

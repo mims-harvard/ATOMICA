@@ -53,13 +53,14 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Get InteractScores")
     parser.add_argument("--data_path", type=str, help="Path to the data file")
     parser.add_argument("--output_path", type=str, help="Output json file for importance scores")
-    parser.add_argument("--model_ckpt", type=str, help="Path to the model checkpoint")
+    parser.add_argument("--model_config", type=str, required=True, help="Path to the model config JSON")
+    parser.add_argument("--model_weights", type=str, required=True, help="Path to the model weights .pt")
     return parser.parse_args()
 
 
 if __name__ == '__main__':
     args = parse_args()
-    model = PredictionModel.load_from_pretrained(args.model_ckpt)
+    model = PredictionModel.load_from_config_and_weights(args.model_config, args.model_weights)
     model = model.to("cuda")
 
     dataset = PDBDataset(args.data_path)

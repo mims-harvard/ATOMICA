@@ -1,6 +1,6 @@
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_sum, scatter_mean
+from ..utils.scatter import scatter_sum, scatter_mean
 import torch
 
 from ..data.pdb_utils import VOCAB

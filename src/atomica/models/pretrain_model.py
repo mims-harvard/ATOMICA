@@ -7,7 +7,7 @@ import json
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_mean, scatter_sum
+from ..utils.scatter import scatter_mean, scatter_sum
 
 from ..data.pdb_utils import VOCAB
 from ..data.dataset import MODALITIES
@@ -228,7 +228,7 @@ class DenoisePretrainModel(nn.Module):
         assert config['model_type'] == cls.__name__, f"Model type {config['model_type']} does not match {cls.__name__}"
         del config['model_type']
         model = DenoisePretrainModel(**config)
-        model.load_state_dict(torch.load(weights_path))
+        model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
         return model
 
 
@@ -472,7 +472,7 @@ class DenoisePretrainModelWithBlockEmbedding(DenoisePretrainModel):
         assert config['model_type'] == cls.__name__, f"Model type {config['model_type']} does not match {cls.__name__}"
         del config['model_type']
         model = DenoisePretrainModelWithBlockEmbedding(**config)
-        model.load_state_dict(torch.load(weights_path))
+        model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
         return model
     
     def init_block_embedding(self, nonlinearity: nn.Module, block_embedding_size: int, projector_dropout: float, projector_hidden_size: int, num_projector_layers: int):

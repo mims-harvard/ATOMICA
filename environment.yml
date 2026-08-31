@@ -1,64 +1,32 @@
+# ATOMICA conda environment.
+#
+#   mamba env create -f environment.yml
+#   mamba activate atomica-env
+#   pip install -e ".[dev]"
+#
+# PyTorch is installed from the pip wheel index rather than the pytorch conda
+# channel: the pip index covers CUDA 11.8 through 13.0, and each wheel bundles
+# its own CUDA runtime, so no CUDA toolkit is needed on the host. Change the
+# --index-url below to match your NVIDIA driver (`nvidia-smi`); setup/README.md
+# has the driver-to-CUDA table.
+#
+#   CUDA 13.0  https://download.pytorch.org/whl/cu130
+#   CUDA 12.8  https://download.pytorch.org/whl/cu128
+#   CUDA 11.8  https://download.pytorch.org/whl/cu118
+#   CPU only   https://download.pytorch.org/whl/cpu
+
 name: atomica-env
 channels:
-  - pytorch
-  - nvidia
   - conda-forge
-  - defaults
 
 dependencies:
-  # Python version
-  - python=3.11
-
-  # PyTorch with CUDA 11.8
-  - pytorch==2.1.1
-  - pytorch-cuda=11.8
-
-  # Core scientific computing (faster from conda)
-  - numpy==1.26.4
-  - scipy==1.13.1
-  - pandas==2.2.3
-  - scikit-learn==1.5.2
-
-  # Visualization
-  - matplotlib==3.9.2
-  - seaborn==0.13.2
-  - plotly==5.24.1
-
-  # Utilities
-  - networkx==3.2.1
-  - tqdm==4.66.5
-  - joblib==1.4.2
-  - sympy==1.13.3
-
-  # Development tools
-  - pytest
-  - jupyter
-  - ipywidgets
-
-  # pip dependencies (packages not available or better from pip)
+  - python=3.12
   - pip
+
+  # Everything else, including PyTorch, is resolved by pip from pyproject.toml.
+  # torch-scatter and torch-cluster are deliberately absent: ATOMICA does not
+  # need them (see setup/README.md, "Optional compiled extensions").
   - pip:
-      # PyTorch Geometric dependencies (need special wheel index)
-      - torch-scatter==2.1.2 --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
-      - torch-cluster==1.6.3 --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
-
-      # Chemistry and structure libraries (not in conda or better from pip)
-      - rdkit-pypi==2022.9.5
-      - openbabel-wheel==3.1.1.20
-      - biopython==1.84
-      - biotite==0.40.0
-      - e3nn==0.5.1
-
-      # Data processing
-      - pyarrow==21.0.0
-      - orjson==3.10.16
-
-      # ML utilities
-      - umap-learn==0.5.6
-
-      # Logging and experiment tracking
-      - wandb==0.18.2
-      - tensorboard==2.18.0
-
-      # ATOMICA package (installed separately as editable)
-      # -e .
+      - --extra-index-url https://download.pytorch.org/whl/cu128
+      - torch
+      - -e .[dev]

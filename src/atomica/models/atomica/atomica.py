@@ -3,8 +3,7 @@ from e3nn import o3
 from torch import nn
 from torch.nn import functional as F
 from .utils import TensorProductConvLayer, GaussianEmbedding
-from torch_scatter import scatter_mean
-from torch_cluster import radius
+from ...utils.scatter import scatter_mean
 
 class InteractionModule(torch.nn.Module):
     def __init__(
@@ -271,10 +270,23 @@ class InteractionModule(torch.nn.Module):
             return node_embeddings
 
     def build_tor_edges(self, tor_bonds, coords, node_embeddings, batch_id, tor_batch):
+        # torch_cluster is only needed for torsion denoising, which runs during
+        # pretraining. Importing it here keeps embedding inference and finetuning
+        # usable in environments where the compiled extension is not installed.
+        try:
+            from torch_cluster import radius
+        except ImportError as exc:
+            raise ImportError(
+                "Torsion denoising needs torch_cluster, which is not installed. "
+                "Install it from https://data.pyg.org/whl matching your torch and "
+                "CUDA versions (see setup/README.md), or run with torsion noise "
+                "disabled."
+            ) from exc
+
         bond_pos = (coords[tor_bonds[1]] + coords[tor_bonds[0]]) / 2
         tor_bond_attr = node_embeddings[tor_bonds[0]] + node_embeddings[tor_bonds[1]]
-        
-        edge_index = radius(coords, bond_pos, self.tor_max_radius, batch_x=batch_id, batch_y=tor_batch, 
+
+        edge_index = radius(coords, bond_pos, self.tor_max_radius, batch_x=batch_id, batch_y=tor_batch,
                                 max_num_neighbors=self.tor_max_neighbors)
         # 0-row is torsion edge index, 1-row is the node index
         edge_vec = coords[edge_index[1]] - bond_pos[edge_index[0]]

@@ -7,45 +7,48 @@ name = "atomica"
 version = "0.1.0"
 description = "ATOMICA"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
-    # Core PyTorch and ML libraries
-    "torch==2.1.1",
-    "torch-scatter==2.1.2",
-    "torch-cluster==1.6.3",
-    "numpy==1.26.4",
-    "scipy==1.13.1",
+    # torch is a lower bound, not a pin: the CUDA build you need depends on your
+    # driver. See setup/README.md. torch-scatter and torch-cluster are optional
+    # (see the "pretrain" and "torch_scatter" extras below).
+    "torch>=2.1.1",
+    "numpy>=1.26.4,<2",
+    "scipy>=1.13.1",
 
     # Chemistry and structure libraries
-    "rdkit-pypi==2022.9.5",
-    "openbabel-wheel==3.1.1.20",
-    "biopython==1.84",
-    "biotite==0.40.0",
-    "e3nn==0.5.1",
+    # rdkit-pypi is unmaintained and has no wheels past CPython 3.11; the
+    # official `rdkit` package is the drop-in replacement (same import name).
+    "rdkit-pypi==2022.9.5; python_version < '3.12'",
+    "rdkit>=2024.3.1; python_version >= '3.12'",
+    "openbabel-wheel>=3.1.1.20",
+    "biopython>=1.84",
+    "biotite>=0.40.0,<1",
+    "e3nn>=0.5.1",
 
     # Data processing
-    "pandas==2.2.3",
-    "pyarrow==21.0.0",
-    "orjson==3.10.16",
+    "pandas>=2.2.3",
+    "pyarrow>=21.0.0",
+    "orjson>=3.10.16",
 
     # Utilities
-    "tqdm==4.66.5",
-    "joblib==1.4.2",
-    "networkx==3.2.1",
-    "sympy==1.13.3",
+    "tqdm>=4.66.5",
+    "joblib>=1.4.2",
+    "networkx>=3.2.1",
+    "sympy>=1.13.3",
 
     # ML utilities
-    "scikit-learn==1.5.2",
+    "scikit-learn>=1.5.2",
 
     # Logging and experiment tracking
-    "wandb==0.18.2",
-    "tensorboard==2.18.0",
+    "wandb>=0.18.2",
+    "tensorboard>=2.18.0",
 
     # Visualization
-    "matplotlib==3.9.2",
-    "seaborn==0.13.2",
-    "plotly==5.24.1",
-    "umap-learn==0.5.6",
+    "matplotlib>=3.9.2",
+    "seaborn>=0.13.2",
+    "plotly>=5.24.1",
+    "umap-learn>=0.5.6",
 ]
 
 [project.optional-dependencies]
@@ -62,8 +65,18 @@ interaction_profiler = [
     "plip",  # Protein-Ligand Interaction Profiler
 ]
 
-# GPU acceleration (install with --extra-index-url for CUDA builds)
-gpu = []  # Instructions in https://github.com/mims-harvard/ATOMICA/blob/main/setup/install_atomica_uv.sh for torch+cu118, torch-scatter+cu118, torch-cluster+cu118
+# Only torsion-denoising pretraining needs torch_cluster. Install compiled
+# extensions from the PyG wheel index matching your torch and CUDA build, not
+# from PyPI:  -f https://data.pyg.org/whl/torch-2.9.1+cu130.html
+pretrain = [
+    "torch-cluster>=1.6.3",
+]
+
+# Optional; used automatically when present, otherwise atomica.utils.scatter
+# provides the same operations in pure PyTorch.
+torch_scatter = [
+    "torch-scatter>=2.1.2",
+]
 
 # All optional features
 all = [
@@ -86,7 +99,8 @@ atomica = [
     "data/converter/*.txt",
 ]
 
-# Build dependencies for packages that need torch at build time
+# These compile against whichever torch is already installed, so they must not
+# be built in an isolated environment that would pull a different one.
 [tool.uv.extra-build-dependencies]
-torch-scatter = ["torch==2.1.1"]
-torch-cluster = ["torch==2.1.1"]
+torch-scatter = ["torch"]
+torch-cluster = ["torch"]

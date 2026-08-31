@@ -74,13 +74,6 @@ class ProteinInterfaceModel(nn.Module):
         }
     
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model = torch.load(pretrain_ckpt, map_location='cpu')
-        if isinstance(pretrained_model, cls):
-            return pretrained_model
-        return cls._load_from_pretrained(pretrained_model, **kwargs)
-    
-    @classmethod
     def load_from_config_and_weights(cls, config_path, weights_path, **kwargs):
         with open(config_path, 'r') as f:
             config = json.load(f)
@@ -98,7 +91,7 @@ class ProteinInterfaceModel(nn.Module):
             del model_config['model_type']
             model = PredictionModel(**model_config)
             pretrained_model = cls(model)
-            pretrained_model.load_state_dict(torch.load(weights_path, map_location='cpu'))
+            pretrained_model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
             return pretrained_model
         else:
             raise ValueError(f"Model type {model_type} not recognized")

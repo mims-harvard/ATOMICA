@@ -16,7 +16,19 @@ ATOMICA is a geometric AI model that learns universal representations of molecul
 
 ## :rocket: Installation and Setup
 
-ATOMICA requires PyTorch with CUDA support. Please refer to the installation instructions in [setup](https://github.com/mims-harvard/ATOMICA/tree/main/setup) which provides instructions for setting up with uv or mamba/conda.
+ATOMICA runs on any CUDA build of PyTorch from **11.8 through 13.0**, and on CPU. Install the PyTorch wheel matching your NVIDIA driver, then install ATOMICA on top of it:
+
+```bash
+# 1. PyTorch for your CUDA version -- this is the only line that changes.
+#    cu130 (CUDA 13.0) | cu128 (CUDA 12.8) | cu118 (CUDA 11.8) | cpu
+pip install torch --index-url https://download.pytorch.org/whl/cu128
+
+# 2. ATOMICA
+git clone https://github.com/mims-harvard/ATOMICA.git && cd ATOMICA
+pip install -e ".[dev]"
+```
+
+No CUDA toolkit is needed on the host — the PyTorch wheel bundles its own CUDA runtime — and `torch-scatter`/`torch-cluster` are not required. See [setup/README.md](setup/README.md) for the driver-to-CUDA table, scripted installs with uv or mamba/conda, a Docker/Apptainer image, the table of tested configurations, and troubleshooting.
 
 
 ## :zap: Quick Start

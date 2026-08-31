@@ -3,7 +3,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_sum, scatter_min
+from ..utils.scatter import scatter_sum, scatter_min
 from .atomica.utils import GaussianEmbedding
 from copy import copy
 

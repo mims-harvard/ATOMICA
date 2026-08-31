@@ -1,6 +1,9 @@
 # Get embeddings from ATOMICA model
 
-Required: A H100 or A100 GPU
+An H100 or A100 GPU is recommended. ATOMICA also runs on CPU — add `--device cpu`
+to the `atomica.get_embeddings` command below — which is slower but useful for
+small inputs and for checking an installation. Any CUDA build of PyTorch from
+11.8 through 13.0 works; see [setup/README.md](../../setup/README.md).
 
 ## Activate your environment
 If you are using a mamba environment, run:

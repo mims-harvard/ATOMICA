@@ -603,7 +603,7 @@ def main(args):
     else:
         valid_loader = None
     trainer = create_trainer(model, train_loader, valid_loader, config, 
-                             resume_state=torch.load(args.pretrain_state) if args.pretrain_state else None)
+                             resume_state=torch.load(args.pretrain_state, map_location='cpu', weights_only=True) if args.pretrain_state else None)
     if args.local_rank <= 0: # only log on the main process
         print_log(f"Saving model checkpoints to: {config.save_dir}")
         os.makedirs(config.save_dir, exist_ok=True)

@@ -2,9 +2,9 @@ from tqdm import tqdm
 import pickle
 from .data.dataset import PDBDataset, ProtInterfaceDataset
 from .models.prediction_model import PredictionModel
-from .models.pretrain_model import DenoisePretrainModel
 from .models.prot_interface_model import ProteinInterfaceModel
 from .trainers.abs_trainer import Trainer
+from .utils import pickled_checkpoint_error
 import torch
 import json
 import pandas as pd
@@ -18,12 +18,12 @@ def main(args):
 
     Args:
         args: Namespace or object with the following attributes:
-            - model_ckpt (str, optional): Path to model checkpoint file (.ckpt)
-            - model_config (str, optional): Path to model config JSON file
-            - model_weights (str, optional): Path to model weights file
+            - model_config (str): Path to model config JSON file
+            - model_weights (str): Path to model weights file (a state dict)
             - data_path (str): Path to input data file (.pkl, .parquet, or .json)
             - output_path (str): Path to save output embeddings (.pkl or .parquet)
             - batch_size (int): Batch size for processing (default: 4)
+            - device (str, optional): 'cuda', 'cpu', or 'auto' (default: 'auto')
 
     Returns:
         None. Saves embeddings to the file specified in args.output_path.
@@ -41,7 +41,8 @@ def main(args):
     Example:
         >>> import argparse
         >>> args = argparse.Namespace(
-        ...     model_ckpt='atomica.ckpt',
+        ...     model_config='pretrain_model_config.json',
+        ...     model_weights='pretrain_model_weights.pt',
         ...     data_path='structures.pkl',
         ...     output_path='embeddings.pkl',
         ...     batch_size=4
@@ -49,8 +50,8 @@ def main(args):
         >>> main(args)
     """
     if args.model_ckpt:
-        model = torch.load(args.model_ckpt)
-    elif args.model_config and args.model_weights:
+        raise pickled_checkpoint_error(args.model_ckpt, "--model_config", "--model_weights")
+    if args.model_config and args.model_weights:
         with open(args.model_config, "r") as f:
             model_config = json.load(f)
         if model_config['model_type'] == 'PredictionModel' or model_config['model_type'] == 'DenoisePretrainModel':
@@ -59,6 +60,8 @@ def main(args):
             model = ProteinInterfaceModel.load_from_config_and_weights(args.model_config, args.model_weights)
         else:
             raise NotImplementedError(f"Model type {model_config['model_type']} not implemented")
+    else:
+        raise ValueError("Both --model_config and --model_weights are required.")
 
     if isinstance(model, ProteinInterfaceModel):
         print("Model is ProteinInterfaceModel, extracting prot_model.")
@@ -67,9 +70,17 @@ def main(args):
     else:
         dataset = PDBDataset(args.data_path)
     
-    if isinstance(model, DenoisePretrainModel) and not isinstance(model, PredictionModel):
-        model = PredictionModel.load_from_pretrained(args.model_ckpt)
-    model = model.to("cuda")
+    device = getattr(args, "device", "auto")
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    if device.startswith("cuda") and not torch.cuda.is_available():
+        raise RuntimeError(
+            "--device cuda was requested but torch.cuda.is_available() is False. "
+            "Check that the installed torch build matches your CUDA driver "
+            "(see setup/README.md), or pass --device cpu."
+        )
+    print(f"Running on device: {device}")
+    model = model.to(device)
     batch_size = args.batch_size
 
     embeddings = []
@@ -85,7 +96,7 @@ def main(args):
             else:
                 batch_items = [item["data"] for item in items]
             batch = PDBDataset.collate_fn(batch_items)
-            batch = Trainer.to_device(batch, "cuda")
+            batch = Trainer.to_device(batch, device)
             return_obj = model.infer(batch)
             
             curr_block = 0
@@ -110,7 +121,8 @@ def main(args):
                 curr_atom += num_atoms
         except Exception as e:
             if "CUDA out of memory" in str(e):
-                torch.cuda.empty_cache()
+                if device.startswith("cuda"):
+                    torch.cuda.empty_cache()
                 print("CUDA out of memory, reducing batch size to 1 for this batch.")
                 outputs = []
                 # go through the batch one by one
@@ -124,7 +136,7 @@ def main(args):
                             actual_data = item["data"]
 
                         batch = PDBDataset.collate_fn([actual_data])
-                        batch = Trainer.to_device(batch, "cuda")
+                        batch = Trainer.to_device(batch, device)
                         return_obj = model.infer(batch)
                         output["graph_embedding"] = return_obj.graph_repr[0].detach().cpu().numpy()
                         output["block_embedding"] = return_obj.block_repr.detach().cpu().numpy()
@@ -134,10 +146,10 @@ def main(args):
                         outputs.append(output)
                     except Exception as e:
                         print(f"Error processing item {item['id']}: {e}")
-                        torch.cuda.empty_cache()
+                        if device.startswith("cuda"):
+                            torch.cuda.empty_cache()
                         continue
             else:
-                import pdb; pdb.set_trace()
                 raise e
         embeddings.extend(outputs)
     
@@ -169,12 +181,16 @@ def main(args):
 def parse_args():
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_ckpt', type=str, default=None, help='path of the model ckpt to load')
+    parser.add_argument('--model_ckpt', type=str, default=None,
+                        help='deprecated: pickled .ckpt files are no longer loadable, '
+                             'use --model_config and --model_weights instead')
     parser.add_argument('--model_config', type=str, default=None, help='path of the model config to load')
     parser.add_argument('--model_weights', type=str, default=None, help='path of the model weights to load')
     parser.add_argument("--output_path", type=str, required=True, help='Path to save the output embeddings (supports .pkl or .parquet format)')
     parser.add_argument("--data_path", type=str, required=True, help='Path to the data file either in json, parquet, or pickle format')
     parser.add_argument("--batch_size", type=int, default=4)
+    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cuda", "cpu"],
+                        help="Device to run inference on. 'auto' uses CUDA when available.")
     return parser.parse_args()
 
 
@@ -185,7 +201,8 @@ def cli():
     It parses command-line arguments and passes them to the main() function.
 
     Command-line usage:
-        atomica-embeddings --model_ckpt MODEL.ckpt --data_path DATA.pkl --output_path OUTPUT.pkl
+        atomica-embeddings --model_config CONFIG.json --model_weights WEIGHTS.pt \\
+            --data_path DATA.pkl --output_path OUTPUT.pkl
     """
     args = parse_args()
     main(args)

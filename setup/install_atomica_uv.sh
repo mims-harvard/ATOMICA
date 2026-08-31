@@ -1,124 +1,78 @@
 #!/bin/bash
-# ATOMICA Installation Script
-# This script sets up a complete environment for ATOMICA
+# ATOMICA installation with uv.
+#
+# Usage:
+#   ./install_atomica_uv.sh                      # CUDA 12.8 (default)
+#   CUDA=cu130 ./install_atomica_uv.sh           # CUDA 13.0
+#   CUDA=cu118 ./install_atomica_uv.sh           # CUDA 11.8
+#   CUDA=cpu   ./install_atomica_uv.sh           # CPU only
+#
+# Pick the CUDA version your NVIDIA driver supports; `nvidia-smi` prints the
+# driver version, and setup/README.md maps drivers to CUDA versions. The
+# PyTorch wheel bundles its own CUDA runtime, so no CUDA toolkit needs to be
+# installed on the host.
 
-set -e  # Exit on error
+set -euo pipefail
 
-# Increase timeout for large downloads (default is 30s)
-export UV_HTTP_TIMEOUT=300
+CUDA="${CUDA:-cu128}"
+PYTHON_VERSION="${PYTHON_VERSION:-3.12}"
+ENVPATH="${ENVPATH:-$(pwd)/atomica-env}"
+ATOMICA_DIR="${ATOMICA_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-ENVPATH=/path/to/atomica-env
-ATOMICA_DIR=/path/to/atomica-repo
+export UV_HTTP_TIMEOUT="${UV_HTTP_TIMEOUT:-300}"
 
 echo "======================================"
-echo "ATOMICA Installation Script"
+echo "ATOMICA Installation (uv)"
 echo "======================================"
+echo "CUDA build:  $CUDA"
+echo "Python:      $PYTHON_VERSION"
 echo "Environment: $ENVPATH"
-echo "ATOMICA directory: $ATOMICA_DIR"
+echo "Repository:  $ATOMICA_DIR"
 echo ""
 
-# Step 1: Create virtual environment with uv (much faster than conda)
 echo "Step 1: Creating virtual environment..."
-if [ -d "$ENVPATH" ]; then
-    echo "Environment already exists, removing..."
-    rm -rf "$ENVPATH"
-fi
-uv venv "$ENVPATH" --python 3.11
-echo "✓ Virtual environment created"
+uv venv "$ENVPATH" --python "$PYTHON_VERSION"
+PY="$ENVPATH/bin/python"
+uv pip install --python "$PY" pip setuptools wheel
 echo ""
 
-# Activate environment
-source "$ENVPATH/bin/activate"
-
-# Step 2: Install pip and basic tools
-echo "Step 2: Installing pip and setuptools..."
-uv pip install --python "$ENVPATH/bin/python" pip setuptools wheel
-echo "✓ pip installed"
+echo "Step 2: Installing PyTorch ($CUDA)..."
+uv pip install --python "$PY" torch --index-url "https://download.pytorch.org/whl/$CUDA"
 echo ""
 
-# Step 3: Install numpy first (some packages depend on it)
-echo "Step 3: Installing numpy..."
-uv pip install --python "$ENVPATH/bin/python" numpy==1.26.4
-echo "✓ numpy installed"
+echo "Step 3: Installing ATOMICA and its dependencies..."
+uv pip install --python "$PY" -e "$ATOMICA_DIR[dev]"
 echo ""
 
-# Step 4: Install PyTorch with CUDA 11.8
-echo "Step 4: Installing PyTorch 2.1.1 with CUDA 11.8..."
-uv pip install --python "$ENVPATH/bin/python" \
-    torch==2.1.1 \
-    --extra-index-url https://download.pytorch.org/whl/cu118
-echo "✓ PyTorch installed"
-echo ""
-
-# Step 5: Install PyTorch Geometric dependencies
-echo "Step 5: Installing torch-scatter and torch-cluster..."
-echo "These need to be installed from PyTorch Geometric wheels..."
-uv pip install --python "$ENVPATH/bin/python" \
-    torch-scatter==2.1.2 \
-    torch-cluster==1.6.3 \
-    --find-links https://pytorch-geometric.com/whl/torch-2.1.1+cu118.html
-echo "✓ PyTorch Geometric dependencies installed"
-echo ""
-
-# Step 6: Install ATOMICA in editable mode
-# This will automatically install all remaining dependencies from pyproject.toml
-echo "Step 6: Installing ATOMICA package and remaining dependencies..."
-echo "This reads dependencies from pyproject.toml..."
-cd "$ATOMICA_DIR"
-uv pip install --python "$ENVPATH/bin/python" -e ".[dev]"
-echo "✓ ATOMICA and all dependencies installed"
-echo ""
-
-# Step 7: Verify installation
 echo "======================================"
-echo "Verifying Installation"
+echo "Verifying"
 echo "======================================"
+"$PY" -c "
+import torch
+print('torch          ', torch.__version__)
+print('built for CUDA ', torch.version.cuda)
+print('CUDA available ', torch.cuda.is_available())
+if torch.cuda.is_available():
+    print('GPU            ', torch.cuda.get_device_name(0))
+"
+"$PY" -c "import atomica; print('atomica imports OK')"
+"$PY" -c "
+from atomica.utils.scatter import TORCH_SCATTER_AVAILABLE
+print('torch_scatter in use:', TORCH_SCATTER_AVAILABLE, '(optional; pure-PyTorch path used when False)')
+"
+"$ENVPATH/bin/atomica-embeddings" --help > /dev/null && echo "atomica-embeddings OK"
+"$ENVPATH/bin/atomica-train" --help > /dev/null && echo "atomica-train OK"
 echo ""
 
-echo "Testing console scripts..."
-if "$ENVPATH/bin/atomica-embeddings" --help > /dev/null 2>&1; then
-    echo "✓ atomica-embeddings command works"
-else
-    echo "✗ atomica-embeddings command failed"
-    exit 1
-fi
-
-if "$ENVPATH/bin/atomica-train" --help > /dev/null 2>&1; then
-    echo "✓ atomica-train command works"
-else
-    echo "✗ atomica-train command failed"
-    exit 1
-fi
+echo "Step 4: Running tests..."
+(cd "$ATOMICA_DIR" && "$ENVPATH/bin/pytest" tests/ -q)
 echo ""
 
-echo "Testing Python imports..."
-"$ENVPATH/bin/python" -c "import atomica; print('✓ atomica module imports successfully')" || exit 1
-"$ENVPATH/bin/python" -c "from atomica.train import cli; print('✓ atomica.train.cli imports successfully')" || exit 1
-"$ENVPATH/bin/python" -c "from atomica.get_embeddings import cli; print('✓ atomica.get_embeddings.cli imports successfully')" || exit 1
-echo ""
-
-# Step 8: Run tests
-echo "Step 8: Running tests..."
-cd "$ATOMICA_DIR"
-"$ENVPATH/bin/pytest" tests/ -v
-echo ""
-
-# Step 9: Summary
 echo "======================================"
-echo "Installation Complete!"
+echo "Installation complete"
 echo "======================================"
+echo "Activate with:  source $ENVPATH/bin/activate"
 echo ""
-echo "ATOMICA has been successfully installed at:"
-echo "  Environment: $ENVPATH"
-echo "  Package: $ATOMICA_DIR"
-echo ""
-echo "To activate the environment, run:"
-echo "  source $ENVPATH/bin/activate"
-echo ""
-echo "Available commands:"
-echo "  atomica-train --help"
-echo "  atomica-embeddings --help"
-echo ""
-echo "To run tests:"
-echo "  pytest $ATOMICA_DIR/tests/"
-echo ""
+echo "Torsion-denoising pretraining additionally needs torch-cluster:"
+echo "  TORCH=\$($PY -c \"import torch; print(torch.__version__.split('+')[0])\")"
+echo "  pip install torch-cluster -f https://data.pyg.org/whl/torch-\${TORCH}+$CUDA.html"

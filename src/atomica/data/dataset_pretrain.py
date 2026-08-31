@@ -4,7 +4,7 @@ import numpy as np
 import copy
 from collections import defaultdict
 from ..utils.noise_transforms import TorsionNoiseTransform, GaussianNoiseTransform, GlobalRotationTransform, GlobalTranslationTransform, CropTransform
-from torch_scatter import scatter_mean
+from ..utils.scatter import scatter_mean
 from tqdm import tqdm
 from .dataset import open_data_file
 

@@ -3,6 +3,7 @@ from .affinity_predictor import AffinityPredictor
 from .classifier_model import ClassifierModel, MultiClassClassifierModel, RegressionPredictor, ResidueClassifierModel, MultiLabelClassifierModel
 from .masking_model import MaskedNodeModel
 from .prot_interface_model import ProteinInterfaceModel
+from ..utils import pickled_checkpoint_error
 import torch
 
 def create_model(args):
@@ -31,8 +32,8 @@ def create_model(args):
         }
         if args.block_embedding_size is None and args.block_embedding0_size is None and args.block_embedding1_size is None:
             if args.pretrain_ckpt:
-                print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
-                model: DenoisePretrainModel = torch.load(args.pretrain_ckpt, map_location='cpu')
+                raise pickled_checkpoint_error(
+                    args.pretrain_ckpt, "--pretrain_config", "--pretrain_weights")
             elif args.pretrain_config and args.pretrain_weights:
                 print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
                 model = DenoisePretrainModel.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights)
@@ -48,8 +49,8 @@ def create_model(args):
                 "block_embedding1_size": args.block_embedding1_size,
             })
             if args.pretrain_ckpt:
-                print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
-                model: DenoisePretrainModelWithBlockEmbedding = torch.load(args.pretrain_ckpt, map_location='cpu')
+                raise pickled_checkpoint_error(
+                    args.pretrain_ckpt, "--pretrain_config", "--pretrain_weights")
             elif args.pretrain_config and args.pretrain_weights:
                 print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
                 model = DenoisePretrainModelWithBlockEmbedding.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights)
@@ -81,9 +82,8 @@ def create_model(args):
         else:
             raise NotImplementedError(f"Nonlinearity {args.pred_nonlinearity} not implemented")
         if args.pretrain_ckpt:
-            print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
-            add_params["partial_finetune"] = args.partial_finetune
-            model = AffinityPredictor.load_from_pretrained(args.pretrain_ckpt, **add_params)
+            raise pickled_checkpoint_error(
+                args.pretrain_ckpt, "--pretrain_config", "--pretrain_weights")
         elif args.pretrain_config and args.pretrain_weights:
             print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
             model = AffinityPredictor.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights, **add_params)
@@ -173,8 +173,8 @@ def create_model(args):
                 'dropout': args.dropout,
             })
             if args.pretrain_ckpt:
-                print(f"Loading pretrain model from checkpoint {args.pretrain_ckpt}")
-                model = Model.load_from_pretrained(args.pretrain_ckpt, **add_params)
+                raise pickled_checkpoint_error(
+                    args.pretrain_ckpt, "--pretrain_config", "--pretrain_weights")
             elif args.pretrain_config and args.pretrain_weights:
                 print(f"Loading pretrain model from config {args.pretrain_config} and weights {args.pretrain_weights}")
                 model = Model.load_from_config_and_weights(args.pretrain_config, args.pretrain_weights, **add_params)

@@ -2,7 +2,7 @@
 # -*- coding:utf-8 -*-
 import torch.nn as nn
 import torch.nn.functional as F
-from torch_scatter import scatter_sum
+from ...utils.scatter import scatter_sum
 
 from .atomica import InteractionModule
 from .utils import batchify, unbatchify

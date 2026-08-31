@@ -1,6 +1,6 @@
 import torch.nn.functional as F
 import torch
-from torch_scatter import scatter_mean
+from ..utils.scatter import scatter_mean
 import json
 
 from .pretrain_model import DenoisePretrainModel
@@ -69,11 +69,6 @@ class MaskedNodeModel(DenoisePretrainModel):
         }
 
     @classmethod
-    def load_from_pretrained(cls, pretrain_ckpt, **kwargs):
-        pretrained_model: DenoisePretrainModel = torch.load(pretrain_ckpt, map_location='cpu')
-        return cls._load_from_pretrained(pretrained_model, **kwargs)
-    
-    @classmethod
     def load_from_config_and_weights(cls, config_path, weights_path, **kwargs):
         with open(config_path, 'r') as f:
             config = json.load(f)
@@ -85,7 +80,7 @@ class MaskedNodeModel(DenoisePretrainModel):
             return cls._load_from_pretrained(pretrained_model, **kwargs)
         elif model_type == cls.__name__:
             pretrained_model = cls(**config)
-            pretrained_model.load_state_dict(torch.load(weights_path, map_location='cpu'))
+            pretrained_model.load_state_dict(torch.load(weights_path, map_location='cpu', weights_only=True))
             return pretrained_model
         else:
             raise ValueError(f"Model type {model_type} not recognized")

@@ -64,8 +64,7 @@ checkpoints/benchmarks/masif/
 ## Requirements
 
 - An NVIDIA GPU (A100/H100 recommended) with CUDA.
-- The conda environment with ATOMICA installed (see the
-  top-level `README.md` / `install_atomica_conda.sh`).
+- An environment with ATOMICA installed (see [setup/README.md](../../setup/README.md)).
 
 ## Download checkpoints
 
