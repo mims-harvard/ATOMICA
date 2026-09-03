@@ -19,6 +19,8 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
         self.vocab_to_mask = vocab_to_mask # list of vocab indices that can be masked
         self.idx_to_mask_block = dict(zip(self.vocab_to_mask, range(len(self.vocab_to_mask))))
         self.crop = None
+        # when not None, these block indices are masked instead of a random draw
+        self.force_masked_blocks = None
         self.preprocess()
     
     def set_crop(self, max_n_vertex_per_item, fragmentation_method):
@@ -72,7 +74,13 @@ class PretrainMaskedDataset(torch.utils.data.Dataset):
         # mask blocks on the non-noisy side to not interfere with the noised torsion angles
         can_mask = item["data"]["can_mask"][0] + item["data"]["can_mask"][1]
         num_to_select = max(1, int(self.mask_proportion * len(can_mask)))
-        selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
+        # set force_masked_blocks to a list of block indices to score models on shared
+        # positions, and back to None for the sampling used during training
+        forced = getattr(self, 'force_masked_blocks', None)
+        if forced is not None:
+            selected_indices = np.asarray(forced, dtype=int)
+        else:
+            selected_indices = np.random.choice(can_mask, size=num_to_select, replace=False)
         masked_blocks = np.zeros_like(data['B'], dtype=bool)
         masked_blocks[selected_indices] = True
 

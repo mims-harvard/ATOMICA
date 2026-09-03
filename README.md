@@ -33,7 +33,24 @@ No CUDA toolkit is needed on the host — the PyTorch wheel bundles its own CUDA
 
 ## :zap: Quick Start
 
-Generate embeddings from list of PDB files with ATOMICA model in just a few lines. See the tutorial at [tutorials/1_get_embeddings](https://github.com/mims-harvard/ATOMICA/tree/main/tutorials/1_get_embeddings) for more details.
+Turn a list of PDB files into ATOMICA representations in two commands:
+
+```bash
+python -m atomica.data.process_pdbs \
+  --data_index_file data/example/example_inputs.csv \
+  --out_path data/example/example_processed_data.parquet
+
+python -m atomica.representations \
+  --model_config checkpoints/ATOMICA_checkpoints/pretrain/pretrain_model_config.json \
+  --model_weights checkpoints/ATOMICA_checkpoints/pretrain/pretrain_model_weights.pt \
+  --data_path data/example/example_processed_data.parquet \
+  --output_path data/example/example_z_graph.parquet \
+  --representations z_graph --pool mean_std_global
+```
+
+ATOMICA produces eight named representations, at the atom, block, interface and graph levels, and
+which one you want depends on what you will do with it. `python -m atomica.representations --guidance`
+prints the choices. See the tutorial at [tutorials/1_get_embeddings](https://github.com/mims-harvard/ATOMICA/tree/main/tutorials/1_get_embeddings) for the full walkthrough.
 
 ## :star: Other setup
 Optional steps, only required if you plan on training your own ATOMICA model.
@@ -45,6 +62,8 @@ We provide the following datasets:
 * Processed CSD and QBioLiP (based on PDB) interaction complex graphs for pretraining
 * Processed datasets for four RNAGlib benchmark tasks: RNA-GO, RNA-Ligand, RNA-Protein, RNA-Site
 * Processed datasets for the MASIF-Ligand benchmark.
+* Processed datasets for the ATP vs ADP nucleotide state benchmark.
+* Processed datasets for the same-ligand pocket retrieval benchmark.
 * Processed datasets for the PPI and orthosteric inhibitors analysis.
 * Processed protein interfaces of dark proteome binding sites to ion and small molecules
 
@@ -54,34 +73,43 @@ Model checkpoints are provided on [Hugging Face](https://huggingface.co/ada-f/AT
 * Finetuned ATOMICA-Ligand prediction models for the following ligands:
     * metal ions: Ca, Co, Cu, Fe, K, Mg, Mn, Na, Zn
     * small molecules: ADP, ATP, GTP, GDP, FAD, NAD, NAP, NDP, HEM, HEC, CIT, CLA
-* Finetuned MaSIF-ligand pocket classification models (5 seeds) — protein pocket classification across 7 small-molecule ligands (ADP, CoA, FAD, heme, NAD, NAP, SAM)
-* Finetuned RNAglib prediction models (5 seeds each) for four RNA structure-function tasks:
-    * `rna_go` — RNA Gene Ontology term prediction (multi-label)
-    * `rna_ligand` — RNA pocket ligand classification (multi-class)
-    * `rna_protein` — RNA residue protein-binding prediction (binary)
-    * `rna_site` — RNA residue small-molecule-binding prediction (binary)
+* MaSIF-ligand: MaSIF-similar protein–ligand-excluded pretraining checkpoint
+* RNAGlib:
+    * Protein–RNA-excluded pretraining checkpoint
+    * Nucleic-acid–ligand-excluded pretraining checkpoint
+    * Finetuned RNA-GO prediction model
+For the benchmarks, task-specific prediction heads are trained on frozen representations from the corresponding pretraining checkpoints which exclude overlapping data from pretraining.
 
 ### Training / Finetuning your own ATOMICA model
 Training scripts for pretraining ATOMICA and finetuning ATOMICA-Interface and ATOMICA-Ligand are provided in `scripts/`.
 
 ## :seedling: Tutorials
-### Get embeddings from ATOMICA model
-Refer to the tutorial at `tutorials/1_get_embeddings` for more details.
+### Get representations from the ATOMICA model
+Refer to `tutorials/1_get_embeddings` for the named representations, which one to use for which kind of task, and the commands that extract them.
 
 ### Inference with ATOMICA-Ligand
 Refer to the jupyter notebook at `tutorials/2_atomica_ligand` for an example of how to use the model for dark proteome ligand predictions.
 
 ### RNA structure-function prediction (RNAglib benchmarks)
-Refer to `tutorials/3_rna_structure_function` for reproducing the ATOMICA paper results on four RNAglib benchmarks (RNA-GO, RNA-Ligand, RNA-Protein, RNA-Site) using the finetuned checkpoints.
+Refer to `tutorials/3_rna_structure_function` for reproducing the ATOMICA paper results on four RNAglib benchmarks (RNA-GO, RNA-Ligand, RNA-Protein, RNA-Site).
 
 ### MaSIF-Ligand benchmark
-Refer to `tutorials/4_atomica_masif_benchmark` for the protein pocket classification benchmark across 7 small-molecule ligands, using the finetuned checkpoints.
+Refer to `tutorials/4_atomica_masif_benchmark` for the protein pocket classification benchmark across 7 small-molecule ligands.
 
 ### PPI and orthosteric inhibitors
 Refer to `tutorials/5_ppi_and_inhibitors` for comparing ATOMICA embeddings of orthosteric PPI inhibitors against embeddings of the native protein-protein / protein-peptide complexes they inhibit (2P2IDB).
 
-### InteractScore: per-residue importance at an interface
-Refer to the jupyter notebook at `tutorials/6_interact_score` for computing per-residue InteractScores at a protein-ligand interface via masked-embedding cosine similarity.
+### ATOMICAScore: per-residue importance at an interface
+Refer to the jupyter notebook at `tutorials/6_interact_score` for ranking the amino-acid residues at a protein-ligand interface by how much masking each one moves the model's representation of the ligand.
+
+### ATP versus ADP nucleotide state
+Refer to `tutorials/7_atp_adp_nucleotide_state` for classifying which nucleotide a binding site held, from the empty pocket alone.
+
+### Same-ligand pocket retrieval
+Refer to `tutorials/8_pocket_retrieval` for retrieving pockets that bind the same ligand across structurally distinct proteins, by cosine similarity between frozen embeddings.
+
+### Metal coordination probes
+Refer to `tutorials/9_metal_coordination` for linear probes that read a metal site's coordination number and coordination geometry off the frozen block representation.
 
 ## :bulb: Questions
 For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.harvard.edu>.

@@ -7,10 +7,40 @@ from .pretrain_model import DenoisePretrainModel
 from .atomica.utils import batchify
 import json
 
-PredictionReturnValue = namedtuple(
+_PredictionReturnValueBase = namedtuple(
     'ReturnValue',
-    ['unit_repr', 'block_repr', 'graph_repr', 'batch_id', 'block_id'],
+    ['unit_repr', 'block_repr', 'graph_repr', 'batch_id', 'block_id',
+     'block_node_attr', 'atom_node_attr',
+     'atom_invariant_repr', 'block_invariant_repr', 'graph_invariant_repr'],
+    # fields after `block_id` default to None, so callers of the first five are unaffected
+    defaults=[None, None, None, None, None],
 )
+
+
+class PredictionReturnValue(_PredictionReturnValueBase):
+    """Model outputs in the paper's two families, both SE(3)-invariant.
+
+    ``unit_repr`` / ``block_repr`` / ``graph_repr`` are h^atom, h^block and h^graph, built from
+    the l=0 channels. ``*_invariant_repr`` are z^atom, z^block and z^graph, which add invariants
+    from the l>0 channels; they are filled only with ``return_invariant_repr=True``.
+
+    :mod:`atomica.representations` is the supported way to read these.
+    """
+
+    @property
+    def atom_scalar_repr(self):
+        """Alias of ``unit_repr`` (the paper's h^atom)."""
+        return self.unit_repr
+
+    @property
+    def block_scalar_repr(self):
+        """Alias of ``block_repr`` (the paper's h^block)."""
+        return self.block_repr
+
+    @property
+    def graph_scalar_repr(self):
+        """Alias of ``graph_repr`` (the paper's h^graph)."""
+        return self.graph_repr
 
 class PredictionModel(DenoisePretrainModel):
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size, k_neighbors,
@@ -111,7 +141,16 @@ class PredictionModel(DenoisePretrainModel):
             raise ValueError(f"Model type {model_type} not recognized")
 
     ########## overload ##########
-    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, return_graph_repr=True) -> PredictionReturnValue:
+    def forward(self, Z, B, A, block_lengths, lengths, segment_ids, return_graph_repr=True,
+                return_full_node_attr=False, return_invariant_repr=False,
+                invariant_pool='mean_std_global') -> PredictionReturnValue:
+        """Run the encoder stack.
+
+        ``return_invariant_repr=True`` also fills the ``z`` family fields.
+        """
+        if return_invariant_repr:
+            # the invariant descriptors are built from the raw irrep tensors
+            return_full_node_attr = True
         # batch_id and block_id
         with torch.no_grad():
             batch_id = torch.zeros_like(segment_ids)  # [Nb]
@@ -136,9 +175,17 @@ class PredictionModel(DenoisePretrainModel):
         edges, edge_attr = self.get_edges(bottom_B, bottom_batch_id, bottom_segment_ids, 
                                           Z, bottom_block_id, self.bottom_global_message_passing, 
                                           top=False)
-        bottom_block_repr = self.encoder(
-            bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr, 
-        )
+        if return_full_node_attr:
+            # atom-level irrep tensor, needed to build z^atom
+            bottom_block_repr, atom_node_attr = self.encoder(
+                bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr,
+                return_full_node_attr=True,
+            )
+        else:
+            atom_node_attr = None
+            bottom_block_repr = self.encoder(
+                bottom_H_0, Z, bottom_batch_id, None, edges, edge_attr,
+            )
         
         # top level message passing
         top_Z = scatter_mean(Z, block_id, dim=0)  # [Nb, n_channel, 3]
@@ -155,7 +202,13 @@ class PredictionModel(DenoisePretrainModel):
         top_H_0 = self.atom_block_attn_norm(top_H_0)
 
         top_block_id = torch.arange(0, len(batch_id), device=batch_id.device)
-        block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
+        if return_full_node_attr:
+            # block-level irrep tensor, needed to build z^block
+            block_repr, block_node_attr = self.top_encoder(
+                top_H_0, top_Z, batch_id, None, edges, edge_attr, return_full_node_attr=True)
+        else:
+            block_node_attr = None
+            block_repr = self.top_encoder(top_H_0, top_Z, batch_id, None, edges, edge_attr)
         if return_graph_repr:
             if self.global_message_passing:
                 graph_repr = self.attention_pooling(block_repr, batch_id)
@@ -166,8 +219,33 @@ class PredictionModel(DenoisePretrainModel):
             graph_repr = None
 
 
+        # ---- z family (None unless return_invariant_repr=True) ----------------------------
+        atom_invariant_repr = block_invariant_repr = graph_invariant_repr = None
+        if return_invariant_repr:
+            from .atomica.invariants import pool_atoms_to_blocks
+            from ..representations import pool_blocks
+            inv = self._irrep_invariants()
+            inv.check_dim(block_node_attr)
+            # z^atom: 0e/0o channels (+) within-degree Gram of the l>0 channels
+            atom_invariant_repr = inv.descriptor(atom_node_attr)
+            # z^block: h^block (+) block Gram (+) mean and s.d. of z^atom over the block's atoms.
+            # block_id is a global atom->block index, so this is correct for a batched forward.
+            block_invariant_repr = torch.cat([
+                block_repr,
+                inv.gram(block_node_attr),
+                pool_atoms_to_blocks(atom_invariant_repr, block_id,
+                                     n_blocks=block_node_attr.shape[0]),
+            ], dim=-1)
+            # z^graph: parameter-free pooling, so a trained head stays the only fitted component.
+            # invariant_pool=None means the caller wants only the atom- or block-level invariants,
+            # so the graph vector is skipped rather than pooled by an arbitrary default rule.
+            if invariant_pool is not None:
+                graph_invariant_repr = pool_blocks(
+                    block_invariant_repr, batch_id, B == self.global_block_id,
+                    mode=invariant_pool, component_dims=self.invariant_component_dims())
+
         return PredictionReturnValue(
-            # representations
+            # h family
             unit_repr=bottom_block_repr,
             block_repr=block_repr,
             graph_repr=graph_repr,
@@ -175,14 +253,42 @@ class PredictionModel(DenoisePretrainModel):
             # batch information
             batch_id=batch_id,
             block_id=block_id,
+
+            # raw irrep tensors (None unless return_full_node_attr=True)
+            block_node_attr=block_node_attr,
+            atom_node_attr=atom_node_attr,
+
+            # z family (None unless return_invariant_repr=True)
+            atom_invariant_repr=atom_invariant_repr,        # [Nu, 2*ns + n_gram]
+            block_invariant_repr=block_invariant_repr,      # [Nb, ns + n_gram + 2*(2*ns + n_gram)]
+            graph_invariant_repr=graph_invariant_repr,      # [n_graphs, k * block width]
         )
-    
-    def infer(self, batch):
+
+    def _irrep_invariants(self):
+        """Cached irrep layout for this model. Derived from the encoder, never hand-specified."""
+        if getattr(self, '_invariants_cache', None) is None:
+            from .atomica.invariants import IrrepInvariants
+            self._invariants_cache = IrrepInvariants.from_encoder(self.top_encoder)
+        return self._invariants_cache
+
+    def invariant_component_dims(self):
+        """Widths of the three parts of z^block, in order: h^block, block Gram, atom-pooled.
+
+        Downstream code needs these to slice z^block back apart, and the
+        ``mean_component_normalized`` pooling rule needs them to normalize each part separately.
+        """
+        inv = self._irrep_invariants()
+        ns = self.top_encoder.encoder.ns
+        return {"h_block": int(ns), "gram": int(inv.n_gram), "atom": int(2 * inv.n_descriptor)}
+
+    def infer(self, batch, return_invariant_repr=False, invariant_pool='mean_std_global'):
         self.eval()
         return_value = self.forward(
             Z=batch['X'], B=batch['B'], A=batch['A'],
             block_lengths=batch['block_lengths'],
             lengths=batch['lengths'],
             segment_ids=batch['segment_ids'],
+            return_invariant_repr=return_invariant_repr,
+            invariant_pool=invariant_pool,
         )
         return return_value

@@ -10,25 +10,34 @@ from .utils import batchify, unbatchify
 class ATOMICAEncoder(nn.Module):
     def __init__(self, hidden_size, edge_size, n_layers=3, return_atom_noise=False, return_global_noise=False, 
                  return_torsion_noise=False, dropout=0.0, max_torsion_neighbors=9,
-                 max_edge_length=20, max_global_edge_length=20, max_torsion_edge_length=5) -> None:
+                 max_edge_length=20, max_global_edge_length=20, max_torsion_edge_length=5,
+                 long_range_edge_length=None) -> None:
         super().__init__()
         self.encoder = InteractionModule(ns=hidden_size, nv=hidden_size//2, num_conv_layers=n_layers, sh_lmax=2, edge_size=edge_size, 
                                          return_atom_noise=return_atom_noise, return_global_noise=return_global_noise, 
                                          return_torsion_noise=return_torsion_noise, dropout=dropout, max_torsion_neighbors=max_torsion_neighbors,
-                                         max_edge_length=max_edge_length, max_global_edge_length=max_global_edge_length, max_torsion_edge_length=max_torsion_edge_length)
+                                         max_edge_length=max_edge_length, max_global_edge_length=max_global_edge_length, max_torsion_edge_length=max_torsion_edge_length,
+                                         long_range_edge_length=long_range_edge_length)
         self.return_noise = any([return_atom_noise, return_global_noise, return_torsion_noise])
 
-    def forward(self, H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=None, tor_batch=None):
+    def forward(self, H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=None, tor_batch=None,
+                return_full_node_attr=False):
+        """``return_full_node_attr=True`` also returns the raw irrep tensor, pre-``out_ffn``."""
+        full_node_attr = None
         if self.return_noise:
             output = self.encoder(H, Z, batch_id, perturb_mask, edges, edge_attr, tor_edges=tor_edges, tor_batch=tor_batch)  # [Nb, hidden]
             block_repr, trans_noise, rot_noise, atom_noise, tor_noise = output
+        elif return_full_node_attr:
+            block_repr, full_node_attr = self.encoder(
+                H, Z, batch_id, perturb_mask, edges, edge_attr, return_full_node_attr=True)
         else:
             block_repr = self.encoder(H, Z, batch_id, perturb_mask, edges, edge_attr)  # [Nb, hidden]
         block_repr = F.normalize(block_repr, dim=-1)
         if self.return_noise:
             return block_repr, trans_noise, rot_noise, atom_noise, tor_noise
-        else:
-            return block_repr
+        if return_full_node_attr:
+            return block_repr, full_node_attr
+        return block_repr
 
 
 class AttentionPooling(nn.Module):

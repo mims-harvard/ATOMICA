@@ -22,6 +22,7 @@ class InteractionModule(torch.nn.Module):
         max_edge_length=20, 
         max_global_edge_length=20,
         max_torsion_edge_length=5,
+        long_range_edge_length=None,
     ):
         super(InteractionModule, self).__init__()
         self.ns, self.nv = ns, nv
@@ -35,6 +36,25 @@ class InteractionModule(torch.nn.Module):
             nn.Dropout(dropout),
             nn.Linear(edge_size, edge_size),
         )
+        # Optional second edge embedder over [max_edge_length, long_range_edge_length], summed
+        # into the edge feature. Zero-initialised, so it is the identity at initialisation.
+        self.long_range_edge_embedder = None
+        if long_range_edge_length is not None:
+            self.long_range_edge_embedder = nn.Sequential(
+                GaussianEmbedding(num_gaussians=edge_size, start=max_edge_length,
+                                  stop=long_range_edge_length),
+                nn.Linear(edge_size, edge_size),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(edge_size, edge_size),
+            )
+            nn.init.zeros_(self.long_range_edge_embedder[-1].weight)
+            nn.init.zeros_(self.long_range_edge_embedder[-1].bias)
+            self.long_range_gate = nn.Parameter(torch.ones(1))
+            # no weight decay: the zero-initialised projection needs gradient before L2 pulls on it
+            for _p in self.long_range_edge_embedder.parameters():
+                _p._no_weight_decay = True
+            self.long_range_gate._no_weight_decay = True
         self.node_embedding_dim = (
             ns if self.num_conv_layers < 3 else 2 * ns
         )  # only use the scalar and pseudo scalar features
@@ -153,7 +173,10 @@ class InteractionModule(torch.nn.Module):
         self.tor_bond_conv = None
         self.tor_final_layer = None
 
-    def forward(self, node_attr, coords, batch_id, perturb_mask, edges, edge_type_attr, tor_edges=None, tor_batch=None):
+    def forward(self, node_attr, coords, batch_id, perturb_mask, edges, edge_type_attr,
+                tor_edges=None, tor_batch=None, return_full_node_attr=False):
+        """``return_full_node_attr=True`` also returns the raw post-convolution irrep tensor,
+        which ``models.atomica.invariants`` reads to build rotation invariants."""
         edge_vec = coords[edges[1]] - coords[edges[0]]
         edge_sh = o3.spherical_harmonics(
             self.sh_irreps,
@@ -163,6 +186,11 @@ class InteractionModule(torch.nn.Module):
         )
         edge_length = edge_vec.norm(dim=-1)
         edge_length_embedding = self.edge_embedder(edge_length)
+        _lr_embedder = getattr(self, 'long_range_edge_embedder', None)
+        if _lr_embedder is not None:
+            # the final projection is zero-initialised, so this term is exactly 0 at init
+            edge_length_embedding = edge_length_embedding + \
+                self.long_range_gate * _lr_embedder(edge_length)
 
         for l in range(self.num_conv_layers):
             assert not torch.any(torch.isnan(edge_length_embedding)), "nans in edge_length_embedding"
@@ -266,7 +294,11 @@ class InteractionModule(torch.nn.Module):
                 torsion_noise = None
             return self.out_ffn(node_embeddings), trans_noise, rot_noise, atom_noise, torsion_noise
         else:
+            # irrep_seq[-1] layout: "{ns}x0e + {nv}x1o + {nv}x2e + {nv}x1e + {nv}x2o + {ns}x0o"
+            full_node_attr = node_attr
             node_embeddings = self.out_ffn(node_embeddings)
+            if return_full_node_attr:
+                return node_embeddings, full_node_attr
             return node_embeddings
 
     def build_tor_edges(self, tor_bonds, coords, node_embeddings, batch_id, tor_batch):

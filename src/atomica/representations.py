@@ -24,14 +24,11 @@ comparable:
     mean_std_global             for training a head on top: mean, standard deviation, global node
     mean_component_normalized   for comparing frozen vectors: mean, each part L2-normalized
 
-Component normalization matters because the three parts of z_block differ by about an order of
-magnitude in norm, and a cosine weights each part by the product of its norms; over the 21 pairs
-of the seven example complexes the atom-pooled part alone carries a median 96.9 percent of an
-unnormalized dot product.
+The three parts of z_block differ by about an order of magnitude in norm and a cosine weights each
+part by the product of its norms, so without the per-part normalization one part decides the answer.
 
-For reproducibility, batch composition affects the result, since the per-block attention runs over
-a batch-sized padded array. :func:`embed_dataset` batches structures that share a largest block,
-which reproduces batch-size-1 values. See :func:`describe_batch_sensitivity`.
+For reproducibility, :func:`embed_dataset` batches structures that share a largest block, so the
+batch size does not change the vectors.
 
 One asymmetry to know: z_atom is built from the raw 0e/0o channels while h_atom is their narrower
 projection, so z_atom is not h_atom with invariants appended, although z_block does begin with
@@ -65,7 +62,6 @@ __all__ = [
     "component_normalize",
     # documentation you can print
     "describe",
-    "describe_batch_sensitivity",
     "guidance",
     # extraction to a file, and the command line behind `python -m atomica.representations`
     "load_model",
@@ -78,7 +74,6 @@ __all__ = [
 ]
 
 
-# --------------------------------------------------------------------------------- the vocabulary
 @dataclass(frozen=True)
 class RepresentationSpec:
     """One row of the table in the module docstring."""
@@ -135,7 +130,6 @@ LEGACY_FIELD_NAMES = {
 }
 
 
-# ------------------------------------------------------------------------------------- pooling
 def component_normalize(x: torch.Tensor, component_dims: Sequence[int]) -> torch.Tensor:
     """L2-normalize each part of the last axis separately, then re-concatenate.
 
@@ -218,7 +212,6 @@ def pooled_width(block_width: int, mode: str) -> int:
     return block_width * (3 if mode == "mean_std_global" else 1)
 
 
-# ---------------------------------------------------------------------------------- the accessor
 def _batch_size(batch) -> int:
     return int(batch["lengths"].shape[0])
 
@@ -324,7 +317,6 @@ def get_many(model, batch, names: Sequence[str], *, pool: Optional[str] = None,
     return out
 
 
-# ------------------------------------------------------------------------------------ description
 def available() -> Sequence[str]:
     """The representation names, in table order."""
     return tuple(REPRESENTATIONS)
@@ -360,24 +352,6 @@ def describe(model=None) -> str:
     return "\n".join(lines)
 
 
-def describe_batch_sensitivity() -> str:
-    """How batch composition affects the vectors, and how to keep runs reproducible."""
-    return (
-        "The per-block attention runs over an array padded to the largest block in the batch, "
-        "counted in atoms, so a structure's vectors depend on what shares its batch. A structure "
-        "matches its batch-size-1 value whenever nothing else in the batch has a larger block.\n\n"
-        "embed_dataset() therefore batches only structures that share a largest block, which "
-        "reproduces batch-size-1 values: over the seven example complexes h_atom, h_block, z_block "
-        "and z_graph come back bit-identical and h_graph to 9e-8, where one ungrouped batch of "
-        "seven moves z_block by up to 3.6. Splitting such a batch changes nothing, so the "
-        "out-of-memory retry is safe.\n\n"
-        "h_graph and h_interface pool over a second padded array, sized in blocks, which the "
-        "grouping does not control; on some checkpoints that moves them by up to 4.2e-2. Use batch "
-        "size 1 for those two names, or pin the batch size and the item order."
-    )
-
-
-# ------------------------------------------------------------------- which one do I want, and why
 @dataclass(frozen=True)
 class Usage:
     """One row of the guidance table; ``choice`` names the pooling rule when it matters."""
@@ -446,8 +420,7 @@ Two questions decide the answer.
    message passing over the whole complex, so it stays aware of the partner.
 
 h keeps only the 32 lambda = 0 numbers; z turns the higher-degree channels into invariants a plain
-head can read. In the MaSIF-ligand setup the same head reaches 0.589 accuracy on h_block and 0.837
-on the 1792-wide z_block."""
+head can read, which is why the downstream benchmarks train on z."""
 
 
 def guidance(width: int = 98) -> str:
@@ -468,7 +441,6 @@ def guidance(width: int = 98) -> str:
     return "\n".join(lines)
 
 
-# ------------------------------------------------------------------------------------- extraction
 def load_model(model_config: str, model_weights: str):
     """Load a checkpoint, returning ``(model, dataset_class)``.
 
@@ -562,9 +534,13 @@ def group_batches(items: Sequence[dict], batch_size: int, *, data_key: str = "da
                   group_by_max_block: bool = True, atom_budget: Optional[int] = None) -> list:
     """Split items into batches, by default grouping structures that share a largest block.
 
-    That keeps each structure's padding width the same as it would be alone, so a batched run
-    reproduces a batch-size-1 run and splitting a batch changes nothing. ``atom_budget`` caps the
-    atoms per batch. Returns ``[(indices, items), ...]``; the indices restore the input order.
+    The per-block attention runs over an array padded to the largest block in the batch, so
+    grouping keeps each structure's padding width the same as it would be alone: the batch size
+    does not change the vectors, and splitting a batch changes nothing. h_graph and h_interface
+    pool over a second padded array that this does not cover, so they need batch size 1.
+
+    ``atom_budget`` caps the atoms per batch. Returns ``[(indices, items), ...]``; the indices
+    restore the input order.
     """
     n = len(items)
     if batch_size <= 1:
@@ -678,7 +654,6 @@ def write_embeddings(rows: Sequence[dict], output_path: str) -> None:
     print(f"wrote {len(rows)} structures to {output_path}")
 
 
-# ------------------------------------------------------------------------------------ command line
 def _parse_names(raw: str) -> list:
     names = [name.strip() for name in raw.replace(" ", ",").split(",") if name.strip()]
     unknown = [name for name in names if name not in REPRESENTATIONS]

@@ -18,7 +18,7 @@ import os
 import numpy as np
 import pandas as pd
 
-from atomica.probe import (COMMITTED_FEATURE, FEATURE_SETS, ProbeConfig, apply_standardizer,
+from atomica.probe import (FEATURE_SETS, ProbeConfig, apply_standardizer,
                            bootstrap_ci, build_features, fit_standardizer, pool_saved_blocks,
                            train_probe)
 
@@ -125,8 +125,8 @@ def main() -> None:
     ap.add_argument("--task", choices=list(T.TASKS))
     ap.add_argument("--all", action="store_true", help="all four at their published checkpoint")
     ap.add_argument("--backbone", choices=list(T.BACKBONES), default=None)
-    ap.add_argument("--feature", default=COMMITTED_FEATURE, choices=list(FEATURE_SETS),
-                    help="z_block is the committed descriptor; the others are nested ablations")
+    ap.add_argument("--feature", default="z_block", choices=list(FEATURE_SETS),
+                    help="z_block is the full descriptor; the others are nested slices of it")
     ap.add_argument("--select-loss", action="store_true",
                     help="on the graph tasks, train both losses and pick on validation")
     ap.add_argument("--seeds", type=int, nargs="+", default=list(T.PROBE.seeds))

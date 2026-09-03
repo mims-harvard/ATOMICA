@@ -25,6 +25,9 @@ __pycache__
 *.gml
 
 *.csv
+# ...except the small example files the tutorials read.
+!/data/example/example_inputs.csv
+!/data/example/example_plip_labels.csv
 
 *.tsv
 
@@ -72,3 +75,20 @@ third_party
 # Internal planning files
 PLAN.md
 install.log
+
+# Tutorial code is part of the repository even where the extension is ignored above
+!tutorials/**/*.sh
+!tutorials/**/*.csv
+!tutorials/**/*.txt
+
+# The metal-coordination tutorial ships its pockets and MetalPDB labels (28 MB). They are inputs,
+# not generated output. Its own .gitignore still excludes embeddings/ and predictions/.
+!tutorials/9_metal_coordination/data/**/*.parquet
+# A tutorial's checkpoints/ says which model files it needs and where they come from.
+# The blanket `checkpoints` rule above hides the directory, so re-include it explicitly;
+# git cannot see into an excluded directory, so the directory itself has to be listed.
+!tutorials/*/checkpoints/
+!tutorials/*/checkpoints/README.md
+
+# structures downloaded on demand by make_plip_labels.py
+tutorials/6_interact_score/pdb_cache/

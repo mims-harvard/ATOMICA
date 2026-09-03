@@ -92,6 +92,30 @@ def parse():
     parser.add_argument('--tor_weight', type=float, default=1.0, help='Weight of torsional loss')
     parser.add_argument('--atom_weight', type=float, default=1.0, help='Weight of atom loss')
     parser.add_argument('--mask_proportion', type=float, default=0, help='block masking rate')
+    parser.add_argument('--top_max_edge_length', type=float, default=5.0,
+                        help='GaussianEmbedding span for block-level edges. 5.0 reproduces the '
+                             'released pretrained model.')
+    parser.add_argument('--top_long_range_edge_length', type=float, default=None,
+                        help='add a long-range edge embedder over [top_max_edge_length, this] '
+                             'at the block level. Identity at initialisation.')
+    parser.add_argument('--na_loss_weight', type=float, default=1.0,
+                        help='masking task: scale the loss on nucleotide positions (labels '
+                             '20-27). 1.0 reproduces the pretraining objective.')
+    parser.add_argument('--attn_pad_mask', action='store_true',
+                        help='masking task: keep batchify padding out of atom_block_attn. Off '
+                             'reproduces the released pretrained model.')
+    parser.add_argument('--masked_affine', action='store_true',
+                        help='masking task: per-channel affine on the masked block '
+                             'representation. Identity at initialisation.')
+    parser.add_argument('--bottom_repr_scale', action='store_true',
+                        help='masking task: learnable scalar on the atoms entering '
+                             'atom_block_attn. Identity at initialisation.')
+    parser.add_argument('--top_pair_geom', action='store_true',
+                        help='masking task: add a per-atom-pair contact channel to block-level '
+                             'edges. Identity at initialisation.')
+    parser.add_argument('--crop_masked_items', action='store_true',
+                        help='masking task: crop items larger than --max_n_vertex_per_item '
+                             'instead of discarding them.')
     parser.add_argument('--mask_weight', type=float, default=1.0, help='block masking rate')
     parser.add_argument('--noisy_nodes_weight', type=float, default=0, help='coefficient for denoising loss during finetuning')
     parser.add_argument('--modality_embedding', action="store_true", default=False, help='add embedding for each modality')
@@ -279,6 +303,10 @@ def set_noise(dataset, args):
             dataset.mask_proportion = args.mask_proportion
     elif type(dataset) == PretrainMaskedDataset:
         dataset.mask_proportion = args.mask_proportion
+        # without this flag, --max_n_vertex_per_item only filters, so DynamicBatchWrapper
+        # discards the largest items
+        if getattr(args, 'crop_masked_items', False) and args.max_n_vertex_per_item is not None:
+            dataset.set_crop(args.max_n_vertex_per_item, args.fragmentation_method)
     elif type(dataset) == MixDatasetWrapper:
         new_datasets = []
         for d in dataset.datasets:
@@ -313,7 +341,9 @@ def create_trainer(model, train_loader, valid_loader, config, resume_state=None)
             resume_state=resume_state,
         )
     elif model_type == models.MaskedNodeModel:
-        trainer = trainers.MaskingTrainer(model, train_loader, valid_loader, config)
+        # resume_state restarts a preempted run from its saved epoch, step and optimizer
+        trainer = trainers.MaskingTrainer(model, train_loader, valid_loader, config,
+                                          resume_state=resume_state)
     elif model_type == models.ProteinInterfaceModel:
         trainer = trainers.ProtInterfaceTrainer(model, train_loader, valid_loader, config)
     else:

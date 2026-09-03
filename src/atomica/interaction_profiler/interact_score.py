@@ -26,7 +26,7 @@ Three choices, each of which changes the number:
 Batching. The intact graph sits in slot 0 of every forward pass and the pass is padded to a fixed
 :data:`BATCH_SIZE`. Both matter: the atom-to-block cross-attention pads every block out to the
 largest block in the batch, so keeping the intact graph present gives every vector entering a
-cosine the same pad width. See ``representations.describe_batch_sensitivity``.
+cosine the same pad width.
 
     python -m atomica.interaction_profiler.interact_score \\
         --data_path processed.pkl --output_path scores.jsonl \\
@@ -69,7 +69,6 @@ POOLING = "mean_component_normalized"
 BATCH_SIZE = 8
 
 
-# ------------------------------------------------------------------------------ which blocks
 def amino_acid_block_ids() -> frozenset:
     """Vocabulary indices of the 20 standard amino acids.
 
@@ -121,7 +120,6 @@ def scorable_blocks(data, ligand_segment: int) -> List[int]:
             if int(blocks[i]) in amino and int(segments[i]) != ligand_segment]
 
 
-# -------------------------------------------------------------------------------- the masking
 def mask_block(data, block_idx):
     """A copy of ``data`` with block ``block_idx`` replaced by the mask block and one mask atom.
 
@@ -146,7 +144,6 @@ def mask_block(data, block_idx):
     return data
 
 
-# --------------------------------------------------------------------------------- the score
 @dataclass
 class ATOMICAScoreResult:
     """One ATOMICAScore per masked residue block.
@@ -286,7 +283,6 @@ def atomica_score(model, data, *, ligand_segment: Optional[int] = None,
                               ligand_segment=ligand_segment, batch_size=batch_size)
 
 
-# -------------------------------------------------------------------------------- the metrics
 def precision_at_k(importance, labels, k: int = 10) -> float:
     """Fraction of the ``k`` top-ranked residues that carry a positive label.
 
@@ -322,7 +318,6 @@ def auroc(importance, labels) -> float:
     return float((ranks[labels].sum() - n_pos * (n_pos + 1) / 2) / (n_pos * n_neg))
 
 
-# --------------------------------------------------------------------------------- the script
 def parse_args():
     import argparse
 

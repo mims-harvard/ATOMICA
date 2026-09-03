@@ -83,7 +83,8 @@ class DenoisePretrainModel(nn.Module):
     def __init__(self, atom_hidden_size, block_hidden_size, edge_size=16, k_neighbors=9, n_layers=3,
                  dropout=0.0, bottom_global_message_passing=False, global_message_passing=False, fragmentation_method=None,
                  atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, num_masked_block_classes=None, 
-                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1, mask_weight=1, modality_embedding=False) -> None:
+                 atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1, mask_weight=1, modality_embedding=False,
+                 top_max_edge_length=5, top_long_range_edge_length=None) -> None:
         super().__init__()
 
         # model parameters
@@ -144,8 +145,14 @@ class DenoisePretrainModel(nn.Module):
             return_torsion_noise=torsion_noise, max_torsion_neighbors=k_neighbors, 
             max_edge_length=5, max_global_edge_length=20, max_torsion_edge_length=5
         )
+        # top_max_edge_length: GaussianEmbedding span for block-level edges; 5 A is what the
+        # released checkpoints use. top_long_range_edge_length: optional adapter, see ATOMICAEncoder.
+        self.top_max_edge_length = top_max_edge_length
+        self.top_long_range_edge_length = top_long_range_edge_length
         self.top_encoder = ATOMICAEncoder(
-            block_hidden_size, edge_size, n_layers=n_layers, dropout=dropout, max_edge_length=5
+            block_hidden_size, edge_size, n_layers=n_layers, dropout=dropout,
+            max_edge_length=top_max_edge_length,
+            long_range_edge_length=top_long_range_edge_length,
         )
         self.atom_block_attn = CrossAttention(block_hidden_size, atom_hidden_size, block_hidden_size, num_heads=4, dropout=dropout)
         self.atom_block_attn_norm = nn.LayerNorm(block_hidden_size)
@@ -207,6 +214,8 @@ class DenoisePretrainModel(nn.Module):
             'global_message_passing': self.global_message_passing,
             'bottom_global_message_passing': self.bottom_global_message_passing,
             'fragmentation_method': self.fragmentation_method,
+            'top_max_edge_length': self.top_max_edge_length,
+            'top_long_range_edge_length': self.top_long_range_edge_length,
             'atom_noise': self.atom_noise,
             'translation_noise': self.translation_noise,
             'rotation_noise': self.rotation_noise,
@@ -419,11 +428,13 @@ class DenoisePretrainModelWithBlockEmbedding(DenoisePretrainModel):
                  atom_noise=True, translation_noise=True, rotation_noise=True, torsion_noise=True, num_masked_block_classes=None, 
                  atom_weight=1, translation_weight=1, rotation_weight=1, torsion_weight=1, mask_weight=1, modality_embedding=False,
                  num_projector_layers=3, projector_hidden_size=32, projector_dropout=0,
-                 block_embedding_size=None, block_embedding0_size=None, block_embedding1_size=None) -> None:
+                 block_embedding_size=None, block_embedding0_size=None, block_embedding1_size=None,
+                 top_max_edge_length=5, top_long_range_edge_length=None) -> None:
         super().__init__(
             atom_hidden_size, block_hidden_size, edge_size, k_neighbors, n_layers, dropout, bottom_global_message_passing, global_message_passing, fragmentation_method,
             atom_noise, translation_noise, rotation_noise, torsion_noise, num_masked_block_classes, 
             atom_weight, translation_weight, rotation_weight, torsion_weight, mask_weight, modality_embedding,
+            top_max_edge_length=top_max_edge_length, top_long_range_edge_length=top_long_range_edge_length,
         )
         self.num_projector_layers = num_projector_layers
         self.projector_hidden_size = projector_hidden_size

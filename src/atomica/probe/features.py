@@ -1,24 +1,18 @@
 """Turning ATOMICA's ``z`` representations into a feature matrix for the probe head.
 
-**This module consumes the ``z`` family and nothing else.** The probe exists to compare frozen
-representations, and ``z`` is the family built for that: it converts the ``l > 0`` equivariant
-channels into rotation invariants so a non-equivariant head can use the geometry that the ``h``
-family discards. See :mod:`atomica.representations` for the vocabulary.
-
-The three components of ``z_block``, in the order they are concatenated, are exactly the keys that
+The three components of ``z_block``, in concatenation order, are the keys that
 ``PredictionModel.invariant_component_dims()`` returns:
 
     h_block   the l=0 block readout, ``ns`` wide (32 for the released checkpoint)
-    gram      the block's own within-degree Gram entries, ``n_gram`` wide (544)
+    gram      the block's own within-degree Gram entries (544)
     atom      the mean and standard deviation of ``z_atom`` over the block's atoms (1216)
 
-:data:`FEATURE_SETS` names the committed descriptor and the two ablation rungs beneath it, so an
-ablation is a nested slice of one extraction rather than a separate run of the model.
+:data:`FEATURE_SETS` names the full descriptor and the nested slices beneath it, so a narrower
+feature set is a slice of one extraction rather than a second run of the model.
 
-Standardization is fit on TRAIN only and applied to validation and test. It is complementary to
-the head's BatchNorm rather than redundant with it: BatchNorm sits after the first Linear and so
-never sees the raw input, while the Gram entries and the L2-normalized scalar readout span orders
-of magnitude.
+Standardization is fit on train only and applied to validation and test. It complements the head's
+BatchNorm rather than repeating it: BatchNorm sits after the first Linear and never sees the raw
+input, whose components span orders of magnitude.
 """
 
 from __future__ import annotations
@@ -32,20 +26,17 @@ from ..representations import POOLING, component_normalize
 #: The parts of ``z_block``, in concatenation order. Matches ``invariant_component_dims()``.
 Z_BLOCK_COMPONENTS: Tuple[str, ...] = ("h_block", "gram", "atom")
 
-#: The committed descriptor and the nested rungs beneath it, for ablations.
+#: The full descriptor and the nested slices beneath it.
 FEATURE_SETS: Dict[str, Sequence[str]] = {
-    # the l=0 readout on its own. This is the h family, kept as the bottleneck CONTROL that shows
-    # what the l>0 geometry is worth; it is not a z representation.
+    # the l=0 readout on its own; this is the h family, not a z representation
     "h_block": ("h_block",),
     # + the block's own Gram entries
     "z_block_gram": ("h_block", "gram"),
-    # + the atom-level descriptor pooled into the block. The full z_block. COMMITTED.
+    # + the atom-level descriptor pooled into the block: the full z_block
     "z_block": ("h_block", "gram", "atom"),
 }
-COMMITTED_FEATURE = "z_block"
-
 __all__ = [
-    "Z_BLOCK_COMPONENTS", "FEATURE_SETS", "COMMITTED_FEATURE",
+    "Z_BLOCK_COMPONENTS", "FEATURE_SETS",
     "build_features", "split_z_block", "pool_saved_blocks",
     "fit_standardizer", "apply_standardizer", "standardize", "l2_normalize",
 ]
@@ -68,10 +59,11 @@ def split_z_block(z_block: np.ndarray, component_dims: Dict[str, int]) -> Dict[s
     return out
 
 
-def build_features(arrays: Dict[str, np.ndarray], feature_set: str = COMMITTED_FEATURE) -> np.ndarray:
+def build_features(arrays: Dict[str, np.ndarray], feature_set: str = "z_block") -> np.ndarray:
     """Concatenate the named components of a feature set into one matrix.
 
-    ``arrays`` maps component name to array, as produced by :func:`split_z_block`.
+    ``arrays`` maps component name to array, as produced by :func:`split_z_block`. The default is
+    the full descriptor; pick a narrower key of :data:`FEATURE_SETS` to use a slice of it.
     """
     if feature_set not in FEATURE_SETS:
         raise ValueError(f"unknown feature set {feature_set!r}; expected one of {list(FEATURE_SETS)}")

@@ -172,6 +172,16 @@ def create_model(args):
                 'k_neighbors': args.k_neighbors,
                 'dropout': args.dropout,
             })
+            # masking-task switches; every default reproduces the released pretrained model
+            if getattr(args, 'top_max_edge_length', None) is not None:
+                add_params['top_max_edge_length'] = args.top_max_edge_length
+            if getattr(args, 'top_long_range_edge_length', None) is not None:
+                add_params['top_long_range_edge_length'] = args.top_long_range_edge_length
+            if getattr(args, 'na_loss_weight', 1.0) != 1.0:
+                add_params['na_loss_weight'] = args.na_loss_weight
+            for flag in ('attn_pad_mask', 'masked_affine', 'bottom_repr_scale', 'top_pair_geom'):
+                if getattr(args, flag, False):
+                    add_params[flag] = True
             if args.pretrain_ckpt:
                 raise pickled_checkpoint_error(
                     args.pretrain_ckpt, "--pretrain_config", "--pretrain_weights")

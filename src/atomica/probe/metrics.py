@@ -1,24 +1,16 @@
-"""
-Task-aware metrics, bootstrap confidence intervals, and paired model comparisons.
+"""Task-aware metrics, bootstrap confidence intervals, and paired model comparisons.
 
-Three things here are deliberate and worth knowing before using them:
+Two conventions worth knowing:
 
-1. **`seed_stats` returns a NamedTuple, not a bare tuple.** The two probe implementations this replaces
-   had `ci95` functions with *different arities* -- one returned `(mean, std, ci)`, the other
-   `(mean, ci)` -- which is exactly the kind of thing that silently corrupts a merged codebase. Named
-   fields make the collision impossible.
+* Bootstrap stratification is per metric. Accuracy and balanced accuracy are resampled
+  unstratified, since stratifying fixes the class counts and shifts the estimand. Macro and
+  per-class metrics are resampled stratified within class, so no class can vanish.
+* Seed variance and test-set variance are separate. `seed_stats` measures training stochasticity
+  across seeds on a fixed test set; `bootstrap_ci` measures sampling uncertainty of the
+  seed-ensembled prediction.
 
-2. **Bootstrap stratification is chosen per metric, not globally.** Accuracy / balanced accuracy are
-   resampled UNstratified: stratifying fixes the class counts and quietly changes the estimand toward
-   balanced accuracy. Macro and per-class metrics are resampled stratified *within* class, so no class can
-   vanish and the metric stays defined (some classes here have <30 test items).
-
-3. **Seed variance and test-set variance are different quantities and are never mixed.** `seed_stats`
-   measures training stochasticity across seeds on a fixed test set; `bootstrap_ci` measures sampling
-   uncertainty of the seed-ensembled prediction. Both belong in a results table; averaging them does not.
-
-Model-vs-model claims should use `paired_bootstrap` / `mcnemar` on identical items -- two overlapping
-marginal CIs are not a significance test.
+Model-vs-model claims use `paired_bootstrap` or `mcnemar` on identical items; two overlapping
+marginal intervals are not a significance test.
 """
 
 from __future__ import annotations
@@ -35,18 +27,11 @@ _STRATIFIED_BY_DEFAULT = {"accuracy": False, "balanced_acc": False, "f1_micro": 
 
 
 def _pr_auc(y_bin: np.ndarray, score: np.ndarray) -> tuple:
-    """Both PR-AUC estimators from a SINGLE precision-recall curve. Returns (trapz, ap).
+    """Both PR-AUC estimators from one precision-recall curve. Returns (trapz, ap).
 
-    `trapz` is `auc(recall, precision)` -- the estimator used throughout results.ipynb, and therefore
-    the one every published baseline number is on. `ap` is average precision, the step-wise sum
-    sklearn recommends because linear interpolation between PR points can be optimistic.
-
-    Measured on the five published MaSIF baselines, the gap is NOT one-directional: trapz - ap ranges
-    from +0.0055 (prostt5) to -0.0033 (saprot). It does not reorder those five, but a ~0.9-point swing
-    that varies by model is large enough to flip a close comparison -- which is why both are reported
-    and why the headline uses `trapz`, the estimator the baselines were published under.
-
-    Both are derived from one curve rather than two library calls, so the bootstrap does not pay twice.
+    `trapz` is `auc(recall, precision)`, the estimator the reported numbers use. `ap` is average
+    precision, the step-wise sum, since interpolating between PR points can be optimistic. Both
+    come from one curve, so the bootstrap does not pay twice.
     """
     y_bin = np.asarray(y_bin).astype(int)
     if y_bin.min() == y_bin.max():          # single-class slice -> both undefined
@@ -59,7 +44,7 @@ def _pr_auc(y_bin: np.ndarray, score: np.ndarray) -> tuple:
 
 
 def _macro(vals: Sequence[float]) -> float:
-    """Unweighted mean over classes, skipping NaN -- matches `Macro_Avg_*` in results.ipynb."""
+    """Unweighted mean over classes, skipping NaN."""
     good = [v for v in vals if not np.isnan(v)]
     return float(np.mean(good)) if good else float("nan")
 
@@ -100,15 +85,10 @@ def metrics_from_prob(task_type: str, y: np.ndarray, prob: np.ndarray,
                       class_names: Optional[Sequence[str]] = None) -> Dict[str, float]:
     """Task-aware metric dict. Per-class entries are added when `class_names` is given.
 
-    Conventions match `results.ipynb` so numbers are directly comparable to the published table:
-
-    * `auprc*` keys are the **trapezoidal** `auc(recall, precision)` estimator the notebooks use.
-      The `*_ap` twin is average precision. See `_pr_auc`.
-    * Macro AUROC/AUPRC are **one-vs-rest per class, then unweighted mean**, skipping NaN.
-    * F1 comes from hard labels -- argmax for multiclass (the notebook's `f1_mode="argmax"`),
-      threshold 0.5 for multilabel and binary ("for consistency with baselines use 0.5").
-    * For single-label multiclass `f1_micro` is **arithmetically identical to accuracy**; it is
-      reported because the notebook reports it, not because it is independent information.
+    * `auprc*` keys are the trapezoidal estimator; the `*_ap` twin is average precision.
+    * Macro AUROC and AUPRC are one-vs-rest per class, then an unweighted mean skipping NaN.
+    * F1 comes from hard labels: argmax for multiclass, threshold 0.5 otherwise.
+    * For single-label multiclass `f1_micro` equals accuracy.
     """
     y = np.asarray(y)
     out: Dict[str, float] = {}
@@ -138,10 +118,8 @@ def metrics_from_prob(task_type: str, y: np.ndarray, prob: np.ndarray,
     # multiclass
     n_classes = prob.shape[1]
     pred = prob.argmax(1)
-    # label_binarize collapses a two-class problem to a single column, which would make the
-    # per-class loop below index off the end. Expand it back so a 2-class multiclass task behaves
-    # like any other. (The paper's multiclass tasks have 3 and 7 classes, so this path is only
-    # reachable from user code.)
+    # label_binarize collapses two classes to one column; expand it back so the per-class loop
+    # below does not index off the end
     Y = label_binarize(y, classes=list(range(n_classes)))
     if Y.shape[1] == 1 and n_classes == 2:
         Y = np.hstack([1 - Y, Y])
@@ -245,10 +223,8 @@ def mcnemar(y: np.ndarray, prob_a: np.ndarray, prob_b: np.ndarray) -> Dict[str, 
 
 
 # ------------------------------------------------------- hard labels, and clustered resampling
-#: The three classification metrics that are defined for a hard prediction and need no scores.
-#: Balanced accuracy leads because the frozen-probe label sets are strongly imbalanced: on a
-#: 14-class problem whose largest class holds 21% of the sites, plain accuracy is mostly a report
-#: on the class prior.
+#: Classification metrics defined for a hard prediction. Balanced accuracy leads because these
+#: label sets are imbalanced enough that plain accuracy mostly reports the class prior.
 HARD_LABEL_METRICS = ("balanced_acc", "accuracy", "f1_macro")
 
 

@@ -1,25 +1,18 @@
-"""
-The single MLP head shared by every frozen-embedding probe (and available for fine-tuning).
+"""The MLP head shared by every frozen-embedding probe.
 
-`AtomicaProbeHead` is **exactly the head the frozen sequence-model baselines use, plus BatchNorm**:
+`AtomicaProbeHead` is the head the frozen sequence-model baselines use, plus BatchNorm:
 
     Linear(d, hidden) -> BatchNorm -> ReLU -> Dropout
     Linear(hidden, hidden) -> BatchNorm -> ReLU -> Dropout
     Linear(hidden, final_hidden) -> BatchNorm -> ReLU -> Dropout
     Linear(final_hidden, num_classes)
 
-Same depth, same widths, same 32-d bottleneck, same activation/dropout placement as
-the frozen sequence-model baselines' MLP; the only architectural difference is the three BatchNorm
-layers. That matters because it makes the head comparison a controlled test of BatchNorm rather than of
-architecture, which is what lets us claim protocol parity with the baselines.
+Same depth, widths, bottleneck and dropout placement as the baselines' MLP, so the comparison
+stays a comparison of representations. BatchNorm is there because the invariant descriptors are
+wide and heterogeneously scaled; it complements train-fit z-scoring of the inputs rather than
+replacing it, since it sits after the first Linear.
 
-Why BatchNorm is needed here: the invariant descriptors are wide and heterogeneously scaled (Gram entries
-are orders of magnitude larger than the L2-normalized scalar readout). Note it is **complementary to**, not
-a replacement for, train-fit z-scoring of the inputs -- BatchNorm sits *after* the first Linear, so it
-never normalizes the raw input, and the first weight matrix still has to cope with the raw scale. Using
-both was worth +0.02-0.04 validation at every pooling we tried.
-
-Consequence: BatchNorm needs >= 2 samples per batch, so training must skip singleton batches.
+BatchNorm needs at least two samples per batch, so training skips singleton batches.
 """
 
 from __future__ import annotations
@@ -36,12 +29,10 @@ class AtomicaProbeHead(nn.Module):
     def __init__(self, input_dim: int, num_classes: int, task_type: str = "multiclass",
                  hidden_dim: int = 512, final_hidden_dim: int = 32, dropout: float = 0.3,
                  use_batchnorm: bool = True):
-        """`use_batchnorm=False` gives EXACTLY the baselines' MLP -- same depth, widths,
-        bottleneck, and activation/dropout placement, with nothing added.
+        """`use_batchnorm=False` gives the baselines' MLP exactly, with nothing added.
 
-        The flag exists so BatchNorm can be a swept axis rather than a standing advantage. With it
-        fixed on, "our head has BatchNorm and theirs does not" is an uncontrolled difference in every
-        comparison; with it swept, every model gets the choice and validation decides per model.
+        Keeping it a swept option rather than always on means every model gets the same choice and
+        validation decides per model.
         """
         super().__init__()
         if task_type not in TASK_TYPES:

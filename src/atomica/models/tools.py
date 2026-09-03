@@ -418,7 +418,12 @@ class CrossAttention(nn.Module):
         self.output_proj = nn.Linear(dim_out, dim_out)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, query, key_value):
+    def forward(self, query, key_value, kv_mask=None):
+        """``kv_mask``: [batch, num_seq2] bool, True for real key/value entries.
+
+        Keeps ``batchify`` padding out of the softmax. None, the default, matches the released
+        checkpoints; pass it only for a model trained with it.
+        """
         # Query (batch, num_seq1, dim_query), key_value (batch, num_seq2, dim_kv)
         # Project inputs to query, key, value spaces
         query = self.query_proj(query)
@@ -440,6 +445,8 @@ class CrossAttention(nn.Module):
         
         # Scaled dot-product attention
         scores = torch.matmul(query, key.transpose(-2, -1)) * self.scale # (batch, num_heads, num_seq1, num_seq2)
+        if kv_mask is not None:  # [B, S2] broadcast over heads and query positions
+            scores = scores.masked_fill(~kv_mask[:, None, None, :], -1e9)
         attn_weights = self.softmax(scores)
         attn_weights = self.dropout(attn_weights)
         attn_output = torch.matmul(attn_weights, value)

@@ -22,7 +22,7 @@ nvidia-smi --query-gpu=name,driver_version --format=csv
 
 Take the newest row your driver satisfies. No GPU? Use
 `https://download.pytorch.org/whl/cpu` and pass `--device cpu` to
-`atomica-embeddings`.
+`atomica-representations`.
 
 ## Install with uv or pip
 
@@ -73,7 +73,7 @@ reproduce the same versions.
 ```bash
 docker build -f setup/Dockerfile -t atomica:cu128 .
 docker run --gpus all -v "$PWD":/work -w /work atomica:cu128 \
-    atomica-embeddings --help
+    atomica-representations --help
 ```
 
 `podman build` works in place of `docker build`. The lock pins a CUDA 12.8
@@ -89,7 +89,7 @@ lack:
 podman save --format docker-archive -o atomica_cu128.tar atomica:cu128
 singularity build atomica.sif docker-archive://atomica_cu128.tar
 singularity exec --nv -B /path/to/checkpoints:/ckpt atomica.sif \
-    atomica-embeddings --help
+    atomica-representations --help
 ```
 
 `--nv` exposes the host's NVIDIA driver; without it `torch.cuda.is_available()`
@@ -157,15 +157,16 @@ torch >= 2.6 need glibc 2.32, newer than RHEL/Rocky 8 provides. Just remove the
 extension — ATOMICA does not need it:
 `pip uninstall torch-scatter torch-cluster`.
 
-**CUDA out of memory.** Lower `--batch_size` (default 4). `atomica-embeddings`
-already retries a failing batch one structure at a time.
+**CUDA out of memory.** Lower `--batch_size` or set `--atom_budget`.
+`atomica-representations` already retries a failing batch one structure at a
+time.
 
 **`--model_ckpt` reports a pickled model object.** ATOMICA loads models from a
 config JSON plus a weights state dict, which is portable across PyTorch, CUDA
 and e3nn versions:
 
 ```bash
-atomica-embeddings --model_config <model>_config.json --model_weights <model>_weights.pt ...
+atomica-representations --model_config <model>_config.json --model_weights <model>_weights.pt ...
 ```
 
 Training writes `config.json` and a `.pt` next to every `.ckpt`, and

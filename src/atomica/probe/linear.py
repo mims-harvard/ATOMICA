@@ -1,15 +1,12 @@
 """The linear rung of the probe: multinomial logistic regression, no hidden layer.
 
-`atomica.probe.head` trains an MLP on a frozen representation, which answers "can a head built on
-this representation do the task?". This answers the stricter "does the representation encode the
-quantity as a direction?". An MLP can manufacture an answer out of a representation that merely
-fails to destroy the information, so a claim about the representation itself needs this head.
+:mod:`atomica.probe.head` asks whether a head built on a representation can do the task. This asks
+whether the representation encodes the quantity as a direction, which is the stricter question for
+a claim about the representation itself. Everything else is shared: the z representation, the
+train-fit z-score, the metrics, and model selection on validation only.
 
-Everything else is shared with the MLP rung: the z representation, the train-fit z-score, the
-metrics, and model selection on validation only.
-
-The regularization strength is swept rather than fixed because it is not transferable: the
-descriptors here range from 32 to 5,376 dimensions over the same rows.
+The regularization strength is swept rather than fixed, since the descriptors range from 32 to
+5,376 dimensions over the same rows.
 """
 
 from __future__ import annotations

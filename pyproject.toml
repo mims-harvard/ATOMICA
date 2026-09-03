@@ -85,7 +85,7 @@ all = [
 
 [project.scripts]
 atomica-train = "atomica.train:cli"
-atomica-embeddings = "atomica.get_embeddings:cli"
+atomica-representations = "atomica.representations:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -1,17 +1,12 @@
-"""
-The standard frozen-embedding probe training loop.
+"""The frozen-embedding probe training loop.
 
-Protocol is matched to the frozen sequence-model baselines so the comparison is a representation
-comparison, not a training-recipe comparison: Adam, plain cross-entropy / BCE, fixed epoch budget with
-early stopping on the task's validation metric, N seeds, and **probability ensembling** across seeds
-(which is how the baselines are scored).
+Matched to the frozen sequence-model baselines so the comparison is a representation comparison:
+Adam, cross-entropy or BCE, a fixed epoch budget with early stopping on the task's validation
+metric, N seeds, and probability ensembling across seeds.
 
-Per-benchmark hyperparameters (epochs / patience / batch size / weight decay) are passed in via
-`ProbeConfig` rather than hard-coded, because they legitimately differ: the MaSIF settings were chosen to
-match the PLM baselines exactly, and forcing a single global constant would break the protocol-matching
-the fairness argument rests on. `early_stopping=False` is part of that: the ATP/ADP protocol trains a
-fixed 60-epoch budget and selects only the hyperparameter configuration on validation, so restoring a
-best-validation checkpoint there would add a selection step the Methods do not describe.
+Per-benchmark hyperparameters (epochs, patience, batch size, weight decay) come in through
+`ProbeConfig`, since they differ by benchmark. `early_stopping=False` trains the full budget and
+keeps the final weights, which some protocols specify.
 """
 
 from __future__ import annotations
@@ -42,11 +37,9 @@ class ProbeConfig:
     min_delta: float = 1e-4
     # False reproduces the baselines' MLPClassifier exactly. Swept, not assumed -- see head.py.
     use_batchnorm: bool = True
-    # False trains the full `epochs` budget and keeps the FINAL weights, rather than restoring the
-    # best-validation checkpoint. Some benchmarks are specified that way -- the ATP/ADP protocol
-    # fits a fixed 60 epochs and selects only the hyperparameter configuration on validation -- and
-    # restoring a checkpoint there would add a selection step the Methods do not describe.
-    # `patience` is ignored when this is False.
+    # False trains the full `epochs` budget and keeps the final weights instead of restoring the
+    # best-validation checkpoint, which is how some benchmarks are specified. `patience` is then
+    # ignored.
     early_stopping: bool = True
 
 
@@ -120,9 +113,7 @@ def train_one_seed(X_tr, y_tr, X_va, y_va, X_te, task_type: str, primary: str, l
         score = metrics_from_prob(task_type, y_va,
                                   probabilities_from_logits(task_type, va_logits))[primary]
         if not cfg.early_stopping:
-            # Fixed budget: run every epoch and keep the last weights. `best` still tracks the
-            # validation score, which is what the caller selects hyperparameters on, but it now
-            # reports the score of the model that is actually returned.
+            # fixed budget: keep the last weights, and report the returned model's own score
             best = score
             continue
         if score > best + cfg.min_delta:

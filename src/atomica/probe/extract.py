@@ -1,27 +1,14 @@
 """Model and data in, probe-ready feature matrix out.
 
-This is the seam between :mod:`atomica.representations` and the rest of the probe. It exists so
-that "which representation does the probe train on?" has an answer you can read in one function
-rather than infer from a pipeline, and so that no benchmark re-implements pooling.
+The seam between :mod:`atomica.representations` and the rest of the probe, so that no benchmark
+re-implements pooling. It uses the ``z`` family pooled by ``mean_std_global``, since a head is
+trained on top: ``z_graph`` for graph- and pocket-level tasks, ``z_block`` for residue-level ones.
 
-The answer is: **the ``z`` family, pooled by ``mean_std_global``**, because a head is trained on
-top and the Methods fix the pooling by how the representation is consumed. Graph- and pocket-level
-tasks use ``z_graph``; residue-level tasks use ``z_block``.
-
-ONE THING THE CALLER OWNS, AND MUST NOT VARY
---------------------------------------------
-Both functions here take an iterable of already-collated batches, so **how the batches were built
-is the caller's choice and it changes the output.** The per-block cross-attention pads every block
-out to the largest block in the batch, counted in atoms, under an unmasked softmax, so a structure
-matches its batch-of-one value only when nothing else in its batch has a larger block. See
-:func:`atomica.representations.describe_batch_sensitivity`.
-
-So a probe run must fix the batch size and the item order, use the same ones for train, validation
-and test, and record them next to the features. Comparing a frozen number against a published one
-means matching the batch size that produced the published one, not only the checkpoint and the
-pooling rule. Measured on MaSIF-ligand, where the published extraction used batch size 16: the
-pockets whose largest block is smaller than their batch's largest move by up to 0.128 between batch
-size 1 and 16, on a scale where the largest vector entry is 7.1.
+Both functions take already-collated batches, so how those batches were built is the caller's
+choice and it changes the output: the per-block attention pads every block out to the largest
+block in the batch. :func:`atomica.representations.group_batches` builds batches that keep each
+structure at the padding width it would have alone. Fix the batch size and item order across
+train, validation and test, and record them with the features.
 """
 
 from __future__ import annotations

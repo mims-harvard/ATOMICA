@@ -192,7 +192,7 @@ class TensorProductConvLayer(torch.nn.Module):
                 out + padded
             )  # h_a (padded) + message from neighbours (out), if no residual then it is just the message from neighbours
 
-        if self.norm_layer is not None:  # FIXME: commented for debugging
+        if self.norm_layer is not None:
             out = self.norm_layer(out)
         return out
 

@@ -53,9 +53,11 @@ The output is a parquet file containing the processed interaction complexes as a
 * `atom_positions`: deprecated.
 
 ## Embedding your own structures
-To embed your own structures with ATOMICA, please use the `get_embeddings.py` script. The script takes in a processed data file and outputs the embeddings for each interface. You will need to provide the following inputs:
+To embed your own structures with ATOMICA, use `python -m atomica.representations`. It takes a processed data file and writes the representations you name for each interface. Run `python -m atomica.representations --guidance` for which representation to ask for, and see [tutorials/1_get_embeddings](../../../tutorials/1_get_embeddings) for worked commands. You will need to provide the following inputs:
 * `--model_config`: the path to the model config file. Download the model config from [Hugging Face](https://huggingface.co/ada-f/ATOMICA).
 * `--model_weights`: the path to the model weights file. Download the model weights from [Hugging Face](https://huggingface.co/ada-f/ATOMICA).
-* `--model_ckpt`: (not needed if model config and weights are specified) the path to the pickled model object.
-* `--data_path`: the path to the processed data file from above. This should be a pickle file containing the processed interaction complexes.
-* `--output_path`: the path to the output file where the embeddings will be saved. This should be a pickle file. The output will be a list of dictionaries, with one dictionary for each molecular complex, each containing the following keys: `id`, `graph_embedding`, `block_id`, `block_embedding`,  `atom_id`, and `atom_embedding`.
+* `--data_path`: the path to the processed data file from above, in pickle, parquet or json format.
+* `--representations`: which representations to extract, comma separated. One of `h_atom`, `h_block`, `h_graph`, `h_interface`, `z_atom`, `z_block`, `z_graph`, `z_interface`.
+* `--pool`: required for `z_graph` and `z_interface`. `mean_std_global` when a head will be trained on the vectors, `mean_component_normalized` when they will be compared directly.
+* `--segment`: required for `h_interface` and `z_interface`. 0 is the first interface and 1 the second.
+* `--output_path`: the path to the output file, in parquet or pickle format. The output has one row per molecular complex, with the keys `id`, `block_id`, `atom_id` and one key per requested representation, named after that representation.
