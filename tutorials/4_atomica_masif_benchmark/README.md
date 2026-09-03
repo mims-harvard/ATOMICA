@@ -1,112 +1,81 @@
-# Tutorial 4 — MASIF-Ligand benchmark with ATOMICA
+# MaSIF-ligand pocket classification with frozen ATOMICA
 
-This tutorial reproduces the ATOMICA result on the **MASIF-Ligand** protein
-pocket classification benchmark using the five released checkpoints
-(`checkpoints/benchmarks/masif/8A/seed{0..4}`).
+Classify a protein binding pocket by which of seven small-molecule ligands binds it, using ATOMICA
+embeddings that are never updated. The encoder stays frozen; only a small classifier head is
+trained on top of it.
 
-## Task
+## Requirements
 
-The benchmark evaluates protein pocket classification across 7 common small
-molecule ligands: ADP (28.9%), CoA (12.6%), FAD (16.2%), heme (12.8%),
-NAD (11.4%), NAP (8.0%), and SAM (10.2%). The dataset contains 2,509 total
-pockets split into 1,839 training, 203 validation, and 467 test pockets.
-Binding pockets are defined as residues within 8 Å of the ligand heavy
-atoms.
+ATOMICA installed, see [setup](../../setup/README.md). A GPU is recommended but not required.
 
-## Model
+## Usage
 
-For protein-ligand pocket classification, we use a pocket-level multiclass
-classifier to predict one of the 7 ligand classes. To address class
-imbalance, we use weighted cross-entropy loss with class weights inversely
-proportional to the training-set frequencies. The classifier is a 4-layer
-MLP on top of the ATOMICA graph-level pocket embeddings, trained with a
-constant learning rate of 3e-5, weight decay of 1e-3, no gradient clipping,
-for 300 epochs, with F1-macro as the validation metric.
+```bash
+python extract_embeddings.py   # frozen pocket embeddings, writes embeddings/
+python run_benchmark.py        # trains the head and scores it, writes results/
+```
 
-Five models are trained with different random seeds but identical
-architecture and hyperparameters, and ensembled by mean-pooling the
-predicted probabilities.
+Extraction takes a few minutes on an A100 and longer on CPU. Training the head takes about a
+minute.
 
-## What this tutorial does
+## Results
 
-`tutorial.py`:
+467 test pockets, 95% bootstrap confidence intervals over pockets.
 
-1. loads the five fine-tuned ATOMICA checkpoints (seed 0–4) for the chosen
-   pocket distance cutoff,
-2. runs live inference on `data/masif_ligand_pdbs_<dist>A_pocket_only_test.parquet`
-   (467 pockets),
-3. mean-probability ensembles the five models,
-4. saves per-seed and ensemble predictions to `predictions/`, and
-5. reports per-seed and ensemble test-set accuracy.
+| metric | value |
+|---|---|
+| macro-F1 | 0.813 [0.769, 0.853] |
+| micro-F1 | 0.848 [0.816, 0.880] |
+| macro-AUPRC | 0.872 [0.835, 0.909] |
+| macro-AUROC | 0.974 [0.965, 0.982] |
+
+Per-class F1:
+
+| ligand | test pockets | F1 |
+|---|---|---|
+| ADP | 150 | 0.894 |
+| CoA | 49 | 0.738 |
+| FAD | 79 | 0.921 |
+| HEM | 62 | 0.930 |
+| NAD | 49 | 0.718 |
+| NAP | 28 | 0.720 |
+| SAM | 50 | 0.772 |
+
+## Data
+
+`data/` holds the three splits. A pocket is the set of residues within 8 Å of the ligand's heavy
+atoms; the ligand itself is not in the graph.
+
+| file | pockets |
+|---|---|
+| `masif_train.parquet` | 1,839 |
+| `masif_val.parquet` | 203 |
+| `masif_test.parquet` | 467 |
+
+## Checkpoint
+
+`checkpoints/` holds an ATOMICA model pretrained with MaSIF-similar structures excluded, so the
+encoder has not seen any protein resembling a test pocket. This is not the general released model.
+See [checkpoints/README.md](checkpoints/README.md).
+
+## How it works
+
+| step | choice |
+|---|---|
+| representation | `z_graph`, the rotation-invariant graph-level embedding |
+| pooling | mean, standard deviation and global node over blocks, 5,376-d, parameter-free |
+| preprocessing | z-score fit on training pockets only |
+| head | 5,376 to 512 to 512 to 32 to 7, dropout 0.3 |
+| training | Adam at 1e-3, cross-entropy, 100 epochs, early stopping on validation macro-AUPRC |
+| seeds | 5, with class probabilities averaged |
 
 ## Files
 
 ```
-tutorials/4_atomica_masif_benchmark/
-├── README.md                                           — this file
-├── tutorial.py                                         — the runnable script
-├── train.sh                                            — training launcher (per seed)
-├── data/
-│   ├── masif_train.parquet                             — 1,839 training pockets
-│   ├── masif_val.parquet                               — 203 validation pockets
-│   └── masif_test.parquet                              — 467 test pockets
-└── predictions/                                        — created on first run
-    └── masif_test_predictions.parquet                  — ensembled test predictions
-```
-
-Checkpoints live outside the tutorial dir:
-
-```
-checkpoints/benchmarks/masif/
-└── 8A/seed{0..4}/{config.json, model.pt, test_preds.parquet, ...}
-```
-
-## Requirements
-
-- An NVIDIA GPU (A100/H100 recommended) with CUDA.
-- An environment with ATOMICA installed (see [setup/README.md](../../setup/README.md)).
-
-## Download checkpoints
-
-Fetch the five-seed MaSIF-ligand fine-tuned checkpoints from
-[Hugging Face](https://huggingface.co/ada-f/ATOMICA) and place them
-where `tutorial.py` expects them. Run from the repository root:
-
-```bash
-# 1. Download from Hugging Face.
-hf download ada-f/ATOMICA --repo-type model \
-  --local-dir checkpoints --include "ATOMICA_checkpoints/masif_ligand/**"
-
-# 2. Move to the layout tutorial.py expects (under 8A/).
-mkdir -p checkpoints/benchmarks/masif/8A
-mv checkpoints/ATOMICA_checkpoints/masif_ligand/seed{0,1,2,3,4} \
-   checkpoints/benchmarks/masif/8A/
-```
-
-After this, `checkpoints/benchmarks/masif/8A/seed{0..4}/{config.json,model.pt}`
-exist.
-
-## Download data
-
-Download the `MASIF_ligand_benchmark/` directory from [Harvard Dataverse](https://doi.org/10.7910/DVN/4DUBJX).
-
-## Usage
-
-From this directory:
-
-```bash
-# Evaluate the 5-seed ensemble on the test set.
-python tutorial.py
-
-# Retrain a single seed from scratch (pretrain weights required in
-# checkpoints/pretrain/). Repeat with SEED=0..4 to reproduce the ensemble.
-SEED=0 bash train.sh
-```
-
-Inference over all 5 seeds runs in a couple of minutes on an A100.
-
-## Expected output
-
-```
-Accuracy: ATOMICA 0.8587
+extract_embeddings.py    frozen pocket embeddings
+run_benchmark.py         head training and metrics
+data/                    the three pocket splits
+checkpoints/             the pretrained model
+embeddings/              created by extract_embeddings.py
+results/                 created by run_benchmark.py
 ```
