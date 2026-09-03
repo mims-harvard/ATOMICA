@@ -118,7 +118,7 @@ For questions, please leave a GitHub issue or contact Ada Fang at <ada_fang@g.ha
 The code in this package is licensed under the MIT License.
 
 ## :scroll: Citation
-If you use ATOMICA in your research, please cite the following [preprint](https://www.biorxiv.org/content/10.1101/2025.04.02.646906v1):
+If you use ATOMICA in your research, please cite the following [preprint](https://www.biorxiv.org/content/10.1101/2025.04.02.646906):
 ```
 @article{fang2025atomica,
   title={Learning Universal Representations of Intermolecular Interactions with ATOMICA},
