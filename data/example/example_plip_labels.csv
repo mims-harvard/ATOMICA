@@ -1,0 +1,13 @@
+complex_id,chain,residue,restype,interaction_type,pdb_residue
+6hrg_A_A_ZN,A,58,ASP,Metal Complexes,A_58
+6hrg_A_A_ZN,A,59,HIS,Metal Complexes,A_59
+6hrg_A_A_ZN,A,144,ASP,Metal Complexes,A_144
+6hrg_A_A_ZN,A,194,HIS,Metal Complexes,A_194
+6llw_A_A_UDP,A,279,ASN,Hydrogen Bonds,A_279
+6llw_A_A_UDP,A,280,ARG,Hydrogen Bonds,A_280
+6llw_A_A_UDP,A,340,TRP,pi-Stacking,A_340
+6llw_A_A_UDP,A,341,VAL,Hydrogen Bonds,A_341
+6llw_A_A_UDP,A,343,GLN,Hydrogen Bonds,A_343
+6llw_A_A_UDP,A,362,ASN,Hydrogen Bonds,A_362
+6llw_A_A_UDP,A,363,SER,Hydrogen Bonds,A_363
+6llw_A_A_UDP,A,366,GLU,Hydrogen Bonds,A_366

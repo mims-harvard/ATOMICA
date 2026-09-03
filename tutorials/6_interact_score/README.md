@@ -1,50 +1,104 @@
-# InteractScore: per-residue importance for a protein–ligand interface
+# ATOMICAScore: ranking interface residues by how much the ligand depends on them
 
-This tutorial shows how to compute an **InteractScore** for every interface residue in a protein–ligand complex using the pretrained ATOMICA model. The notebook:
+ATOMICAScore masks one interface residue at a time and measures how far that moves the pretrained
+model's representation of the **ligand**. For block `i` of an interaction graph `G`, build `G \ i` by
+replacing that block with the mask block and its atoms with a single mask atom, then
 
-1. loads a protein–ligand structure from `data/example/example_inputs.csv` (the `6llw` + `UDP` entry),
-2. masks each interface residue one at a time,
-3. measures the cosine similarity between the complex embedding before and after masking,
-4. maps each block back to its original PDB chain / residue index using `block_to_pdb_indexes`, and
-5. prints every interface residue ranked by score in **increasing order** (most impactful residues first — a lower cosine similarity means masking that residue changed the representation more, i.e. it matters more for the interaction).
+```
+a_i = cosine( r(G), r(G \ i) )
+```
 
-Requirements:
+A **low** `a_i` means masking the residue changed the readout a lot, so that residue matters more.
 
-- A CUDA-capable GPU (e.g. H100 / A100).
-- The `atomica` python environment set up (see the top-level [README](../../README.md)).
-- The pretrained ATOMICA checkpoint downloaded into `checkpoints/` (the notebook downloads it for you if missing).
+The readout `r` is the component-normalized mean of `z_block` over the ligand's blocks. It comes from
+[`representations.py`](../../src/atomica/representations.py), the one place a representation is defined:
 
-## Run the notebook
+```python
+from atomica import representations as R
+
+R.get(model, batch, "z_interface", pool="mean_component_normalized", segment=ligand_segment)
+```
+
+## Requirements
+
+- The `atomica` environment, from the top-level [README](../../README.md).
+- The pretrained ATOMICA checkpoint. The notebook downloads it if it is missing. No other checkpoint
+  is needed.
+- A GPU is faster but not required; the example complexes score on CPU in about a minute.
+
+## Run it
 
 ```bash
 jupyter notebook example_run_interact_score.ipynb
 ```
 
-The notebook resolves all paths relative to the repository root (it walks upward from its own location looking for `pyproject.toml` + `src/atomica/`), so it is portable — you can clone the repo anywhere and it will still run.
+Paths resolve relative to the repository root, so the notebook runs from any checkout.
 
-## What you get
+## Results
 
-For the included example (`6llw_A_A_UDP`, a protein bound to UDP) the notebook produces a table of interface residues like:
+For `6llw_A_A_UDP`, a glycosyltransferase bound to UDP with 29 interface residues, the top of the
+ranking against PLIP annotations:
 
 ```
-chain A residue  362  (block  25)  interact_score = 0.9854
-chain A residue  340  (block  15)  interact_score = 0.9884
-chain A residue  344  (block  19)  interact_score = 0.9945
-...
+ rank  residue  type   score     annotated
+    1   A_340   TRP    0.99744   yes (pi-stacking)
+    2   A_279   ASN    0.99794   yes (hydrogen bond)
+    3   A_343   GLN    0.99831   yes (hydrogen bond)
+    4   A_362   ASN    0.99831   yes (hydrogen bond)
+    5   A_278   GLY    0.99832   no
+    6   A_280   ARG    0.99851   yes (hydrogen bond)
+    7   A_358   HIS    0.99908   no
+    8   A_363   SER    0.99909   yes (hydrogen bond)
+    9   A_341   VAL    0.99925   yes (hydrogen bond)
+   10   A_366   GLU    0.99928   yes (hydrogen bond)
 ```
 
-where `interact_score` is the cosine similarity between the original and masked complex embeddings, `block` is the internal block index, and `chain` / `residue` are the original PDB identifiers recovered via `block_to_pdb_indexes`.
+precision@10 is 0.800 and AUROC is 0.958 on this complex. All eight annotated residues are in the top
+ten, so 0.800 is the most attainable here. `precision_at_k` returns a fraction of k.
 
-## Running it on your own structures
+## Files
 
-Edit `data/example/example_inputs.csv` (or point the notebook at your own `--data_index_file`) to include your structure, then update `EXAMPLE_ID` in the notebook to the corresponding processed-id (typically `{pdb_id}_{chain1}_{chain2}[_{lig_code}]`). See [`src/atomica/data/README.md`](../../src/atomica/data/README.md) for the input CSV schema.
+| file | what it is |
+|---|---|
+| `example_run_interact_score.ipynb` | the tutorial |
+| `make_plip_labels.py` | regenerates the annotations; needs PLIP, which is not an ATOMICA dependency |
 
-## How the score is computed
+The notebook reads three files, all small: `data/example/example_inputs.csv`,
+`data/example/example_processed_data.parquet` and `data/example/example_plip_labels.csv`. It also needs the
+`.cif` structures in `data/example/example_data/` if you rebuild the processed file yourself.
+`make_plip_labels.py` downloads whatever structures it needs from RCSB, so no extra files are required.
 
-Implemented in [`src/atomica/interaction_profiler/interact_score.py`](../../src/atomica/interaction_profiler/interact_score.py):
+No checkpoint beyond the pretrained ATOMICA model is used.
 
-- `mask_block(data, block_idx)` replaces a single residue block with a `MASK` token (coordinates averaged, atom list collapsed).
-- `get_residue_model_score(model, data, block_idx)` runs the model on the original and the masked complex and returns the cosine similarity between the two graph-level embeddings.
-- `get_residue_model_scores(model, data)` repeats this for every non-global block.
+## Your own structures
 
-Lower cosine similarity ⇒ larger representation shift under masking ⇒ more important residue.
+```bash
+python -m atomica.data.process_pdbs \
+    --data_index_file my_inputs.csv --out_path my_processed.parquet \
+    --interface_dist_th 8.0 --fragmentation_method PS_300
+
+python -m atomica.interaction_profiler.interact_score \
+    --data_path my_processed.parquet --output_path my_scores.jsonl \
+    --model_config  checkpoints/ATOMICA_checkpoints/pretrain/pretrain_model_config.json \
+    --model_weights checkpoints/ATOMICA_checkpoints/pretrain/pretrain_model_weights.pt
+```
+
+Each output line holds the complex id, the scored block indices, the scores, the ligand segment, the
+batch size and the readout. Complexes with no amino-acid residue block, or an ambiguous ligand side, are
+skipped and counted. Re-running appends only what is missing.
+
+## API
+
+From [`interact_score.py`](../../src/atomica/interaction_profiler/interact_score.py):
+
+| function | what it does |
+|---|---|
+| `atomica_score(model, data)` | the score for every amino-acid residue block, at a fixed batch size |
+| `find_ligand_segment(data)` | which segment holds the ligand, inferred from block types |
+| `scorable_blocks(data, ligand_segment)` | the blocks that get masked |
+| `mask_block(data, block_idx)` | one block replaced by the mask block and a single mask atom |
+| `precision_at_k(importance, labels, k)` | fraction of the top k that are annotated |
+| `auroc(importance, labels)` | rank-based, NaN when one class is absent |
+
+`atomica_score` returns `block_idx`, `score` (the cosine, low means important), `importance` (the sign
+flipped, which is what the metrics take), `ranking()` and `batch_size`.
