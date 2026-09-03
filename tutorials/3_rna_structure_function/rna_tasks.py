@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import os
 
-import pandas as pd
-
 from atomica.data.dataset import LabelledPDBDataset, MultiClassLabelledPDBDataset
 from atomica.probe import ProbeConfig
 
@@ -72,18 +70,6 @@ REPORTED_METRICS = {
     True: ["auprc", "auroc"],
     False: ["f1_macro", "f1_micro", "auprc_macro", "auroc_macro"],
 }
-
-
-# Residue labels keyed by PDB residue index. The per-split task files carry the same labels in
-# block order, and the two orders differ for a minority of structures.
-RESIDUE_LABELS = os.path.join(HERE, "residue_labels.parquet")
-
-
-def residue_label_map(task: str, split: str) -> dict:
-    """point id -> label for a residue-level task."""
-    frame = pd.read_parquet(RESIDUE_LABELS)
-    frame = frame[(frame["task"] == TASKS[task]["prefix"]) & (frame["split"] == split)]
-    return dict(zip(frame["id"].astype(str), frame["label"].astype(float)))
 
 
 def data_file(task: str, split: str) -> str:

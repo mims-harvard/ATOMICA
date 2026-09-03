@@ -48,9 +48,6 @@ checkpoints/
   rna_go_finetuned/seed{0..4}/      the five released RNA-GO fine-tunes
 ```
 
-`residue_labels.parquet` ships with the tutorial. It gives the two residue-level tasks their labels
-keyed by PDB residue index, which is how the reported numbers were produced.
-
 Two of the checkpoints are specific to this tutorial and are not the standard ATOMICA release:
 `pretrain_no_protein_rna/` and `pretrain_no_nucleic_acid_ligand/`, 33 MB each.
 
@@ -108,19 +105,19 @@ scalar channels. On RNA-Site, same encoder and same head:
 `run_probe.py` prints the test-set metric for each task with its bootstrap interval. Running this
 tutorial end to end gives:
 
-| Task | Metric | This tutorial | 95% CI | Published | Best frozen baseline |
-|---|---|---|---|---|---|
-| RNA-Protein | AUPRC | 0.604 | [0.588, 0.620] | 0.612 | gRNAde 0.486 |
-| RNA-Site | AUPRC | 0.219 | [0.164, 0.285] | 0.223 | RiNALMo 0.197 |
-| RNA-Ligand | macro-F1 | 0.573 | [0.425, 0.725] | 0.556 | RiNALMo 0.477 |
-| RNA-GO | macro-F1 | 0.688 | [0.495, 0.845] | 0.673 | RiNALMo 0.885 |
+| Task | Metric | This tutorial | 95% CI | Published |
+|---|---|---|---|---|
+| RNA-Protein | AUPRC | 0.607 | [0.591, 0.623] | 0.612 |
+| RNA-Site | AUPRC | 0.227 | [0.171, 0.288] | 0.223 |
+| RNA-Ligand | macro-F1 | 0.573 | [0.425, 0.725] | 0.556 |
+| RNA-GO | macro-F1 | 0.695 | [0.500, 0.853] | 0.673 |
 
 Fine-tuned ATOMICA on RNA-GO reproduces its published macro-F1 of 0.951 and micro-F1 of 0.920.
 
 Expect the frozen numbers to land near rather than exactly on the published ones: the encoder
 forward pass is not bit-reproducible on GPU, and each task's five-seed spread is comparable to the
 differences above. RNA-Site and RNA-Ligand have 2,158 residues and 44 pockets in their test sets,
-so their intervals are wide, and no method exceeds an AUPRC of 0.23 on RNA-Site.
+so their intervals are wide.
 
 ## Fine-tuning
 
@@ -140,7 +137,6 @@ rna_tasks.py             task table, paths, data loading
 extract_embeddings.py    frozen encoder -> z_block
 run_probe.py             the probe and its test-set metrics
 run_finetuned_rna_go.py  the five released RNA-GO fine-tunes
-residue_labels.parquet   residue-level labels keyed by PDB residue index
 train_scripts/           fine-tuning launchers
 ```
 

@@ -42,7 +42,6 @@ def extract_split(model, task, split, device, batch_size, atom_budget,
                   group_by_max_block, strict):
     residue_level = T.TASKS[task]["residue_level"]
     dataset = T.load_dataset(task, split)
-    label_map = T.residue_label_map(task, split) if residue_level else {}
 
     dims = model.invariant_component_dims()          # h_block / gram / atom, in that order
     offsets, start = {}, 0
@@ -71,9 +70,10 @@ def extract_split(model, task, split, device, batch_size, atom_budget,
         labelled = sorted(block_to_pdb)
 
         if residue_level:
-            # One row per labelled residue, with the label looked up by residue index.
-            selected = [(b, block_to_pdb[b], label_map[f"{graph_id}_{block_to_pdb[b]}"])
-                        for b in labelled]
+            # One row per labelled residue; the label array is in block order.
+            assert len(labelled) == len(item["label"]), f"{graph_id}: labels do not match blocks"
+            selected = [(b, block_to_pdb[b], float(lab))
+                        for b, lab in zip(labelled, item["label"])]
         else:
             # Every block is a feature row; the label belongs to the graph.
             selected = [(b, block_to_pdb.get(b), float("nan")) for b in range(z.shape[0])]
