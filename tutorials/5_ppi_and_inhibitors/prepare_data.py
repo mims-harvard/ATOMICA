@@ -1,48 +1,29 @@
+"""Rebuild everything in data/ from raw 2P2Idb structures.
+
+Only needed to regenerate the deposited data. To run the tutorial, download data/ and go
+straight to compute_embeddings.py.
+
+Requires a directory of 2P2Idb mmCIF or PDB files named <PDB>.cif and the MSMS binary on
+PATH or in $MSMS_BIN.
+
+    python prepare_data.py --cif_dir /path/to/2p2idb/cifs
 """
-prepare_data.py — regenerate every parquet/csv in data/ from raw 2P2IDB
-structures and the pretrained ATOMICA checkpoint.
-
-Inputs you need locally:
-  * A directory containing 2P2IDB mmCIF (and/or PDB) files named
-    <PDB>.cif (e.g. 1YSW.cif). Download with gh/rsync from 2P2IDB or PDB.
-  * A pretrained ATOMICA checkpoint (see tutorial README).
-  * MSMS binary on PATH (or $MSMS_BIN set).
-
-Outputs (all under data/):
-  - inhibitors_index.csv                          (data_index_file for process_pdbs)
-  - inhibitors_processed.parquet
-  - inhibitors_embeddings.parquet
-  - peptide_partners_processed.parquet
-  - peptide_partners_embeddings.parquet
-  - protein_partner_surface_patches.parquet
-  - protein_partner_surface_patches_embeddings.parquet
-  - protein_partner_surface_patches_distances.csv
-  - peptide_inhibitor_block_results.parquet
-
-Usage:
-    python prepare_data.py --cif_dir /path/to/2p2idb/cifs --ckpt_dir /path/to/ATOMICA_checkpoints/pretrain
-"""
-from __future__ import annotations
 
 import argparse
 import json
-import os
-import subprocess
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
-import numpy as np
-import pandas as pd
-from tqdm import tqdm
-
+import biotite.sequence as seq
+import biotite.sequence.align as align
 import biotite.structure as struc
 import biotite.structure.io.pdb as pdb
 import biotite.structure.io.pdbx as pdbx
-import biotite.sequence as seq
-import biotite.sequence.align as align
-from biotite.sequence.align import SubstitutionMatrix
+import numpy as np
+import pandas as pd
 import scipy.spatial.distance
+from biotite.sequence.align import SubstitutionMatrix
+from tqdm import tqdm
 
 from atomica.data.converter.pdb_to_list_blocks import pdb_to_list_blocks
 from atomica.data.dataset import blocks_to_data
@@ -52,415 +33,285 @@ from surface_sampler import get_mesh_and_sample
 
 DATA_DIR = Path(__file__).resolve().parent / "data"
 
-
-# ---------- structure helpers ----------
-
-def _load_structure_any(path: str, model: int = 1):
-    p = Path(path)
-    suf = p.suffix.lower()
-    if suf in {".pdb", ".ent"}:
-        return pdb.PDBFile.read(p).get_structure(model=model)
-    if suf in {".cif", ".mmcif"}:
-        return pdbx.get_structure(pdbx.PDBxFile.read(p), model=model)
-    raise ValueError(f"Unsupported file type: {suf}")
+MAX_PEPTIDE_RESIDUES = 30
+PATCH_RADIUS = 16.0
+PATCH_MIN_BLOCKS = 8
+N_SURFACE_POINTS = 1000
 
 
-def resolve_structure_path(cif_dir: Path, pdb_id: str) -> Path | None:
+def load_structure(path, model=1):
+    suffix = Path(path).suffix.lower()
+    if suffix in {".pdb", ".ent"}:
+        return pdb.PDBFile.read(path).get_structure(model=model)
+    if suffix in {".cif", ".mmcif"}:
+        return pdbx.get_structure(pdbx.PDBxFile.read(path), model=model)
+    raise ValueError(f"unsupported file type: {suffix}")
+
+
+def find_structure(cif_dir, pdb_id):
     for ext in (".cif", ".pdb"):
-        p = cif_dir / f"{pdb_id}{ext}"
-        if p.exists():
-            return p
+        path = cif_dir / f"{pdb_id}{ext}"
+        if path.exists():
+            return path
     return None
 
 
-def check_chain_exists(path: Path, chain: str):
-    arr = _load_structure_any(path)
-    uniq = np.unique(arr.chain_id).tolist()
-    return chain in uniq, uniq
+def partner_blocks(cif_dir, complex_row):
+    """Blocks of one complex's partner chain, or None if the structure is missing."""
+    path = find_structure(cif_dir, complex_row["pdb"])
+    if path is None:
+        return None
+    blocks, indexes = pdb_to_list_blocks(str(path), [complex_row["chain_partner"]],
+                                         return_indexes=True)
+    return sum(blocks, []), sum(indexes, []), path
 
 
-def get_lig_resi(path: Path, chain: str, lig_code: str) -> List[int]:
-    arr = _load_structure_any(path)
-    mask = (arr.chain_id == chain) & (arr.res_name == lig_code.strip().upper())
-    if not np.any(mask):
-        return []
-    return sorted(np.unique(arr.res_id[mask]).tolist())
-
-
-def infill_chain1(row):
-    chain3 = row["chain1"] * 3
-    if len(row["chain1"]) == 1 and chain3 in row["unique_chains"]:
-        return chain3
-    if row["chain2"] in row["unique_chains"]:
-        return row["chain2"]
-    if len(row["unique_chains"]) == 1:
-        return row["unique_chains"][0]
-    return None
-
-
-# ---------- step 1: build inhibitors_index.csv for atomica.data.process_pdbs ----------
-
-def build_inhibitors_index(cif_dir: Path) -> pd.DataFrame:
-    """Add a pdb_path column pointing into cif_dir and explode one row per ligand resi."""
-    meta = pd.read_csv(DATA_DIR / "inhibitors_metadata.csv")
-
-    meta["pdb_path"] = meta["pdb_code"].apply(
-        lambda x: str(resolve_structure_path(cif_dir, x)) if resolve_structure_path(cif_dir, x) else None
-    )
-    missing = meta["pdb_path"].isna().sum()
-    if missing:
-        print(f"[inhibitors] {missing} / {len(meta)} PDB codes missing under {cif_dir} — dropping")
-        meta = meta[meta["pdb_path"].notna()].copy()
-
-    chain_info = meta.apply(
-        lambda r: pd.Series(check_chain_exists(Path(r["pdb_path"]), r["chain1"]),
-                            index=["chain1_exists", "unique_chains"]),
-        axis=1,
-    )
-    meta[["chain1_exists", "unique_chains"]] = chain_info
-
-    fix_mask = ~meta["chain1_exists"]
-    if fix_mask.any():
-        meta.loc[fix_mask, "chain1"] = meta[fix_mask].apply(infill_chain1, axis=1)
-        meta = meta[meta["chain1"].notna()].copy()
-
-    meta["lig_resi"] = meta.apply(
-        lambda r: get_lig_resi(Path(r["pdb_path"]), r["chain2"], r["lig_code"]), axis=1
-    )
-    meta = meta[meta["lig_resi"].apply(len) > 0].explode("lig_resi")
-    meta = meta.drop(columns=["chain1_exists", "unique_chains"])
-
-    out = DATA_DIR / "inhibitors_index.csv"
-    meta.to_csv(out, index=False)
-    print(f"[inhibitors] wrote {out} with {len(meta)} rows")
-    return meta
-
-
-# ---------- step 2: peptide partner blocks (≤30 residues) ----------
-
-def build_peptide_partners(cif_dir: Path):
-    mapping = pd.read_csv(DATA_DIR / "ppi_inhibitor_mapping.csv")
-    ppis = (mapping[["PDBProtProt", "Family", "Chain_Target", "Chain_Partner"]]
-            .drop_duplicates()
-            .query("PDBProtProt != 'na'")
-            .reset_index(drop=True))
-
+def build_peptide_partners(cif_dir, complexes):
+    """Partner chains of 30 residues or fewer, as single-graph ATOMICA inputs."""
     rows = []
-    for _, row in tqdm(ppis.iterrows(), total=len(ppis), desc="Partner chain blocks"):
-        path = resolve_structure_path(cif_dir, row["PDBProtProt"])
-        if path is None:
+    for _, complex_row in tqdm(complexes.iterrows(), total=len(complexes),
+                               desc="peptide partners"):
+        result = partner_blocks(cif_dir, complex_row)
+        if result is None:
             continue
-        try:
-            blocks, pdb_idx = pdb_to_list_blocks(str(path), [row["Chain_Partner"]], return_indexes=True)
-        except Exception as e:
-            print(f"  skip {row['PDBProtProt']}_{row['Chain_Partner']}: {e}")
+        blocks, indexes, _ = result
+        if not blocks or len(blocks) > MAX_PEPTIDE_RESIDUES:
             continue
-        blocks = sum(blocks, [])
-        pdb_idx = sum(pdb_idx, [])
-        if len(blocks) == 0 or len(blocks) > 30:
-            continue  # protein partners go through the surface-patch path
         data = blocks_to_data(blocks)
-        data["id"] = f"{row['PDBProtProt']}_{row['Chain_Partner']}"
+        data["id"] = f"{complex_row['pdb']}_{complex_row['chain_partner']}"
         data["block_to_pdb_indexes"] = json.dumps(
-            {k: v for k, v in zip(range(1, len(blocks) + 1), pdb_idx)}
-        )
+            dict(zip(range(1, len(blocks) + 1), indexes)))
         rows.append(data)
-
     out = DATA_DIR / "peptide_partners_processed.parquet"
-    pd.DataFrame(rows).to_parquet(out)
-    print(f"[peptide] wrote {out} with {len(rows)} rows")
+    pd.DataFrame(rows).to_parquet(out, index=False)
+    print(f"wrote {out.name}: {len(rows)} peptide partners")
 
 
-# ---------- step 3: protein partner surface patches (>30 residues) ----------
+def nearest_target_residue(path, point, chain):
+    array = load_structure(path)
+    array = array[(array.chain_id == chain) & (array.atom_name == "CA")]
+    distances = np.linalg.norm(array.coord - np.asarray(point, float), axis=1)
+    i = int(np.argmin(distances))
+    return int(array.res_id[i]), str(array.res_name[i]), float(distances[i])
 
-def build_protein_partner_patches(cif_dir: Path, mesh_dir: Path,
-                                   num_points: int = 1000,
-                                   interface_radius: float = 16.0,
-                                   min_blocks_per_point: int = 8):
+
+def build_surface_patches(cif_dir, complexes, mesh_dir):
+    """Local surface patches on partner chains longer than 30 residues.
+
+    MSMS surface at density 3.0 and probe radius 1.5 A, 1,000 area-weighted points per
+    chain, each patch the blocks within 16 A of a point. Points with fewer than 8 nearby
+    blocks are dropped. The distance from each patch centre to the nearest target-chain CA
+    is the geometric label.
+    """
     mesh_dir.mkdir(parents=True, exist_ok=True)
-    mapping = pd.read_csv(DATA_DIR / "ppi_inhibitor_mapping.csv")
-    ppis = (mapping[["PDBProtProt", "Family", "Chain_Target", "Chain_Partner"]]
-            .drop_duplicates()
-            .query("PDBProtProt != 'na'")
-            .reset_index(drop=True))
-
-    rows = []
-    dist_rows = []
-    for _, row in tqdm(ppis.iterrows(), total=len(ppis), desc="Protein partner patches"):
-        path = resolve_structure_path(cif_dir, row["PDBProtProt"])
-        if path is None:
+    patches = []
+    for _, complex_row in tqdm(complexes.iterrows(), total=len(complexes),
+                               desc="surface patches"):
+        result = partner_blocks(cif_dir, complex_row)
+        if result is None:
             continue
-        try:
-            blocks, pdb_idx = pdb_to_list_blocks(str(path), [row["Chain_Partner"]], return_indexes=True)
-        except Exception as e:
-            print(f"  skip {row['PDBProtProt']}_{row['Chain_Partner']}: {e}")
+        blocks, indexes, path = result
+        if len(blocks) <= MAX_PEPTIDE_RESIDUES:
             continue
-        blocks = sum(blocks, [])
-        pdb_idx = sum(pdb_idx, [])
-        if len(blocks) <= 30:
-            continue  # peptides handled elsewhere
 
-        mesh_ply = mesh_dir / f"{row['PDBProtProt']}_chain{row['Chain_Partner']}_mesh.ply"
-        points_xyz = mesh_dir / f"{row['PDBProtProt']}_chain{row['Chain_Partner']}_points.xyz"
-        if not points_xyz.exists():
-            get_mesh_and_sample(
-                str(path), row["Chain_Partner"], num_points=num_points,
-                mesh_output_path=str(mesh_ply),
-                points_output_path=str(points_xyz),
-                seed=42,
-            )
+        stem = f"{complex_row['pdb']}_chain{complex_row['chain_partner']}"
+        points_file = mesh_dir / f"{stem}_points.xyz"
+        if not points_file.exists():
+            get_mesh_and_sample(str(path), complex_row["chain_partner"],
+                                num_points=N_SURFACE_POINTS,
+                                mesh_output_path=str(mesh_dir / f"{stem}_mesh.ply"),
+                                points_output_path=str(points_file), seed=42)
+        points = pd.read_csv(points_file, sep=" ", header=None, skiprows=2)
+        centres = np.array([b.coords for b in blocks])
 
-        points = pd.read_csv(points_xyz, sep=" ", header=None, skiprows=2)
-        block_coords = np.array([b.coords for b in blocks])
-
-        for pidx, pt in points.iterrows():
-            _, x, y, z = pt
-            d = np.linalg.norm(block_coords - np.array([x, y, z]), axis=1)
-            mask = d < interface_radius
-            if mask.sum() < min_blocks_per_point:
+        for index, point in points.iterrows():
+            xyz = np.asarray(point[1:4], dtype=float)
+            near = np.linalg.norm(centres - xyz, axis=1) < PATCH_RADIUS
+            if near.sum() < PATCH_MIN_BLOCKS:
                 continue
-            near_blocks = [b for b, m in zip(blocks, mask) if m]
-            near_pdb = [p for p, m in zip(pdb_idx, mask) if m]
-            data = blocks_to_data(near_blocks)
-            data["block_to_pdb_indexes"] = json.dumps(
-                {k: v for k, v in zip(range(1, len(near_blocks) + 1), near_pdb)}
-            )
-            patch_id = f"{row['PDBProtProt']}_{row['Chain_Partner']}_{pidx}"
-            data["id"] = patch_id
-            rows.append(data)
+            kept = [b for b, m in zip(blocks, near) if m]
+            data = blocks_to_data(kept)
+            data["id"] = f"{complex_row['pdb']}_{complex_row['chain_partner']}_{index}"
+            data["block_to_pdb_indexes"] = json.dumps(dict(zip(
+                range(1, len(kept) + 1), [p for p, m in zip(indexes, near) if m])))
 
-            resi, resn, dist = closest_residue_on_chain(
-                str(path), np.array([x, y, z]), row["Chain_Target"], atom_filter="ca"
-            )
-            dist_rows.append({"id": patch_id, "resi": resi, "resn": resn, "distance": dist})
+            _, _, distance = nearest_target_residue(path, xyz,
+                                                    complex_row["chain_target"])
+            data["distance_to_target"] = np.float32(distance)
+            patches.append(data)
 
-    out = DATA_DIR / "protein_partner_surface_patches.parquet"
-    pd.DataFrame(rows).to_parquet(out)
-    print(f"[protein] wrote {out} with {len(rows)} rows")
-
-    dist_out = DATA_DIR / "protein_partner_surface_patches_distances.csv"
-    pd.DataFrame(dist_rows).to_csv(dist_out, index=False)
-    print(f"[protein] wrote {dist_out}")
+    out = DATA_DIR / "surface_patches_processed.parquet"
+    pd.DataFrame(patches).to_parquet(out, index=False)
+    print(f"wrote {out.name}: {len(patches)} patches")
 
 
-def closest_residue_on_chain(structure_path, xyz, chain, atom_filter="ca"):
-    arr = _load_structure_any(structure_path)
-    arr = arr[arr.chain_id == chain]
-    if atom_filter == "ca":
-        arr = arr[arr.atom_name == "CA"]
-    elif atom_filter == "heavy":
-        arr = arr[arr.element != "H"] if hasattr(arr, "element") else arr
-    d = np.linalg.norm(arr.coord - np.asarray(xyz, float)[None, :], axis=1)
-    i = int(np.argmin(d))
-    return int(arr.res_id[i]), str(arr.res_name[i]), float(d[i])
+def chain_ca(array, chain, path):
+    mask = array.chain_id == chain
+    if not np.any(mask):
+        raise ValueError(f"chain {chain!r} not in {path}")
+    array = array[mask]
+    array = array[struc.filter_amino_acids(array) & (array.atom_name == "CA")]
+    if len(array) == 0:
+        raise ValueError(f"no CA atoms on chain {chain!r} in {path}")
+    return array
 
 
-# ---------- step 4: call atomica.data.process_pdbs + atomica.get_embeddings ----------
-
-def run(cmd: List[str]):
-    print("+", " ".join(cmd))
-    subprocess.run(cmd, check=True)
-
-
-def process_and_embed(ckpt_dir: Path):
-    cfg = ckpt_dir / "pretrain_model_config.json"
-    wts = ckpt_dir / "pretrain_model_weights.pt"
-
-    # Inhibitors: fragment small molecule with PS_300
-    run([
-        sys.executable, "-m", "atomica.data.process_pdbs",
-        "--data_index_file", str(DATA_DIR / "inhibitors_index.csv"),
-        "--out_path", str(DATA_DIR / "inhibitors_processed.parquet"),
-        "--fragmentation_method", "PS_300",
-    ])
-
-    pairs = [
-        ("inhibitors_processed.parquet",                    "inhibitors_embeddings.parquet"),
-        ("peptide_partners_processed.parquet",              "peptide_partners_embeddings.parquet"),
-        ("protein_partner_surface_patches.parquet",         "protein_partner_surface_patches_embeddings.parquet"),
-    ]
-    for in_, out_ in pairs:
-        run([
-            sys.executable, "-m", "atomica.get_embeddings",
-            "--model_config", str(cfg),
-            "--model_weights", str(wts),
-            "--data_path", str(DATA_DIR / in_),
-            "--output_path", str(DATA_DIR / out_),
-            "--batch_size", "8",
-        ])
-
-
-# ---------- step 5: peptide inhibitor block-distance matrices ----------
-
-def _chain_ca(arr, chain):
-    a = arr[(arr.chain_id == chain) & struc.filter_amino_acids(arr) & (arr.atom_name == "CA")]
-    return a
-
-
-def _seq_resids(ca):
+def chain_sequence(ca):
     letters = []
-    for r3 in ca.res_name.astype(str):
+    for name in ca.res_name.astype(str):
         try:
-            letters.append(seq.ProteinSequence.convert_letter_3to1(r3))
+            letters.append(seq.ProteinSequence.convert_letter_3to1(name))
         except Exception:
             letters.append("X")
-    return seq.ProteinSequence("".join(letters)), ca.res_id.copy()
+    return seq.ProteinSequence("".join(letters))
 
 
-def _kabsch_refine(P, Q, cutoff=2.0, cycles=5):
-    inliers = np.ones(P.shape[0], dtype=bool)
-    R = np.eye(3); t = np.zeros(3); fitted = P.copy()
+def superpose_target_chains(path1, chain1, path2, chain2, cutoff=2.0, cycles=5):
+    """Align two target chains by sequence, then superpose their CA atoms.
+
+    BLOSUM62 with gap penalties -10 and -1, then iterative Kabsch refinement rejecting
+    pairs beyond `cutoff`. Returns biotite's transform, its RMSD and the inlier count;
+    apply it with transform.apply(coords).
+    """
+    ca1 = chain_ca(load_structure(path1), chain1, path1)
+    ca2 = chain_ca(load_structure(path2), chain2, path2)
+    alignment = align.align_optimal(
+        chain_sequence(ca1), chain_sequence(ca2),
+        SubstitutionMatrix.std_protein_matrix(), gap_penalty=(-10, -1), local=False)[0]
+    matched = [(a, b) for a, b in alignment.trace if a != -1 and b != -1]
+    if len(matched) < 3:
+        raise ValueError(f"alignment matched only {len(matched)} residues")
+
+    P = ca1.coord[np.array([a for a, _ in matched])]
+    Q = ca2.coord[np.array([b for _, b in matched])]
+    inliers, transform, fitted = np.ones(len(P), bool), None, P.copy()
     for _ in range(cycles):
-        _, tf = struc.superimpose(Q[inliers], P[inliers])
-        fitted = tf.apply(P)
-        d = np.linalg.norm(fitted - Q, axis=1)
-        new_in = d <= cutoff
-        if np.array_equal(new_in, inliers):
-            R = tf.rotation[0]
-            t = tf.target_translation[0] + tf.center_translation[0] @ R
+        _, transform = struc.superimpose(Q[inliers], P[inliers])
+        fitted = transform.apply(P)
+        updated = np.linalg.norm(fitted - Q, axis=1) <= cutoff
+        if np.array_equal(updated, inliers) or updated.sum() < 3:
             break
-        if new_in.sum() < 3:
-            _, tf = struc.superimpose(Q[inliers], P[inliers])
-            fitted = tf.apply(P)
-            R = tf.rotation[0]
-            t = tf.target_translation[0] + tf.center_translation[0] @ R
-            break
-        inliers = new_in
-        R = tf.rotation[0]
-        t = tf.target_translation[0] + tf.center_translation[0] @ R
-    return R, t
+        inliers = updated
+    return transform, float(struc.rmsd(fitted[inliers], Q[inliers])), int(inliers.sum())
 
 
-def align_chains(pdb1, chain1, pdb2, chain2):
-    a1 = _load_structure_any(pdb1); a2 = _load_structure_any(pdb2)
-    ca1 = _chain_ca(a1, chain1); ca2 = _chain_ca(a2, chain2)
-    s1, _ = _seq_resids(ca1); s2, _ = _seq_resids(ca2)
-    ali = align.align_optimal(
-        s1, s2, SubstitutionMatrix.std_protein_matrix(),
-        gap_penalty=(-10, -1), local=False,
-    )[0]
-    idx1, idx2 = [], []
-    for row in ali.trace:
-        if row[0] != -1 and row[1] != -1:
-            idx1.append(row[0]); idx2.append(row[1])
-    P = ca1.coord[np.array(idx1)]
-    Q = ca2.coord[np.array(idx2)]
-    return _kabsch_refine(P, Q)
-
-
-def get_block_coords(X, block_lengths):
-    out, cur = [], 0
-    for L in block_lengths:
-        out.append(X[cur:cur + L].mean(axis=0))
-        cur += L
+def block_centres(coords, block_lengths):
+    out, start = [], 0
+    for length in block_lengths:
+        out.append(coords[start:start + length].mean(axis=0))
+        start += length
     return np.array(out)
 
 
-def build_peptide_inhibitor_block_results(cif_dir: Path):
-    ppi_emb = pd.read_parquet(DATA_DIR / "peptide_partners_embeddings.parquet")
-    ppi_in = pd.read_parquet(DATA_DIR / "peptide_partners_processed.parquet")
-    ppi = ppi_emb.merge(ppi_in, on="id", how="left")
-    mapping = pd.read_csv(DATA_DIR / "ppi_inhibitor_mapping.csv").query("PDBProtProt != 'na'")
-    ppi_meta = mapping[["PDBProtProt", "Chain_Target", "Chain_Partner", "Family"]].drop_duplicates()
-    ppi["pdb_id"] = ppi["id"].str.split("_").str[0]
-    ppi = ppi.merge(ppi_meta, left_on="pdb_id", right_on="PDBProtProt", how="left")
+def build_peptide_geometry(cif_dir, inhibitors, complexes):
+    """Superposed block-centre distances for every inhibitor and its complex's peptide.
 
-    inh_emb = pd.read_parquet(DATA_DIR / "inhibitors_embeddings.parquet")
-    inh_in = pd.read_parquet(DATA_DIR / "inhibitors_processed.parquet")
-    inh = pd.concat([inh_in, inh_emb.drop(columns=["id"])], axis=1)
-    inh["2P2IDB_ID"] = inh["id"].str.split("_").str[0]
-    meta = pd.read_csv(DATA_DIR / "inhibitors_metadata.csv").rename(columns={
-        "pdb_id": "2P2IDB_ID", "chain1": "Chain_Target",
-        "chain2": "ChainID_Ligand", "pdb_code": "PDBProtLig",
-    })
-    inh = inh.merge(meta, on="2P2IDB_ID", how="left")
+    Model independent, so it does not need rebuilding when embeddings change. Every scored
+    match is written; the inclusion cut-offs are applied by the analysis script, which also
+    derives the family, ligand code and pair counts rather than storing them here.
+    """
+    peptides = pd.read_parquet(DATA_DIR / "peptide_partners_processed.parquet")
+    peptides["pdb"] = peptides["id"].str.split("_").str[0]
+    peptides = peptides.merge(complexes, on="pdb", how="left").set_index("family")
 
-    families = set(inh["Family"].dropna()) & set(ppi["Family"].dropna())
-    inh = inh[inh["Family"].isin(families)].reset_index(drop=True)
+    processed = pd.read_parquet(DATA_DIR / "inhibitors_processed.parquet",
+                                columns=["id", "X", "block_lengths", "segment_ids"])
+    processed["row"] = np.arange(len(processed))
+    entry = processed["id"].str.split("_").str[0]
+    for column in ("pdb_code", "family", "chain_target"):
+        processed[column] = entry.map(inhibitors[column])
+    processed = processed[processed["family"].isin(peptides.index)].reset_index(drop=True)
+    print(f"{len(processed)} inhibitors across {processed['family'].nunique()} "
+          f"protein-peptide complexes")
 
-    rows = []
-    for i, entry in tqdm(inh.iterrows(), total=len(inh), desc="block-distance matrices"):
-        ppi_row = ppi[ppi["Family"] == entry["Family"]].iloc[0]
-        p_inh = resolve_structure_path(cif_dir, entry["PDBProtLig"])
-        p_ppi = resolve_structure_path(cif_dir, ppi_row["pdb_id"])
-        if p_inh is None or p_ppi is None:
+    transforms, rows = {}, []
+    for inhibitor in tqdm(processed.itertuples(), total=len(processed), desc="geometry"):
+        peptide = peptides.loc[inhibitor.family]
+        inhibitor_path = find_structure(cif_dir, inhibitor.pdb_code)
+        peptide_path = find_structure(cif_dir, peptide["pdb"])
+        if inhibitor_path is None or peptide_path is None:
             continue
+        key = (inhibitor.pdb_code, inhibitor.chain_target,
+               peptide["pdb"], peptide["chain_target"])
         try:
-            R, t = align_chains(str(p_inh), entry["Chain_Target"],
-                                str(p_ppi), ppi_row["Chain_Target"])
-        except Exception as e:
-            print(f"  align fail {entry['PDBProtLig']} -> {ppi_row['pdb_id']}: {e}")
+            if key not in transforms:
+                transforms[key] = superpose_target_chains(
+                    str(inhibitor_path), inhibitor.chain_target,
+                    str(peptide_path), peptide["chain_target"])
+            transform, rmsd, inliers = transforms[key]
+        except Exception as error:
+            print(f"  superposition failed for {inhibitor.pdb_code}: {error}")
             continue
 
-        ppi_coords = np.stack(ppi_row["X"])
-        ppi_bl = ppi_row["block_lengths"]
-        ppi_bc = get_block_coords(ppi_coords, ppi_bl)
-        ppi_be = np.stack(ppi_row["block_embedding"])
-
-        seg = entry["segment_ids"]
-        n_pocket = entry["block_lengths"][seg == 0].sum()
-        inh_coords = np.stack(entry["X"])[n_pocket:]
-        inh_bl = entry["block_lengths"][seg == 1]
-        if (inh_bl > 1).sum() == 0:
+        segments = np.asarray(inhibitor.segment_ids)
+        inhibitor_lengths = np.asarray(inhibitor.block_lengths)
+        peptide_lengths = np.asarray(peptide["block_lengths"])
+        ligand = (segments == 1) & (inhibitor_lengths > 1)
+        partner = peptide_lengths > 1
+        if ligand.sum() < 3 or partner.sum() < 3:
             continue
-        inh_coords = inh_coords @ R.T + t
-        inh_bc = get_block_coords(inh_coords, inh_bl)
-        inh_be = np.stack(entry["block_embedding"][seg == 1])
 
-        ed = scipy.spatial.distance.cdist(inh_be, ppi_be, metric="cosine")
-        cd = scipy.spatial.distance.cdist(inh_bc, ppi_bc)
-        ed = ed[inh_bl > 1, :][:, ppi_bl > 1]
-        cd = cd[inh_bl > 1, :][:, ppi_bl > 1]
+        pocket_atoms = inhibitor_lengths[segments == 0].sum()
+        ligand_centres = block_centres(np.stack(inhibitor.X)[pocket_atoms:],
+                                       inhibitor_lengths[segments == 1])
+        ligand_centres = transform.apply(ligand_centres)[
+            inhibitor_lengths[segments == 1] > 1]
+        partner_centres = block_centres(np.stack(peptide["X"]), peptide_lengths)[partner]
+        geometry = scipy.spatial.distance.cdist(ligand_centres, partner_centres)
 
         rows.append({
-            "ppi_pdb_id": ppi_row["pdb_id"],
-            "ppi_chain_target": ppi_row["Chain_Target"],
-            "ppi_chain_partner": ppi_row["Chain_Partner"],
-            "inhibitor_pdb_id": entry["PDBProtLig"],
-            "inhibitor_chain_target": entry["Chain_Target"],
-            "family": entry["Family"],
-            "lig_code": entry["id"].split("_")[-1],
-            "inhibitor_index": i,
-            "min_dist": float(cd.min()),
-            "block_emb_dist": ed.flatten(),
-            "block_coords_dist": cd.flatten(),
-            "shape_block_emb_dist": ed.shape,
-            "shape_block_coords_dist": cd.shape,
+            "inhibitor_row": np.int32(inhibitor.row),
+            "peptide_id": f"{peptide['pdb']}_{peptide['chain_partner']}",
+            "align_rmsd": np.float32(rmsd),
+            "block_coords_dist": geometry.ravel().astype(np.float32),
         })
 
-    out = DATA_DIR / "peptide_inhibitor_block_results.parquet"
-    pd.DataFrame(rows).to_parquet(out)
-    print(f"[block-results] wrote {out} with {len(rows)} rows")
+    out = DATA_DIR / "peptide_inhibitor_geometry.parquet"
+    pd.DataFrame(rows).to_parquet(out, index=False)
+    print(f"wrote {out.name}: {len(rows)} matches")
 
-
-# ---------- main ----------
 
 def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--cif_dir", required=True, help="Directory with 2P2IDB <PDB>.cif (or .pdb) files")
-    p.add_argument("--ckpt_dir", default="checkpoints/ATOMICA_checkpoints/pretrain",
-                   help="Pretrained ATOMICA checkpoint directory")
-    p.add_argument("--mesh_dir", default=str(DATA_DIR / "surface_mesh"),
-                   help="Cache directory for MSMS mesh + sampled points")
-    p.add_argument("--skip", nargs="*", default=[],
-                   choices=["index", "peptide", "protein", "embed", "blockdist"])
-    args = p.parse_args()
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--cif_dir", required=True,
+                        help="directory of 2P2Idb <PDB>.cif or <PDB>.pdb files")
+    parser.add_argument("--mesh_dir", default=str(DATA_DIR / "surface_mesh"),
+                        help="cache for MSMS meshes and sampled points")
+    parser.add_argument("--skip", nargs="*", default=[],
+                        choices=["index", "peptide", "protein", "geometry"])
+    args = parser.parse_args()
 
     cif_dir = Path(args.cif_dir)
-    ckpt_dir = Path(args.ckpt_dir)
-    mesh_dir = Path(args.mesh_dir)
-    assert cif_dir.is_dir(), cif_dir
+    if not cif_dir.is_dir():
+        raise SystemExit(f"--cif_dir is not a directory: {args.cif_dir}")
+
+    metadata = pd.read_csv(DATA_DIR / "metadata.csv")
+    complexes = (metadata[["family", "superfamily", "ppi_pdb", "ppi_chain_target",
+                           "ppi_chain_partner"]]
+                 .drop_duplicates("family")
+                 .rename(columns={"ppi_pdb": "pdb", "ppi_chain_target": "chain_target",
+                                  "ppi_chain_partner": "chain_partner"}))
 
     if "index" not in args.skip:
-        build_inhibitors_index(cif_dir)
+        index = metadata.copy()
+        index["pdb_path"] = index["pdb_code"].apply(
+            lambda code: str(find_structure(cif_dir, code) or ""))
+        index = index[index["pdb_path"] != ""]
+        index = index.rename(columns={"chain_target": "chain1", "chain_ligand": "chain2"})
+        index.to_csv(DATA_DIR / "inhibitors_index.csv", index=False)
+        print(f"wrote inhibitors_index.csv: {len(index)} rows. Now run:\n"
+              f"  python -m atomica.data.process_pdbs "
+              f"--data_index_file {DATA_DIR / 'inhibitors_index.csv'} "
+              f"--out_path {DATA_DIR / 'inhibitors_processed.parquet'} "
+              f"--fragmentation_method PS_300")
     if "peptide" not in args.skip:
-        build_peptide_partners(cif_dir)
+        build_peptide_partners(cif_dir, complexes)
     if "protein" not in args.skip:
-        build_protein_partner_patches(cif_dir, mesh_dir)
-    if "embed" not in args.skip:
-        process_and_embed(ckpt_dir)
-    if "blockdist" not in args.skip:
-        build_peptide_inhibitor_block_results(cif_dir)
+        build_surface_patches(cif_dir, complexes, Path(args.mesh_dir))
+    if "geometry" not in args.skip:
+        build_peptide_geometry(
+            cif_dir, metadata.drop_duplicates("entry_id").set_index("entry_id"),
+            complexes)
 
 
 if __name__ == "__main__":

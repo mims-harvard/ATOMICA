@@ -1,6 +1,6 @@
 """
 surface_sampler.py: Main API for protein surface mesh generation and point sampling
-Provides two main functions as specified in TODO.md:
+Provides two functions:
 1. get_mesh: Generate mesh from PDB/CIF file and chain ID
 2. sample_points: Sample points from mesh surface
 """
